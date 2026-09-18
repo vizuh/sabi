@@ -46,6 +46,14 @@ O pacote declara o que entrega no próprio `package.json`:
 { "commandcode": { "mods": ["./mod/sabi.ts"] } }
 ```
 
+Se você preferir não manter um checkout, o mesmo mod é publicado no npm como um único arquivo empacotado, sem dependências de runtime, com um `sabi.config.json` padrão próprio:
+
+```bash
+cmd mods add -g npm:@vizuh/sabi     # escopo de usuário — carrega em todo projeto
+```
+
+Um `sabi.config.json` no projeto (ou `~/.config/sabi/sabi.config.json`) tem precedência sobre o padrão que vem no pacote. As atualizações vêm de `cmd mods update`. O caminho B abaixo continua precisando do clone.
+
 ### Confirmar que carregou
 
 ```bash
@@ -312,6 +320,6 @@ O juiz precisa de uma chave da TypeSafe: exporte `TYPESAFE_API_KEY`, ou ponha `j
 cd /caminho/para/sabi && git pull && npm install
 ```
 
-Nada mais a fazer no caminho A (o mod é referenciado no lugar). No caminho B, reinicie o proxy.
+Nada mais a fazer no caminho A (o mod é referenciado no lugar). Para a instalação via npm (`cmd mods add -g npm:@vizuh/sabi`), atualize com `cmd mods update`, que reinstala a versão publicada mais nova. No caminho B, reinicie o proxy.
 Se algum id de modelo ou preço mudou, reconfira no upstream antes de confiar no relatório de custo —
 veja as notas de procedência em `sabi.config.json`.

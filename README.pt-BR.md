@@ -68,6 +68,12 @@ cmd mods add ./packages/adapters/command-code                  # registra o mod 
 cmd mods list                                                  # → sabi · project · from local:/…/packages/adapters/command-code
 ```
 
+Ou instale o mesmo mod sem clonar — ele é publicado como um pacote npm empacotado, sem dependências de runtime (só o mod; o caminho do proxy abaixo ainda precisa do clone):
+
+```bash
+cmd mods add -g npm:@vizuh/sabi                                # escopo de usuário; atualize depois com `cmd mods update`
+```
+
 O mod carrega na sua próxima sessão nesse projeto (a primeira sessão também pede para confiar no workspace, o que mods de projeto exigem). A partir daí o Sabi planeja cada rodada seguinte; a rodada 1 sempre roda no modelo da sessão, porque `prepareNextTurn` só dispara da segunda rodada em diante.
 
 Para verificar que está roteando, peça uma leitura de arquivo e observe o modelo mudar entre as rodadas:
@@ -130,6 +136,8 @@ Então todo id em `harness.tiers` precisa estar coberto pelo seu plano. Os padr�
 | strong | `zai-org/glm-5.3` | `claude-sonnet-5` | `claude-opus-5` |
 
 Outras opções Go-e-acima para `strong`: `moonshotai/kimi-k3`, `qwen/qwen3.8-max`, `deepseek/deepseek-v4-pro`. Edite `harness.tiers` para casar com seu plano; `minPlan` é documentação, não imposição.
+
+**Problema conhecido (2026-09-18).** Uma rodada que o mod planeja para o nível `strong` padrão (`zai-org/glm-5.3`) falha com `403 Model/provider not recognized`. O id funciona como modelo *de sessão* nas duas grafias (`GLM-5.3`), mas não quando é o mod que o fornece; nenhum id verificado para `strong` foi encontrado ainda. Repro e evidência em `docs/handoff.md`.
 
 ## Configurar
 
