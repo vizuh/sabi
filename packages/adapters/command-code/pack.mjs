@@ -44,6 +44,7 @@ for (const forbidden of ['@sabi/core', '@commandcode/harness']) {
 }
 
 copyFileSync(path.join(repoRoot, 'sabi.config.json'), path.join(outDir, 'sabi.config.json'))
+copyFileSync(path.join(repoRoot, 'LICENSE'), path.join(outDir, 'LICENSE'))
 copyFileSync(path.join(here, 'README.md'), path.join(outDir, 'README.md'))
 writeFileSync(
   path.join(outDir, 'package.json'),
@@ -53,12 +54,13 @@ writeFileSync(
       version,
       description: source.description,
       type: 'module',
+      license: source.license,
       repository: source.repository,
       homepage: source.homepage,
       keywords: source.keywords,
       publishConfig: { access: 'public' },
       commandcode: { mods: ['./mod/sabi.mjs'] },
-      files: ['mod/sabi.mjs', 'sabi.config.json', 'README.md'],
+      files: ['mod/sabi.mjs', 'sabi.config.json', 'README.md', 'LICENSE'],
     },
     null,
     2,
