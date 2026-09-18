@@ -22,6 +22,8 @@ export interface TaskRounds {
     contextTokens?: number
     repeatedFailure?: boolean
     failureStreak?: number
+    /** Host compactions observed before this round; absent when none happened. */
+    contextGeneration?: number
   }>
   /** Baseline tier for the same turn (fixed model). */
   baselineTier: string
@@ -110,7 +112,21 @@ export function runEval(config: EvalConfigInput, tasks: EvalTask[]): EvalSummary
     }
     if (boundaries.length === 0) boundaries.push(0)
 
+    let roundOrdinal = 0
+    let contextGeneration = 0
+    let boundaryApplied = task.compactedAfterRound === undefined
+    const compactedAfterRound = task.compactedAfterRound
+
     for (const at of boundaries) {
+      roundOrdinal += 1
+      if (compactedAfterRound !== undefined && !boundaryApplied && roundOrdinal > compactedAfterRound) {
+        // The host rewrote the transcript before this round: the previous failure is no longer
+        // what the model is continuing, so the streak restarts and the generation advances —
+        // the same invalidation the adapters perform when the transcript they see shrinks.
+        previousFailure = undefined
+        contextGeneration += 1
+        boundaryApplied = true
+      }
       const slice = messages.slice(0, at + 1)
       const body = { model: 'sabi-code', messages: slice, tools: undefined }
       const state = extractTrajectoryState(body)
@@ -132,6 +148,7 @@ export function runEval(config: EvalConfigInput, tasks: EvalTask[]): EvalSummary
         state.contextTokens = state.estimatedTokens
         state.contextKnown = true
       }
+      if (contextGeneration > 0) state.contextGeneration = contextGeneration
 
       const decision = decideTier(state, policy)
       rounds.push({
@@ -142,6 +159,7 @@ export function runEval(config: EvalConfigInput, tasks: EvalTask[]): EvalSummary
         contextTokens: state.contextTokens,
         repeatedFailure: state.repeatedFailure,
         failureStreak: state.failureStreak,
+        ...(contextGeneration > 0 ? { contextGeneration } : {}),
       })
       byRule[decision.rule] = (byRule[decision.rule] ?? 0) + 1
       byTier[decision.tier] = (byTier[decision.tier] ?? 0) + 1

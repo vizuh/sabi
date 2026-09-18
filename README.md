@@ -33,6 +33,8 @@ Each round is classified from the state of the trajectory — round position, to
 
 The proxy records routed rounds in `.sabi/decisions.jsonl` and summarizes them with `npm run report`. The mod records decisions as host session entries, which that report does not read. **Privacy:** default telemetry stores allowlisted evidence and hashed opaque identities; diagnostic snippets are opt-in. Keep logs local and review `telemetry` settings before enabling capture.
 
+**Measured context and host compaction.** When a client identifies its session (`x-sabi-session`), the proxy floors its context estimate with the provider's own billed total for the previous round — measured usage, not a character count — and treats a transcript that comes back below half its previous message count as a host compaction. A boundary advances a context generation, which keeps cached Jev verdicts from crossing the rewrite, and restarts the repeated-failure streak: a failure after a rewrite is one fresh failure, not a continuation of the attempt the host discarded. The host still owns compaction — Sabi rewrites no transcript on either adapter. On the mod path the same two signals come from the host's `usage` and from `state.messages` shrinking.
+
 ## Media and vision
 
 Media is a routing constraint, not a preference decided after the fact. Every tier can declare the input modalities its model accepts (`capabilities.inputModalities` on the proxy, `inputModalities` on `harness.tiers`). A round that carries an image is never sent to a tier that declares text only — it is served by the first tier in configuration order that declares the modality, and the decision records `rule: capability`. Undeclared stays unknown: a tier that declares nothing is never blocked.
@@ -147,7 +149,7 @@ The **proxy only** consults Jev (TypeSafe's System One model) on these configure
 - `failure` rounds — "is this a real problem, or an expected outcome?" A low real-problem probability vetoes the escalation (for example: a command the user explicitly asked to fail).
 - `unclassified` rounds — "how demanding is this step?" (`trivial` / `standard` / `demanding` → cheap / mid / strong) when its confidence clears the threshold.
 
-One batched TypeSafe request covers both questions using excerpts of the last instruction and tool result plus round metadata, not the full conversation. The current 6k-character state target is not a strict serialized-size guarantee for all fields. Judgments are cached, cost roughly $0.00003 each, and are **fail-open**: any error or timeout falls back to the deterministic policy. Disable with `judge.enabled: false`.
+One batched TypeSafe request covers all three questions using excerpts of the last instruction and tool result plus round metadata, not the full conversation. The third question is **shadow mode only**: it scores whether the last tool result is redundant for the next step, and the answer is recorded on the decision (`judge.evidenceRedundant`) and counted by `npm run report` — nothing is dropped or rewritten, no route changes, and it stays unverified until it has been measured on real traffic. The current 6k-character state target is not a strict serialized-size guarantee for all fields. Judgments are cached, cost roughly $0.00003 each, and are **fail-open**: any error or timeout falls back to the deterministic policy. Disable with `judge.enabled: false`.
 
 ## Verify
 
@@ -155,7 +157,8 @@ One batched TypeSafe request covers both questions using excerpts of the last in
 npm test        # core, proxy, adapter-profile and eval tests
 npm run typecheck
 npm run report  # decisions, tokens, cost, savings vs an all-strong counterfactual, judge stats,
-                # and a `discover` block: vetoes and the cost they avoided, blind spots, dead rules
+                # a `discover` block (vetoes and the cost they avoided, blind spots, dead rules),
+                # and the shadow evidence-redundancy count — measured, never applied
 ```
 
 ## Layout

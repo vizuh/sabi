@@ -1,9 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { classifyRound, extractTrajectoryState, normalizeAlias } from '../src/index.ts'
+import { applyMeasuredContext, classifyRound, extractTrajectoryState, measuredContextTokens, normalizeAlias } from '../src/index.ts'
 import type { ChatMessage } from '../src/types.ts'
 
-function body(messages: ChatMessage[], tools?: Array<{ function?: { name?: string } }>) {
+function body(messages: ChatMessage[], tools?: Array<{ function?: { name?: string; parameters?: Record<string, unknown> } }>) {
   return { model: 'sabi-code', messages, tools }
 }
 
@@ -190,4 +190,44 @@ test('an RTK-rewritten command is classified by what it does, not by the wrapper
   assert.equal(kind('echo rtk'), 'unclassified')
   assert.equal(kind('cargo test'), 'verification')
   assert.equal(kind('cat src/a.ts'), 'exploration')
+})
+
+test('tool schemas are part of the context estimate, never of measured context', () => {
+  const withTools = extractTrajectoryState(
+    body(
+      [system, { role: 'user', content: 'hello' }],
+      [{ function: { name: 'read_file', parameters: { type: 'object', properties: { path: { type: 'string' } } } } }],
+    ),
+  )
+  const withoutTools = extractTrajectoryState(body([system, { role: 'user', content: 'hello' }]))
+  assert.ok(withTools.contextChars > withoutTools.contextChars, 'schema text is context the provider charges for')
+  assert.equal(withTools.contextTokens, undefined)
+  assert.equal(withTools.contextKnown, false)
+})
+
+test('a billed total floors the estimate and marks the context measured', () => {
+  const state = extractTrajectoryState(body([system, { role: 'user', content: 'hello' }]))
+  applyMeasuredContext(state, { measuredContextTokens: 120_000, contextGeneration: 2 })
+  assert.equal(state.contextKnown, true)
+  assert.equal(state.contextTokens, 120_000)
+  assert.equal(state.contextGeneration, 2)
+
+  // The character estimate is a floor too: a smaller billed value never lowers it.
+  const bigger = extractTrajectoryState(body([system, { role: 'user', content: 'x'.repeat(40_000) }]))
+  applyMeasuredContext(bigger, { measuredContextTokens: 10 })
+  assert.equal(bigger.contextTokens, bigger.estimatedTokens)
+
+  // Nothing observed still means unknown.
+  const unknown = extractTrajectoryState(body([system, { role: 'user', content: 'hello' }]))
+  applyMeasuredContext(unknown, {})
+  assert.equal(unknown.contextTokens, undefined)
+  assert.equal(unknown.contextKnown, false)
+})
+
+test('measured context tokens come from billed usage only, and unknown usage stays unknown', () => {
+  assert.equal(measuredContextTokens({ promptTokens: 100, completionTokens: 20 }), 120)
+  assert.equal(measuredContextTokens({ promptTokens: 1, completionTokens: 2, totalTokens: 500 }), 500)
+  assert.equal(measuredContextTokens({ promptTokens: 0, completionTokens: 0 }), undefined)
+  assert.equal(measuredContextTokens({ promptTokens: Number.NaN, completionTokens: 2 }), undefined)
+  assert.equal(measuredContextTokens(undefined), undefined)
 })

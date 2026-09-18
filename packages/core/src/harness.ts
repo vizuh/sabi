@@ -16,6 +16,8 @@ export interface HarnessRound {
   lastRole: string
   contextChars: number
   contextTokens?: number
+  /** Host compactions observed before this round, when the harness can see them. */
+  contextGeneration?: number
   hasTools: boolean
   toolNames: string[]
   calls: HarnessToolCall[]
@@ -95,6 +97,7 @@ export function trajectoryFromRound(
     failureEvidence,
     repeatedFailure,
     failureStreak,
+    ...(round.contextGeneration ? { contextGeneration: round.contextGeneration } : {}),
     ...(round.inputModalities ? { inputModalities: round.inputModalities } : {}),
     ...(round.mediaCounts && Object.keys(round.mediaCounts).length
       ? { inputModalities: round.inputModalities ?? modalitiesOf(round.mediaCounts), mediaCounts: round.mediaCounts }

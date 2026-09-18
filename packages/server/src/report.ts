@@ -22,6 +22,9 @@ for (const line of readFileSync(logFile, 'utf8').split('\n')) {
 }
 
 const strong = config.models.strong ?? Object.values(config.models)[0]
+// Shadow reporting only: how often the judge called the last tool result redundant. Nothing is
+// dropped today; this number is the measurement a later context-selection step needs first.
+const EVIDENCE_REDUNDANT_THRESHOLD = 0.6
 const sessions = new Set(rows.filter(row => row.sessionKnown === true).map(row => row.sessionId))
 const unattributedRequests = rows.filter(row => row.sessionKnown !== true).length
 const byTier = new Map<string, number>()
@@ -42,6 +45,8 @@ let judgeOverridesUp = 0
 let judgeLatencyMs = 0
 let judgeLatencyCount = 0
 let judgeInputTokens = 0
+let shadowScored = 0
+let shadowRedundant = 0
 let unknownCostRows = 0
 let unknownCounterfactualRows = 0
 let unknownJudgeUsageCalls = 0
@@ -76,6 +81,10 @@ for (const row of rows) {
       const tokens = row.judge.usage?.inputTokens
       if (typeof tokens === 'number' && Number.isFinite(tokens) && tokens >= 0) judgeInputTokens += tokens
       else unknownJudgeUsageCalls += 1
+    }
+    if (typeof row.judge.evidenceRedundant === 'number') {
+      shadowScored += 1
+      if (row.judge.evidenceRedundant >= EVIDENCE_REDUNDANT_THRESHOLD) shadowRedundant += 1
     }
   }
   firedRules.add(row.rule)
@@ -181,6 +190,7 @@ if (asJson) {
           avgLatencyMs: judgeLatencyCount ? Math.round(judgeLatencyMs / judgeLatencyCount) : 0,
           inputTokens: judgeInputTokens,
           cost: judgeCost,
+          evidenceRedundant: { scored: shadowScored, redundant: shadowRedundant, threshold: EVIDENCE_REDUNDANT_THRESHOLD },
         },
       },
       null,
@@ -199,6 +209,11 @@ if (asJson) {
     console.log(
       `judge     ${judgeCalls} calls (${judgeCalls - judgeErrors} ok, ${judgeErrors} failed, ${judgeCached} cached)` +
         ` · ${judgeOverridesDown} downgrades, ${judgeOverridesUp} upgrades · avg ${avg}ms · ${judgeInputTokens} known tok · cost ${money(judgeCost)}`,
+    )
+  }
+  if (shadowScored > 0) {
+    console.log(
+      `shadow    evidence-redundant ≥ ${EVIDENCE_REDUNDANT_THRESHOLD.toFixed(2)} on ${shadowRedundant}/${shadowScored} judged rounds — recorded only, nothing dropped`,
     )
   }
   console.log('')

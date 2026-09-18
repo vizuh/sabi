@@ -22,9 +22,12 @@ let judgeOutcome: JudgeOutcome = defaultJudge
 let judgeThrows = false
 let judgeCalls = 0
 
+let lastJudgeState: Record<string, unknown> | undefined
+
 const stubJudge: JudgeClient = {
-  async ask() {
+  async ask(state) {
     judgeCalls += 1
+    lastJudgeState = state as Record<string, unknown>
     if (judgeThrows) throw new Error('typesafe unavailable')
     return { outcome: { ...judgeOutcome, model: 'jev-1.13.0', usage: { inputTokens: 400, outputTokens: 30 } }, cached: false, latencyMs: 7 }
   },
@@ -479,4 +482,75 @@ test('a provider error inside a 200 stream is recorded with the provider message
   assert.equal(record.outcome, 'error')
   assert.equal(record.stream, true)
   assert.match(String(record.error), /requires more credits/)
+})
+
+test('a billed total floors the next round of the same session and marks the context measured', async () => {
+  const before = (await readDecisions()).length
+  const headers = { 'content-type': 'application/json', 'x-sabi-session': 'measured-context-1' }
+  const first = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model: 'sabi-code', stream: false, messages: [system, user] }),
+  })
+  await first.json()
+  const firstRecord = (await waitForDecision(before + 1)).at(-1)!
+  assert.equal(firstRecord.usage?.totalTokens, 120)
+  assert.equal(firstRecord.state.contextKnown, false, 'the first request has nothing measured yet')
+
+  const second = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: 'sabi-code',
+      stream: false,
+      messages: [system, user, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'again' }],
+    }),
+  })
+  await second.json()
+  const secondRecord = (await waitForDecision(before + 2)).at(-1)!
+  assert.equal(secondRecord.state.contextKnown, true)
+  assert.equal(secondRecord.state.contextTokens, 120, 'the provider-billed total floors the estimate')
+
+  // A different session gets nothing: continuity is claimed only where it was proven.
+  const third = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-sabi-session': 'measured-context-2' },
+    body: JSON.stringify({ model: 'sabi-code', stream: false, messages: [system, user] }),
+  })
+  await third.json()
+  const thirdRecord = (await waitForDecision(before + 3)).at(-1)!
+  assert.equal(thirdRecord.state.contextKnown, false)
+})
+
+test('a transcript that comes back much smaller is a host compaction: generation advances, stale size is dropped', async () => {
+  const before = (await readDecisions()).length
+  const headers = { 'content-type': 'application/json', 'x-sabi-session': 'compaction-session-1' }
+  const failingRound = [
+    { role: 'assistant', tool_calls: [{ function: { name: 'shell_command', arguments: '{"command":"npm test"}' } }] },
+    { role: 'tool', content: 'Tests: 2 failed, 10 passed\nexit code: 1' },
+  ]
+  const longMessages = [system, user, ...failingRound, ...failingRound, ...failingRound, ...failingRound]
+  const first = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model: 'sabi-code', stream: false, messages: longMessages }),
+  })
+  await first.json()
+  const firstRecord = (await waitForDecision(before + 1)).at(-1)!
+  assert.equal(firstRecord.state.contextGeneration, undefined)
+  assert.equal(firstRecord.usage?.totalTokens, 120)
+
+  // The host rewrote everything into a summary: the next request is less than half the size.
+  const second = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model: 'sabi-code', stream: false, messages: unclassifiedConversation }),
+  })
+  await second.json()
+  const secondRecord = (await waitForDecision(before + 2)).at(-1)!
+  assert.equal(secondRecord.state.contextGeneration, 1)
+  // The measured size described the pre-compaction transcript, so it is not carried across.
+  assert.equal(secondRecord.state.contextKnown, false)
+  // Jev sees the boundary too, which is what changes the cache key across it.
+  assert.equal((lastJudgeState?.round as Record<string, unknown> | undefined)?.context_generation, 1)
 })

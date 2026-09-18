@@ -218,8 +218,37 @@ test('a difficulty override reroutes around a disabled upstream instead of hard-
   assert.equal(record.overridden, true)
 })
 
-test('the question set asks one noul and one choice question', () => {
+test('the question set batches two nouls and one choice question in a single call', () => {
   assert.equal(JUDGE_QUESTIONS.real_problem.type, 'noul')
   assert.equal(JUDGE_QUESTIONS.difficulty.type, 'choice')
+  assert.equal(JUDGE_QUESTIONS.evidence_redundant.type, 'noul')
   assert.deepEqual(Object.keys(JUDGE_QUESTIONS.difficulty.criteria).sort(), ['demanding', 'standard', 'trivial'])
+  assert.match(JUDGE_QUESTIONS.evidence_redundant.instructions, /redundant/)
+})
+
+test('a host compaction reaches the judge state so a stale verdict cannot be reused', () => {
+  const decision = route(failingBody(), base, { measuredContextTokens: 50_000, contextGeneration: 3 })
+  assert.equal(decision.state.contextKnown, true)
+  const state = buildJudgeState(failingBody(), decision, 6000) as Record<string, unknown>
+  assert.equal((state.round as Record<string, unknown>).context_generation, 3)
+  // The same conversation without a boundary carries no generation, so the two judge states
+  // hash differently and a cached verdict from before the rewrite cannot be served after it.
+  const plain = buildJudgeState(failingBody(), route(failingBody(), base), 6000) as Record<string, unknown>
+  assert.equal((plain.round as Record<string, unknown>).context_generation, undefined)
+})
+
+test('the shadow evidence answer is recorded and never changes the route', () => {
+  const decision = route(failingBody(), base)
+  const withoutShadow = applyJudge(decision, base, { realProblem: 0.9, difficulty: 'standard', difficultyConfidence: 0.9 })
+  const withShadow = applyJudge(decision, base, {
+    realProblem: 0.9,
+    difficulty: 'standard',
+    difficultyConfidence: 0.9,
+    evidenceRedundant: 0.97,
+  })
+  assert.equal(withShadow.record.evidenceRedundant, 0.97)
+  assert.equal(withoutShadow.record.evidenceRedundant, undefined)
+  assert.equal(withShadow.decision.tier, withoutShadow.decision.tier)
+  assert.equal(withShadow.decision.rule, withoutShadow.decision.rule)
+  assert.equal(withShadow.record.overridden, false)
 })

@@ -86,3 +86,9 @@ test('a veto without usable usage or price leaves the avoided cost unknown', () 
   assert.equal(out.discover.avoidedCost, null)
   assert.equal(out.discover.avoidedCostUnknownRows, 1)
 })
+
+test('report counts shadow evidence-redundancy answers without acting on them', () => {
+  const shadow = { ...row, judge: { status: 'ok', evidenceRedundant: 0.81 } }
+  const out = report([shadow, row])
+  assert.deepEqual(out.judge.evidenceRedundant, { scored: 1, redundant: 1, threshold: 0.6 })
+})

@@ -14,6 +14,13 @@ export interface EvalTask {
   note: string
   /** True when the task required any tool call that reported its own error. */
   hadFailure?: boolean
+  /**
+   * Round ordinal after which the host rewrote (compacted) the transcript. The replay keeps the
+   * linear transcript — the rewrite happens host-side — but performs the same invalidation the
+   * adapters do when the transcript they observe shrinks: the failure streak restarts and the
+   * context generation advances.
+   */
+  compactedAfterRound?: number
 }
 
 const tools = (): Array<{ function: { name: string } }> => [
@@ -129,5 +136,24 @@ export const TASK_SET: EvalTask[] = [
     outcome: 'pass',
     hadFailure: true,
     note: 'transport signal; must route to the transport tier, never escalate to strong',
+  },
+  {
+    id: 'compaction-reset',
+    name: 'same failure repeated across a host compaction',
+    instruction: 'Fix the failing test suite.',
+    messages: [
+      system,
+      { role: 'user', content: 'Fix the failing test suite.' },
+      { role: 'assistant', tool_calls: [{ function: { name: 'shell_command', arguments: '{"command":"npm test"}' } }] },
+      { role: 'tool', content: 'Tests: 1 failed, 11 passed\nexit code: 1' },
+      // The host rewrote everything above into a summary before this round. The first failure is
+      // no longer part of the attempt the model is continuing, so it must not become a streak.
+      { role: 'assistant', tool_calls: [{ function: { name: 'shell_command', arguments: '{"command":"npm test"}' } }] },
+      { role: 'tool', content: 'Tests: 1 failed, 11 passed\nexit code: 1' },
+    ],
+    compactedAfterRound: 1,
+    outcome: 'fail',
+    hadFailure: true,
+    note: 'the identical second failure is not a continuation: after a rewrite the streak restarts at 1, so the rule stays failure instead of stuck',
   },
 ]

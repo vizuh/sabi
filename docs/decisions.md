@@ -305,3 +305,32 @@ None from the correction itself. Deferring the daemon/registry proposal means He
 
 ### Revisit later?
 Genuinely good idea worth keeping, not building yet: separating update cadence by layer (runtime binary version, changes rarely; model/routing registry, could change daily; skills, versioned independently) — if Sabi ever does need a registry-fed routing manifest, that three-layer split is the right shape, not a single version number for everything. The concrete trigger for `npm publish` specifically (not the daemon) is unchanged from the earlier entry: someone other than Hugo asking to install Sabi without cloning this repo.
+
+---
+
+## [2026-09-18] Context measurement and compaction invalidation: billed usage, a generation boundary, and a shadow judge question
+
+### Decision
+- `contextTokens` means measured: the provider's billed usage for the previous round of the same session, floored at the character estimate. `applyMeasuredContext` sets `contextKnown` only from that path — a character estimate is never promoted to a measured size. The proxy keeps bounded per-session memory (identified sessions only, 512 entries) filled from tapped usage; the mod fills its ledger from the host's `usage`.
+- A transcript that comes back below half its previous message count is a host compaction: `state.contextGeneration` advances and the repeated-failure streak restarts. The generation is part of the judge request state, so the judge cache key changes across the boundary by construction.
+- A third Jev question (`evidence_redundant`) rides the existing batched request in shadow mode: read leniently, recorded as `judge.evidenceRedundant`, counted by `npm run report`, never applied to a route, threshold or transcript.
+- The offline eval gains `EvalTask.compactedAfterRound` and a `compaction-reset` task.
+
+### Why
+- The proxy declared context unknown while its estimate ignored tool schemas; the mod accumulated only tool-output length. Neither path could fire `context-pressure`, and a compaction would leave both a stale size and a stale judged verdict in place.
+- Jev does not judge consistently across sessions — the jev-compaction project measured `write_file` kept in one session and dropped in another, and its fix was code-level policy (`PROTECTED_TOOLS`), not a better prompt. Any future context-selection verdict needs the same discipline: policy-gated, measured before trusted. A shadow question is that measurement.
+- Invalidation must be structural, not incidental. The judge cache key already hashes the judge state object, so putting the generation into that object is cheaper and more reliable than adding a second key dimension in the client.
+
+### Alternatives considered
+- Inferring context size from characters and marking it known — rejected: tool schemas and framing are not tokens, and an unmeasured fit must stay unknown.
+- Carrying the measured size across a detected compaction — rejected: it describes a context the host has removed.
+- Carrying the failure streak across a rewrite — rejected: after the rewrite the earlier failure is not the attempt the model is continuing.
+- Reusing jev-compaction's mechanism (judge-driven drops and truncation) — rejected: the host owns compaction and two summarizers corrupt state; only the routing signal is borrowed, and Sabi rewrites nothing.
+- Failing the judge call on a missing shadow answer — rejected: a measurement-only question must never take the applied judgment down.
+
+### Tradeoffs
+- The boundary detector is a heuristic (half the message count, floor of 8, identified sessions only). It can miss a small compaction and can treat a reused session id as a rewrite; both are bounded — the worst case is one restarted streak and one extra cache miss.
+- The shadow question adds a few output tokens per judged call. It is unverified until it has run on real traffic.
+
+### Revisit later?
+Re-check the thresholds after one real compaction; decide whether the shadow answer predicts anything (the report counts it) before any context-selection work; note that the mod still has no judge path, so a Class A shadow answer cannot exist until the mod can call Jev at all.

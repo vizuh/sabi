@@ -65,9 +65,18 @@ export interface TrajectoryState {
   lastRole: string
   contextChars: number
   estimatedTokens: number
-  /** Full request context estimate (transcript + tool schemas + system prompt) when known, else the same as `contextChars` (unknown). */
+  /**
+   * Full request context when it is measured: the provider's billed total for the previous round
+   * of this session, floored at the character estimate. Absent means unknown — a character
+   * estimate is never promoted to a measured size.
+   */
   contextTokens?: number
   contextKnown?: boolean
+  /**
+   * How many times the host has rewritten (compacted) this session's transcript before this
+   * round. A boundary invalidates pre-rewrite judgments and restarts the failure streak.
+   */
+  contextGeneration?: number
   hasTools: boolean
   toolNames: string[]
   lastToolNames: string[]
@@ -234,6 +243,8 @@ export interface JudgeRecord {
   realProblem?: number
   difficulty?: string
   difficultyConfidence?: number
+  /** Shadow question: probability the last tool result is redundant for the next step. Recorded, never applied. */
+  evidenceRedundant?: number
   originalTier?: string
   finalTier?: string
   overridden?: boolean

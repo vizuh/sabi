@@ -8,6 +8,17 @@ PR #3 merged to `main` as `7d57ff4` from `feat/multi-harness-support`. A follow-
 
 2026-09-18
 
+## Compaction awareness — 2026-09-18
+
+Branch `feat/compaction-awareness` off `main` at `79cc981`; closes the four gaps found by reviewing [picaye/jev-compaction](https://github.com/picaye/jev-compaction) against Sabi's context handling. That project was read (README only), not cloned or run; no paid inference happened here.
+
+- **Context is measured now.** `contextTokens` = provider-billed usage for the previous round of the same session, floored at the estimate; `contextKnown` is set only then. Proxy: bounded per-session memory (identified sessions only) fed by tapped usage, plus tool-schema bytes in the estimate. Mod: the host's `usage` fills the ledger, which now recounts the whole transcript each turn instead of accumulating tool-output length.
+- **A host rewrite invalidates.** A transcript below half its previous message count ⇒ `contextGeneration` advances (it is in the judge request state, so cached verdicts cannot cross the boundary) and the failure streak restarts. The host owns compaction; Sabi rewrites nothing.
+- **Shadow judge question.** `evidence_redundant` rides the same batched Jev call, leniently validated, recorded as `judge.evidenceRedundant`, counted by `npm run report`. Nothing acts on it; unverified on real traffic.
+- **Eval fixture.** `compaction-reset` in `TASK_SET` plus `EvalTask.compactedAfterRound`.
+
+220 package tests (12 new; `npm test` in this checkout also runs 14 uncommitted setup-wizard tests and reports 234), typecheck clean, `npm run eval` 8 tasks / 10 rounds. Unmeasured: the boundary thresholds, and whether the shadow answer predicts anything — that is what the report counters are for.
+
 ## Multi-harness continuation — 2026-09-18
 
 - User authorized all implementation phases, incremental pushes, PR and merge to main after review. Do not wait for every client before delivering tested checkpoints.

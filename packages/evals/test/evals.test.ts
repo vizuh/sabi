@@ -114,3 +114,14 @@ test('unknown pricing stays unknown instead of appearing free', () => {
   assert.equal(summary.baseline.cost, null)
   assert.equal(summary.sabi.savingsPct, null)
 })
+
+test('a compaction boundary restarts the failure streak instead of reporting stuck', () => {
+  const summary = runEval(config, TASK_SET)
+  const task = summary.tasks.find((t) => t.taskId === 'compaction-reset')
+  assert.ok(task)
+  const last = task.rounds[task.rounds.length - 1]
+  assert.equal(last?.rule, 'failure')
+  assert.notEqual(last?.repeatedFailure, true)
+  assert.equal(last?.failureStreak, 1)
+  assert.equal(last?.contextGeneration, 1)
+})
