@@ -1,12 +1,57 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { SabiConfig } from './types.ts'
 
-export const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
+const CONFIG_FILE = 'sabi.config.json'
 
-export function defaultConfigPath(): string {
-  return process.env.SABI_CONFIG ?? path.join(REPO_ROOT, 'sabi.config.json')
+/** `packages/core` in the repo, or the package root when installed under node_modules. */
+export const PACKAGE_ROOT = fileURLToPath(new URL('../', import.meta.url))
+
+export interface ConfigSearchOptions {
+  cwd?: string
+  packageRoot?: string
+  env?: NodeJS.ProcessEnv
+}
+
+function userConfigPath(env: NodeJS.ProcessEnv): string {
+  const base = env.XDG_CONFIG_HOME?.trim() || path.join(os.homedir(), '.config')
+  return path.join(base, 'sabi', CONFIG_FILE)
+}
+
+function nearestConfigAbove(start: string): string | undefined {
+  let dir = path.resolve(start)
+  for (;;) {
+    const candidate = path.join(dir, CONFIG_FILE)
+    if (existsSync(candidate)) return candidate
+    const parent = path.dirname(dir)
+    if (parent === dir) return undefined
+    dir = parent
+  }
+}
+
+/**
+ * Every path Sabi reads, in order of precedence: `$SABI_CONFIG` (alone, when set), the
+ * working directory, the user config dir, then the nearest config above the installed
+ * package — which is how a clone finds the `sabi.config.json` it shipped with.
+ */
+export function configSearchPaths(options: ConfigSearchOptions = {}): string[] {
+  const env = options.env ?? process.env
+  const explicit = env.SABI_CONFIG?.trim()
+  if (explicit) return [explicit]
+  const candidates = [
+    path.join(options.cwd ?? process.cwd(), CONFIG_FILE),
+    userConfigPath(env),
+  ]
+  const above = nearestConfigAbove(options.packageRoot ?? PACKAGE_ROOT)
+  if (above) candidates.push(above)
+  return candidates
+}
+
+export function defaultConfigPath(options: ConfigSearchOptions = {}): string {
+  const candidates = configSearchPaths(options)
+  return candidates.find((candidate) => existsSync(candidate)) ?? (candidates[0] as string)
 }
 
 export function loadConfig(configPath = defaultConfigPath()): SabiConfig {
@@ -14,7 +59,12 @@ export function loadConfig(configPath = defaultConfigPath()): SabiConfig {
   try {
     text = readFileSync(configPath, 'utf8')
   } catch {
-    throw new Error(`Sabi config not found at ${configPath} (set SABI_CONFIG to override)`)
+    const searched = configSearchPaths()
+    const hint =
+      searched.length > 1
+        ? `searched: ${searched.join(', ')} — set SABI_CONFIG to point at one`
+        : 'set SABI_CONFIG to point at one'
+    throw new Error(`Sabi config not found at ${configPath} (${hint})`)
   }
   let parsed: unknown
   try {

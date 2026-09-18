@@ -6,6 +6,9 @@
   "exports": {
     ".": "./src/connect.ts"
   },
+  "commandcode": {
+    "mods": ["./mod/sabi.ts"]
+  },
   "dependencies": {
     "@sabi/core": "*"
   }

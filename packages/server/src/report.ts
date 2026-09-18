@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { defaultLogPath, estimateCost, loadConfig, type DecisionRecord } from '@sabi/core'
 
 const config = loadConfig()
-const logFile = process.env.SABI_LOG ?? defaultLogPath()
+const logFile = defaultLogPath()
 const asJson = process.argv.includes('--json')
 
 if (!existsSync(logFile)) {

@@ -1,12 +1,12 @@
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
-import { REPO_ROOT } from './config.ts'
 import { textOf } from './state.ts'
 import type { ChatRequestBody, CostBreakdown, CostRates, DecisionRecord, UsageTotals } from './types.ts'
 
+/** Decisions land beside the work, not beside the installation: `./.sabi/decisions.jsonl`. */
 export function defaultLogPath(): string {
-  return process.env.SABI_LOG ?? path.join(REPO_ROOT, '.sabi', 'decisions.jsonl')
+  return process.env.SABI_LOG?.trim() || path.join(process.cwd(), '.sabi', 'decisions.jsonl')
 }
 
 export function appendDecision(record: DecisionRecord, logFile = defaultLogPath()): void {

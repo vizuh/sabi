@@ -23,3 +23,13 @@ Added `packages/core/src/judge.ts` — bounded judge state (≤6k chars: last in
 Validation: 41 tests pass (state, policy, judge application, TypeSafe client against mocked responses, proxy e2e with a stubbed Jev) and typecheck is clean. Live TypeSafe calls confirmed the fix for the previously observed false escalation — a user-requested failing command now routes to cheap (real-problem 0.04, difficulty trivial) instead of Sonnet, while genuine failing tests still escalate (real-problem 0.95) — verified both by direct proxy calls and by a real Command Code headless session (`cmd -p ... --model sabi/sabi-code`). Judge latency 0.3–0.8s, ~650 input tokens (~$0.00003) per judged round; `report` shows 1 downgrade from 2 judged rounds in this sample (not a benchmark).
 
 TypeSafe price ($0.042/Mtok input, output free) taken from the live docs on 2026-09-18 and recorded in `sabi.config.json`. No publication, no deployment, no harness modifications.
+
+## [2026-09-18] change | Class-A adapter: Command Code mod over the shared core
+
+Added the in-process adapter. `packages/core/src/harness.ts` (+7 tests) maps harness signals to `TrajectoryState` and plans a round: `trajectoryFromRound` reuses the existing `classifyRound`/`detectFailure`, but a tool's own `isError` is now authoritative and output text alone can never escalate a round — which removes the false-escalation class the proxy suffers from. `packages/adapters/command-code/mod/sabi.ts` registers `onTurnStart`/`afterToolCall`/`prepareNextTurn`/`onTurnEnd`, returns `{model, effort}` per round, keeps durable counters in `state.modState['sabi']`, logs one entry per round through `ctx.session.appendCustomEntry`, and never rewrites what the model sees.
+
+`packages/adapters/command-code/types/commandcode-harness.d.ts` is a minimal ambient shim for `@commandcode/harness` (not published to npm), covering only the surface used, so `npm run typecheck` stays honest. `prepareNextTurn` verified present in the shipped `cli.mjs` before relying on it.
+
+`sabi.config.json` gains `harness.tiers` — Command Code catalog ids verified 2026-09-18 against `cmd --list-models` and the bundled `models.md`: cheap `deepseek/deepseek-v4-flash`, mid `claude-sonnet-5` (Pro+), strong `claude-opus-5` (Max), all at effort `high` so the first comparison isolates the model axis. The OpenRouter `models` tiers are untouched and remain the class-B path.
+
+52 tests pass, typecheck clean. Not yet loaded into a live harness session (`npm run mod`).

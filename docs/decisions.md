@@ -141,3 +141,26 @@ The heuristics are cheap and mostly right; semantics are needed exactly where th
 
 ### Revisit later?
 After real sessions: tune thresholds from observed veto/confirm precision, then consider judgments for verification intent and repeated-failure (stuck-loop) detection.
+
+---
+
+## [2026-09-18] Two adapter classes: in-process mod (plan models) vs BYOK proxy
+
+### Decision
+One core, two transport classes. Class A is an in-process Command Code mod (`packages/adapters/command-code/mod/sabi.ts`) that routes with the documented `prepareNextTurn` hook — `{model, effort}` per round — and takes its signals from `afterToolCall.isError` and `onTurnEnd.usage`. Class B is the existing local OpenAI-compatible proxy, for harnesses that accept only a `baseURL`. Class-A tier→model mapping lives in `sabi.config.json` under `harness.tiers` (Command Code catalog ids, with `minPlan`); the OpenRouter `models` tiers stay as the class-B path.
+
+### Why
+Command Code's catalog models are reachable only from inside the harness: the documented BYOK surface is inbound-only (external endpoints into Command Code), and local-only mode exists specifically to stop a model id falling through to the Command Code transport. An external proxy therefore cannot route the subscription catalog under any configuration. The mod also receives ground-truth signals — the harness knows whether a tool call failed — where the proxy must infer failure from output text, and it is the only surface that can set reasoning effort, which the proxy cannot express at all.
+
+### Alternatives considered
+- Replace the proxy with the mod — rejected; harness-agnostic coverage still needs a wire-level path for harnesses with no in-process seam.
+- Reverse-engineer a Command Code endpoint for the proxy — rejected; undocumented and contrary to the documented contract.
+- Plan the first round too, via `cmd.setModel` in `onSessionStart` — rejected for now; it would silently override a model the user picked with `/model`.
+
+### Tradeoffs
+- Two transports to maintain, with different expressive ceilings (model + effort in-process, model name only on the wire).
+- Signal fidelity differs by class, so routing quality is not comparable across classes; the eval harness must be per-class.
+- The mod cannot plan the first round of a run — `prepareNextTurn` fires only on continuing rounds, so round 1 is served by the session model.
+
+### Revisit later?
+At the second adapter (Prime Agent / OpenCode): read the installed runtime first to decide which class it gets.
