@@ -20,7 +20,7 @@ active — MVP testable on Command Code (deterministic policy v0)
 
 1. Start Sabi (`npm start`, needs `OPENROUTER_API_KEY`) before using `sabi/sabi-code` — it is not running as a service.
 2. Run a real session and read `npm run report`; validate escalation precision and savings on real work, not toy rounds.
-3. Improve signals: verification detection from command intent plus output, escalation damping (avoid repeating strong on an unchanged failure), context-pressure rule (prefer a big-window model near limits), uncertainty heuristics.
+3. Improve signals: verification detection from command intent plus output, escalation damping (avoid repeating strong on an unchanged failure), an "expected failure" guard — observed live: `node -e 'process.exit(3)'` requested by the user escalated a trivial round to Sonnet at 34.6k prompt tokens (~$0.069); context size dominates cost, so escalation is only cheap when the context is small — context-pressure rule (prefer a big-window model near limits), uncertainty heuristics.
 4. Add `judges/jev` — a bounded semantic judgment layer (TypeSafe candidate) for rounds the heuristics cannot classify.
 5. Economics inputs: quota/rate-limit awareness, and refresh of drifting provider prices.
 6. Evaluation harness (`evals`) with fixed task sets; A/B `sabi-code` against `sabi-strong` using the baseline aliases.
