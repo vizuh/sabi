@@ -25,6 +25,7 @@ const policy = {
   failure: 'strong',
   stuck: 'mid',
   'context-pressure': 'mid',
+  transport: 'mid',
   'first-turn': 'mid',
   verification: 'mid',
   implementation: 'mid',
@@ -99,4 +100,16 @@ test('context pressure routes to the context-pressure tier above failure', () =>
 test('an unknown context window never triggers context pressure', () => {
   const decision = decideTier(state({ contextTokens: 90_000, contextWindow: undefined }), policy)
   assert.notEqual(decision.rule, 'context-pressure')
+})
+
+test('a transport failure routes to the transport tier, not failure/strong', () => {
+  const decision = decideTier(state({ failure: 'transport', failureEvidence: ['rate-limited'] }), policy)
+  assert.equal(decision.rule, 'transport')
+  assert.equal(decision.tier, 'mid')
+})
+
+test('a hard failure still escalates to strong (transport does not swallow it)', () => {
+  const decision = decideTier(state({ failure: 'hard', failureEvidence: ['nonzero-exit'] }), policy)
+  assert.equal(decision.rule, 'failure')
+  assert.equal(decision.tier, 'strong')
 })

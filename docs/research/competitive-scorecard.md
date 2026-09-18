@@ -58,6 +58,9 @@ whole tasks. Those projects were not refreshed in this four-README follow-up.
 These are engineering choices, not established unique inventions or measured superiority.
 A synthetic alias, cheap/mid/strong tiers and an optional classifier alone are not a moat.
 
+Source-level follow-up: [router learnings](router-learnings.md) records mechanisms
+to reuse without copying the surrounding frameworks.
+
 ## Next evidence, not more features
 
 1. Finish and review correctness/privacy work; stabilize decision attribution, eligible

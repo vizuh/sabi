@@ -13,6 +13,7 @@ let sabi: SabiServer
 let sabiPort = 0
 let logFile = ''
 let mockBodies: Array<Record<string, unknown>> = []
+let mock429 = false
 
 const defaultJudge: JudgeOutcome = { realProblem: 0.9, difficulty: 'standard', difficultyConfidence: 0.9 }
 let judgeOutcome: JudgeOutcome = defaultJudge
@@ -45,6 +46,11 @@ function startMockUpstream(): Promise<{ server: Server; port: number }> {
     req.on('end', () => {
       const body = JSON.parse(raw) as Record<string, unknown>
       mockBodies.push(body)
+      if (mock429) {
+        res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '1' })
+        res.end(JSON.stringify({ error: { message: 'rate limit exceeded' } }))
+        return
+      }
       const model = String(body.model ?? 'mock-model')
       if (body.stream === true) {
         res.writeHead(200, { 'content-type': 'text/event-stream' })
@@ -339,4 +345,15 @@ test('decision records never embed secret-like markers (canary)', async () => {
   const serialized = JSON.stringify(rows)
   assert.ok(!serialized.includes('sk-live-ABCDEF1234567890abcdef'))
   assert.ok(!serialized.includes('use the key'))
+})
+
+test('an upstream 429 is recorded as a transport outcome, distinct from a task error', async () => {
+  mock429 = true
+  const response = await postChat({ model: 'sabi-code', stream: false, messages: [system, user] })
+  assert.equal(response.status, 429)
+  const rows = await readDecisions()
+  const record = rows[rows.length - 1]
+  assert.equal(record.outcome, 'transport')
+  assert.equal(record.transport, 429)
+  mock429 = false
 })

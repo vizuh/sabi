@@ -50,7 +50,15 @@ export function trajectoryFromRound(
 
   // A tool that reports its own failure is ground truth. Text alone never escalates a round,
   // because tool output includes file contents: prose that mentions an error is not an error.
-  const failure: FailureLevel = failed ? 'hard' : detected.level === 'soft' ? 'soft' : 'none'
+  // A transport signal (429/rate-limit/timeout) is not a task failure — retry, don't escalate.
+  const failure: FailureLevel =
+    failed
+      ? detected.level === 'transport'
+        ? 'transport'
+        : 'hard'
+      : detected.level === 'soft'
+        ? 'soft'
+        : 'none'
   const failureEvidence = failed
     ? detected.evidence.length > 0
       ? detected.evidence

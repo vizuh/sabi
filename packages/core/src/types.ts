@@ -1,4 +1,4 @@
-export type FailureLevel = 'none' | 'soft' | 'hard'
+export type FailureLevel = 'none' | 'soft' | 'hard' | 'transport'
 
 export type RoundKind = 'first-turn' | 'exploration' | 'implementation' | 'verification' | 'unclassified'
 
@@ -26,6 +26,9 @@ export type EvidenceCode =
   | 'soft-timeout'
   | 'tool-error'
   | 'permission-denial'
+  | 'rate-limited'
+  | 'quota-exceeded'
+  | 'timeout'
 
 export interface ChatToolCall {
   id?: string
@@ -208,6 +211,8 @@ export interface DecisionRecord {
   cost?: CostBreakdown
   latencyMs?: number
   ttftMs?: number
-  outcome: 'ok' | 'error' | 'aborted'
+  outcome: 'ok' | 'error' | 'aborted' | 'transport'
   error?: string
+  /** HTTP status of a transport/rate-limit failure from the upstream, when it was recorded that way. */
+  transport?: number
 }

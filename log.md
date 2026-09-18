@@ -93,3 +93,23 @@ Added `docs/research/competitive-scorecard.md` and linked it from the handoff. R
 Compared the five-part positioning with inspected source: native routing and proxy aliases exist; broader trajectory logic is partial/in progress; learned outcome profiles and live quota scheduling were not found. Local and remote main HEAD were both `575c34cb5744a291b2c72595cfa187e90c457155`; the working tree contained additional uncommitted research and implementation work, not delivered through GitHub. Prior live-smoke claims remain attributed to the implementation handoff.
 
 Validation: pinned README contents and references checked; local Markdown links and whitespace checked. No competitor code cloned/run, benchmarks reproduced, tests/builds or paid evaluation calls performed. Docs only; no source/config changes, issue posts, commits, pushes or deployments by this review.
+
+## [2026-09-18] research | Router source learnings and small Sabi mechanisms
+
+Added `docs/research/router-learnings.md` and linked it from the handoff and competitive scorecard. Inspected selected source and root licenses at the four existing pinned competitor commits through GitHub read APIs. Separated configured model choices, evidence gates, prompt-driven delegation, finite fallback plans, outcome-memory selection and offline oracle labels. Recorded pitfalls: blanket 4xx fallback, hardcoded confidence, missing-test scores, unknown cost treated as zero, and token-efficiency metrics presented without dollar accounting.
+
+Recommended small mechanisms inside the existing pure planner and thin adapters, not another router framework or task-execution loop. Deferred copied presets/weights, automatic exploration and training. Acceptance fixtures are proposed only; the prior implementation handoff remains the starting point for checking what Sabi already has.
+
+Validation: parent checked source spans for the core findings; local links, source-reference ranges and whitespace checked. No upstream code execution, installs, live inference, benchmark runs, project tests/builds, source/config changes, issue posts, commits, pushes or deployments by this review. The working branch is checked separately; no claim that earlier work remains uncommitted.
+
+## [2026-09-18] change | Offline evals + retry-vs-escalation (transport) from router learnings
+
+Acted on the competitive scorecard's "Next evidence, not more features" and the router learnings' "choose one remaining invariant, add one synthetic failing fixture, change the existing pure planner."
+
+**Offline eval harness** (`packages/evals`, no new runtime deps, no paid calls): replays a frozen task set through the deterministic router at tool-result boundaries, comparing Sabi's routed cost against a fixed eligible baseline tier. Reports task pass/fail/blocked, routing by rule and tier, cost/savings, and two quality gates — passed tasks never above baseline, failed tasks escalated to strong. `npm run eval`.
+
+First honest finding: on the current task set the deterministic policy over-escalates the expected-failure task to strong (no Jev in the replay), so Sabi costs ~4x the all-mid baseline (−283% offline repricing). That is the measured reason Jev exists in the live proxy and the next fixed-policy comparison step.
+
+**Retry-vs-escalation (router-learnings #7 + "a 429 is not classified as a reasoning failure").** Added `transport` as a distinct `FailureLevel` with `rate-limited`/`quota-exceeded`/`timeout` evidence codes. `state.ts` detects transport signals before soft patterns; `trajectoryFromRound` downgrades a tool-reported error to `transport` when the text is purely transport; `policy.ts` gains a `transport` rule (default `mid`) that retries on the same tier instead of escalating to strong; the server records upstream 429/5xx as `outcome: 'transport'` with the status; `report.ts` counts transports separately from task errors. The mod's `isError` path routes a rate-limited tool result to the transport tier (`mid`), never `strong`.
+
+90 tests pass (was 83; +7 from evals and transport), typecheck clean. Not yet committed or pushed.

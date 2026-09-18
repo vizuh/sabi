@@ -7,9 +7,10 @@
   "scripts": {
     "start": "node packages/server/src/index.ts",
     "dev": "node --watch packages/server/src/index.ts",
-    "test": "node --test \"packages/core/test/*.test.ts\" \"packages/server/test/*.test.ts\" \"packages/adapters/*/test/*.test.ts\"",
+    "test": "node --test \"packages/core/test/*.test.ts\" \"packages/server/test/*.test.ts\" \"packages/adapters/*/test/*.test.ts\" \"packages/evals/test/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "report": "node packages/server/src/report.ts",
+    "eval": "node packages/evals/src/run.ts",
     "connect:command-code": "node packages/adapters/command-code/src/connect.ts",
     "mod": "cmd --mod ./packages/adapters/command-code/mod/sabi.ts"
   },

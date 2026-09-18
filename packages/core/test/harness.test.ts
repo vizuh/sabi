@@ -4,6 +4,9 @@ import { planRound, trajectoryFromRound, type HarnessRound } from '../src/harnes
 
 const policy = {
   failure: 'strong',
+  stuck: 'mid',
+  'context-pressure': 'mid',
+  transport: 'mid',
   'first-turn': 'mid',
   verification: 'mid',
   implementation: 'mid',
@@ -143,7 +146,8 @@ test('a second identical hard failure is marked repeated and routes to the stuck
   )
   assert.equal(second.repeatedFailure, true)
   assert.equal(second.failureStreak, 2)
-  assert.equal(planRound(second, policy, tiers)?.rule, 'failure')
+  // A repeated identical hard failure routes to the stuck tier, not another escalation.
+  assert.equal(planRound(second, policy, tiers)?.rule, 'stuck')
 })
 
 test('evidence is allowlisted codes, never raw output excerpts', () => {
@@ -161,4 +165,23 @@ test('evidence is allowlisted codes, never raw output excerpts', () => {
   )
   assert.equal(state.failure, 'none')
   assert.ok(state.failureEvidence.every((code) => !code.includes('sk-live') && !code.includes('api_key')))
+})
+
+test('a tool-reported rate limit routes to transport, not strong', () => {
+  const state = trajectoryFromRound(
+    round({
+      calls: [
+        {
+          name: 'shell_command',
+          args: '{"command":"curl api"}',
+          failed: true,
+          output: 'HTTP 429 too many requests: rate limit exceeded',
+        },
+      ],
+    }),
+  )
+  assert.equal(state.failure, 'transport')
+  const plan = planRound(state, policy, tiers)
+  assert.equal(plan?.rule, 'transport')
+  assert.equal(plan?.tier, 'mid')
 })

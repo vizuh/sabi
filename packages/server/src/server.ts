@@ -288,7 +288,11 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       res.writeHead(upstreamResponse.status, { 'content-type': 'application/json; charset=utf-8' })
       res.end(text || JSON.stringify({ error: { message: `upstream error ${upstreamResponse.status}` } }))
     }
-    finish({ outcome: 'error', error: sanitizeError(text) })
+    // A 429/5xx from the provider is a transport error (rate limit / overload), not proof the
+    // task is hard. Record it distinctly so reports can separate transport from task failure.
+    const status = upstreamResponse.status
+    const transport = status === 429 || (status >= 500 && status < 600)
+    finish({ outcome: transport ? 'transport' : 'error', error: sanitizeError(text), transport: status })
     return
   }
 

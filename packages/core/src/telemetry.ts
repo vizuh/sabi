@@ -24,6 +24,9 @@ const ALLOWLIST: ReadonlySet<string> = new Set<EvidenceCode>([
   'soft-timeout',
   'tool-error',
   'permission-denial',
+  'rate-limited',
+  'quota-exceeded',
+  'timeout',
 ])
 
 /** Codes can be full exact labels or a string in `code: detail` form; only the code is kept. */

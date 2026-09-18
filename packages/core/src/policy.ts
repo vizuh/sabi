@@ -4,6 +4,7 @@ export const POLICY_ORDER = [
   'stuck',
   'failure',
   'context-pressure',
+  'transport',
   'first-turn',
   'verification',
   'implementation',
@@ -18,6 +19,8 @@ const REASONS: Record<PolicyCondition, (state: TrajectoryState) => string> = {
   stuck: (state) => `repeated failure (streak ${state.failureStreak ?? 2}); investigate instead of escalating more`,
   'context-pressure': (state) =>
     `context ${state.contextTokens ?? state.estimatedTokens} tokens vs window ${state.contextWindow ?? 'unknown'}; prefer a big-window model`,
+  transport: (state) =>
+    `transport error (${state.failureEvidence[0] ?? 'rate-limited'}), not a reasoning failure — retry, do not escalate`,
   'first-turn': (state) =>
     state.assistantTurns === 0 ? 'new session, no prior turns' : 'new user instruction',
   verification: () => 'verification round (tests/build/check)',
@@ -34,6 +37,8 @@ export function matches(condition: PolicyCondition, state: TrajectoryState): boo
       return state.repeatedFailure === true
     case 'context-pressure':
       return state.contextTokens !== undefined && state.contextWindow !== undefined && state.contextTokens > 0.9 * state.contextWindow
+    case 'transport':
+      return state.failure === 'transport'
     case 'first-turn':
       return state.roundKind === 'first-turn'
     case 'verification':

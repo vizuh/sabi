@@ -80,6 +80,29 @@ labels/cost fields are present and correct; proxy e2e still passes.
 
 ## Validation
 
-`npm test` → 76 pass; `npm run typecheck` → clean. Docs updated (`log.md`,
+`npm test` → 90 pass; `npm run typecheck` → clean. Docs updated (`log.md`,
 `docs/decisions.md`, `docs/handoff.md`). Nothing committed, pushed or deployed; the
 still-running research loop can confirm against the working tree.
+
+## 2026-09-18 follow-up — evals + retry-vs-escalation (from router-learnings)
+
+Acting on the competitive scorecard's "Next evidence, not more features" and the router
+learnings' "choose one remaining invariant, add one synthetic failing fixture":
+
+- **Evals harness (`packages/evals`, no runtime deps, no paid calls).** Replays a frozen
+  task set through `decideTier` at tool-result boundaries vs a fixed baseline tier;
+  reports task pass/fail/blocked, routing by rule/tier, cost, savings, and quality gates.
+  `npm run eval`. First measured finding: the deterministic policy over-escalates the
+  expected-failure task without Jev (≈4x all-mid cost) — the honest reason the live path
+  keeps the judge.
+- **Transport vs task failure (router-learnings #7).** New `transport` `FailureLevel` with
+  `rate-limited`/`quota-exceeded`/`timeout` codes; `trajectoryFromRound` downgrades a
+  tool-reported error to transport when the text is purely transport; `policy.ts` adds a
+  `transport` rule (default `mid`) so a 429 retries on the same tier, never escalating;
+  the server records upstream 429/5xx as `outcome: 'transport'` and `report.ts` counts
+  transports separately.
+
+Acceptance fixtures for both live in the existing `node:test` trees (core state/policy,
+harness, mod, proxy, evals). The research loop can confirm against the working tree; the
+"not done" list above still holds (context/tool transformation and Jev-for-stuck remain
+gated behind measured benefit).

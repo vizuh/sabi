@@ -277,3 +277,21 @@ test('an edit round plans the mid tier', async () => {
   const next = await h.hooks.prepareNextTurn!({ state, turnNumber: 1 }, h.ctx)
   assert.deepEqual(next, { model: 'gpt-5.6-luna', effort: 'high' })
 })
+
+test('a rate-limited tool result routes to the transport tier, not strong', async () => {
+  const h = loadMod()
+  const state = await round(h, 1, { modState: {} })
+  await h.hooks.afterToolCall!(
+    {
+      toolCallId: 't1',
+      toolName: 'shell_command',
+      input: { command: 'curl api' },
+      result: 'HTTP 429 too many requests: rate limit exceeded',
+      isError: true,
+      state,
+    },
+    h.ctx,
+  )
+  const next = await h.hooks.prepareNextTurn!({ state, turnNumber: 1 }, h.ctx)
+  assert.deepEqual(next, { model: 'gpt-5.6-luna', effort: 'high' })
+})

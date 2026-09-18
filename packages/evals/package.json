@@ -1,0 +1,15 @@
+{
+  "name": "@sabi/evals",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "run": "node ./src/run.ts"
+  },
+  "dependencies": {
+    "@sabi/core": "*"
+  }
+}

@@ -32,6 +32,7 @@ let cachedTokens = 0
 let cost = 0
 let counterfactual = 0
 let errors = 0
+let transports = 0
 let judgeCalls = 0
 let judgeErrors = 0
 let judgeCached = 0
@@ -46,6 +47,7 @@ for (const row of rows) {
   byRule.set(row.rule, (byRule.get(row.rule) ?? 0) + 1)
   byModel.set(row.upstreamModel, (byModel.get(row.upstreamModel) ?? 0) + 1)
   if (row.outcome !== 'ok') errors += 1
+  if (row.outcome === 'transport') transports += 1
   if (row.judge) {
     judgeCalls += 1
     if (row.judge.status !== 'ok') judgeErrors += 1
@@ -88,6 +90,7 @@ if (asJson) {
         decisions: rows.length,
         sessions: sessions.size,
         errors,
+        transports,
         byTier: Object.fromEntries(byTier),
         byRule: Object.fromEntries(byRule),
         byModel: Object.fromEntries(byModel),
@@ -117,7 +120,7 @@ if (asJson) {
   )
 } else {
   console.log(`Sabi report — ${logFile}`)
-  console.log(`decisions ${rows.length} · sessions ${sessions.size} · errors ${errors}`)
+  console.log(`decisions ${rows.length} · sessions ${sessions.size} · errors ${errors} · transport ${transports}`)
   console.log('')
   console.log(`by tier   ${formatMap(byTier)}`)
   console.log(`by rule   ${formatMap(byRule)}`)

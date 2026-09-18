@@ -105,6 +105,19 @@ test('unknown shell command stays unclassified', () => {
   assert.equal(state.roundKind, 'unclassified')
 })
 
+test('a rate limit in tool output is transport, not a hard failure', () => {
+  const state = extractTrajectoryState(
+    body([
+      system,
+      { role: 'user', content: 'continue' },
+      { role: 'assistant', tool_calls: [{ function: { name: 'shell_command', arguments: '{"command":"curl api"}' } }] },
+      { role: 'tool', content: 'HTTP 429 too many requests: rate limit exceeded' },
+    ]),
+  )
+  assert.equal(state.failure, 'transport')
+  assert.ok(state.failureEvidence.some((code) => code === 'rate-limited'))
+})
+
 test('trajectory metrics are counted', () => {
   const state = extractTrajectoryState(
     body(

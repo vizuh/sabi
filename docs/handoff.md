@@ -2,7 +2,7 @@
 
 ## Current status
 
-usable by others — clone + `cmd mods add` installs the class-A mod; class A verified live in a harness; research backlog implemented (content-safe telemetry, repeated-failure + context-pressure rules, round attribution); 76 tests, typecheck clean
+usable by others — clone + `cmd mods add` installs the class-A mod; research backlog implemented (content-safe telemetry, stuck/context rules, attribution, transport-vs-task); offline evals harness (`npm run eval`); 90 tests, typecheck clean
 
 ## Last meaningful update
 
@@ -16,10 +16,15 @@ usable by others — clone + `cmd mods add` installs the class-A mod; class A ve
 - **Distribution (this session).** The mod is now installable: `packages/adapters/command-code/package.json` declares `{"commandcode": {"mods": ["./mod/sabi.ts"]}}`, and `cmd mods add ./packages/adapters/command-code` registers it in project scope. `loadConfig()` gained a discovery order — `$SABI_CONFIG` (alone when set) → `<cwd>` → `~/.config/sabi/` → nearest config above the installed package — replacing the repo-relative path that only worked inside this checkout; `REPO_ROOT` is gone and decisions now go to `<cwd>/.sabi/decisions.jsonl`. Bilingual docs: `README.md` (rewritten, both adapters), `README.pt-BR.md`, `docs/install.md`, `docs/install.pt-BR.md`.
 - **Class A verified live** (first time it ran in a harness). `cmd -p … --mod …/mod/sabi.ts` resolved the config from a foreign working directory and switched models mid-run: turn 1 on the session model `zai-org/GLM-5.3`, turn 2 planned `exploration → cheap` and served by `deepseek/deepseek-v4-flash`, both decisions persisted as session entries, no `mod_error`.
 - **Tier defaults are now plan-safe.** `harness.tiers` uses ids available from the Go plan up — cheap `deepseek/deepseek-v4-flash`, mid `gpt-5.6-luna`, strong `zai-org/glm-5.3`. The previous defaults (`claude-sonnet-5`, `claude-opus-5`) answer `403 MODEL_NOT_IN_PLAN` on this account, so every mid and strong round would have failed. See `docs/install.md` for the Pro/Max table.
-- **Research backlog implemented (this session).** Content-safe telemetry (`state.ts` emits allowlisted evidence codes; `telemetry.ts` gates reasons/errors; `sabi.config.json` sets `telemetry.allowlistOnly: true`), repeated-failure and context-pressure policy rules (`stuck` first in `POLICY_ORDER`, `context-pressure` only when the window is known), per-turn round attribution in the mod (stale `servedBy`/`lastUsage` no longer re-serialize), and report accounting fixes (cached judge usage counted once, judge cost subtracted, counterfactual labeled a rate-only estimate). `harness.tiers` and `telemetry` config are validated. Canary tests prove no secret-like markers reach logs/reports/`/decisions`. 76 tests pass, typecheck clean.
+- **Research backlog implemented (this session).** Content-safe telemetry (`state.ts` emits allowlisted evidence codes; `telemetry.ts` gates reasons/errors; `sabi.config.json` sets `telemetry.allowlistOnly: true`), repeated-failure and context-pressure policy rules (`stuck` first in `POLICY_ORDER`, `context-pressure` only when the window is known), per-turn round attribution in the mod (stale `servedBy`/`lastUsage` no longer re-serialize), and report accounting fixes (cached judge usage counted once, judge cost subtracted, counterfactual labeled a rate-only estimate). `harness.tiers` and `telemetry` config are validated. Canary tests prove no secret-like markers reach logs/reports/`/decisions`.
+- **Retry-vs-escalation (from router-learnings).** New `transport` `FailureLevel` (`rate-limited`/`quota-exceeded`/`timeout` evidence codes), a `transport` policy rule (default `mid`) so a 429/rate-limit/timeout retries on the same tier instead of escalating to strong, and the server records upstream 429/5xx as `outcome: 'transport'` with the status. The mod's `isError` path routes a rate-limited tool to mid, never strong.
+- **Offline eval harness (`packages/evals`).** Frozen task set replayed through the deterministic router vs a fixed baseline tier; reports task pass/fail/blocked, routing, cost, and quality gates. `npm run eval`. First finding: without Jev the deterministic policy over-escalates the expected-failure task (≈4x all-mid cost) — the measured reason the live proxy keeps Jev.
 
 ## Docs-only review — 2026-09-18
 
+- [Router learnings](research/router-learnings.md): completed bounded source review of
+  four pinned routers. Covers actual selection, fallbacks, learning/evaluation limits,
+  and small acceptance fixtures. No copied runtime, benchmark reproduction or new code.
 - [Competitive scorecard](research/competitive-scorecard.md): four commit-pinned README
   comparisons. Stronger direction than proof: loop-aware competitors already exist;
   Sabi outcome learning, live economics and task-level gains remain unproven.

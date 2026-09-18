@@ -214,3 +214,25 @@ The telemetry finding was the only *critical* one in the folder review: `snippet
 
 ### Revisit later?
 Tune `stuck`/`context-pressure` thresholds from real sessions; add a Jev question for root-cause only if deterministic detection misses cases measured in evals.
+
+---
+
+## [2026-09-18] Offline evals first + transport is not task failure
+
+### Decision
+Sabi gets a dependency-free offline eval harness (`packages/evals`): a frozen task set is replayed through the deterministic router at tool-result boundaries and compared against a fixed eligible baseline tier, reporting task pass/fail/blocked, routing, cost and quality gates. Separately, `transport` becomes a distinct `FailureLevel` (`rate-limited`/`quota-exceeded`/`timeout` evidence codes): a 429/rate-limit/timeout — from a tool result or an upstream 429/5xx — routes to the `transport` policy tier (default `mid`) and is recorded as `outcome: 'transport'`, never escalating to strong.
+
+### Why
+The competitive scorecard's core finding: Sabi had no evidence it completes tasks more cheaply or reliably, and `packages/evals` was absent. The offline harness answers "compare task outcomes, not token repricing" without paid calls. The router-learnings' mechanism #7 ("A 429 is not classified as a reasoning failure") is a concrete planner gap: a rate-limited upstream call or a tool whose output shows a quota error was being treated as a hard failure and escalated — the opposite of correct handling.
+
+### Alternatives considered
+- Build the eval against the live proxy — rejected; paid calls, non-deterministic, and the scorecard explicitly wanted a frozen offline comparison first.
+- Treat 429 as soft — rejected; soft requires two signals and the learnings were explicit that transport is distinct, not "soft failure".
+- Reuse the Jev client's 429 retry for the main upstream too — deferred; the mod path has no Jev, and the transport *classification* is the invariant that helps both paths. Provider-side retry can layer on later.
+
+### Tradeoffs
+- The eval's negative-savings finding (deterministic policy over-escalates without Jev) is honest but means the offline number is not the live number; the harness labels it an offline repricing estimate.
+- `transport` adds a policy key and a FailureLevel; the config sets it (`transport: mid`) so behavior is explicit and auditable.
+
+### Revisit later?
+Wire Jev or the upstream retry into the eval replay once a fixed-policy baseline task set is stable; add more transport signals (e.g. 402 quota, provider 429 bodies) after real 429s are observed.

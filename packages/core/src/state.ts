@@ -66,6 +66,21 @@ const SOFT_PATTERNS: Array<{ re: RegExp; label: EvidenceCode }> = [
   { re: /timed out/i, label: 'soft-timeout' },
 ]
 
+/**
+ * Transport-level signals: a rate limit, quota or upstream timeout is not evidence that the
+ * *task* is hard — the model/provider was too hot. These must never escalate a round to a
+ * stronger tier (retry-vs-escalation), and the research explicitly says a 429 must not be
+ * classified as a reasoning failure.
+ */
+const TRANSPORT_PATTERNS: Array<{ re: RegExp; label: EvidenceCode }> = [
+  { re: /\b429\b/, label: 'rate-limited' },
+  { re: /rate[- ]limit/i, label: 'rate-limited' },
+  { re: /too many requests/i, label: 'rate-limited' },
+  { re: /quota[- ]?exceeded/i, label: 'quota-exceeded' },
+  { re: /insufficient_quota|insufficient quota/i, label: 'quota-exceeded' },
+  { re: /timed out|timeout/i, label: 'timeout' },
+]
+
 const HARNESS_DENIAL =
   /\buser\b[^\n]{0,40}\b(?:denied|declined|rejected)\b|denied by (?:the )?user|\b(?:permission|tool call|request)[^\n]{0,30}\b(?:denied|declined|rejected)\b/i
 
@@ -91,6 +106,7 @@ export function detectFailure(texts: string[]): { level: FailureLevel; evidence:
   const evidence: string[] = []
   let hard = 0
   let soft = 0
+  let transport = 0
   for (const raw of texts) {
     const text = String(raw ?? '')
     if (!text.trim()) continue
@@ -111,17 +127,29 @@ export function detectFailure(texts: string[]): { level: FailureLevel; evidence:
       if (evidence.length < 4) evidence.push(pattern.label)
       break
     }
-    if (!textHard) {
-      for (const pattern of SOFT_PATTERNS) {
-        if (pattern.re.test(text)) {
-          soft += 1
-          if (evidence.length < 4) evidence.push(pattern.label)
-          break
-        }
+    if (textHard) continue
+    // Transport signals (429/rate-limit/quota/timeout) take precedence over soft patterns
+    // but never escalate like a hard failure.
+    let textTransport = false
+    for (const pattern of TRANSPORT_PATTERNS) {
+      if (pattern.re.test(text)) {
+        transport += 1
+        textTransport = true
+        if (evidence.length < 4) evidence.push(pattern.label)
+        break
+      }
+    }
+    if (textTransport) continue
+    for (const pattern of SOFT_PATTERNS) {
+      if (pattern.re.test(text)) {
+        soft += 1
+        if (evidence.length < 4) evidence.push(pattern.label)
+        break
       }
     }
   }
-  const level: FailureLevel = hard >= 1 ? 'hard' : soft >= 2 ? 'soft' : 'none'
+  const level: FailureLevel =
+    hard >= 1 ? 'hard' : transport >= 1 ? 'transport' : soft >= 2 ? 'soft' : 'none'
   return { level, evidence }
 }
 
