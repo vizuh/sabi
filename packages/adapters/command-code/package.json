@@ -1,15 +1,27 @@
 {
   "name": "@sabi/adapter-command-code",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
+  "description": "Adaptive inference scheduling for Command Code: one bundled mod that routes each continuing round by model, effort and trajectory state.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vizuh/sabi.git",
+    "directory": "packages/adapters/command-code"
+  },
+  "homepage": "https://github.com/vizuh/sabi#readme",
+  "keywords": ["commandcode", "command-code", "mod", "llm", "routing"],
   "exports": {
     ".": "./src/connect.ts"
   },
   "commandcode": {
     "mods": ["./mod/sabi.ts"]
   },
-  "dependencies": {
-    "@sabi/core": "*"
+  "scripts": {
+    "build:pkg": "node pack.mjs"
+  },
+  "devDependencies": {
+    "@sabi/core": "*",
+    "esbuild": "^0.25.0"
   }
 }

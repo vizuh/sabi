@@ -334,3 +334,26 @@ Genuinely good idea worth keeping, not building yet: separating update cadence b
 
 ### Revisit later?
 Re-check the thresholds after one real compaction; decide whether the shadow answer predicts anything (the report counts it) before any context-selection work; note that the mod still has no judge path, so a Class A shadow answer cannot exist until the mod can call Jev at all.
+
+---
+
+## [2026-09-18] Publish the mod to npm as one bundled package (@vizuh/sabi), tag-driven
+
+### Decision
+Ship the Command Code mod as `@vizuh/sabi`: `packages/adapters/command-code/pack.mjs` bundles `mod/sabi.ts` and its `@sabi/core` imports into a single `mod/sabi.mjs` (esbuild, dev-only), copies the repository's default `sabi.config.json` beside it, and writes a publish manifest into the gitignored `pkg/`. `.github/workflows/release.yml` publishes that directory on a `v*` tag with provenance. The repository source stays the install source for a clone (referenced in place, auto-updating on `git pull`); only the npm artifact is bundled. The proxy path is not published.
+
+### Why
+The trigger recorded when this was deferred — "someone other than Hugo asking to install Sabi without cloning" — has been met by Hugo asking: distribution should not require a clone, git history or a dev toolchain. Command Code installs npm packages with `--ignore-scripts`, jiti-loads the manifest's entry, and never runs npm/git at session start, so the supported shape is one self-contained file plus `cmd mods update` as the update step.
+
+### Alternatives considered
+- Publish both workspace packages unbuilt (`@sabi/core` + adapter) — rejected: it depends on the harness transpiling `.ts` dependencies inside `node_modules` (unverified), and doubles the publishing surface and the failure modes.
+- Publish from git only (`cmd mods add -g vizuh/sabi`) — rejected: the mod lives in a subdirectory, the package manifest convention has no subpath form, and there would be no versioned dist-tag for users to update against.
+- Auto-update at session start — rejected: Command Code deliberately never runs npm/git at startup, and auto-installing from a registry on every start is a supply-chain decision, not a convenience default. A notify-only version check remains the follow-up if users need it.
+
+### Tradeoffs
+- Publishing needs an npm org and a token: the `@vizuh` scope must exist and the repository needs an `NPM_TOKEN` secret; nothing publishes until a `v*` tag is pushed.
+- The bundle is a snapshot of `packages/core` taken at pack time; it is regenerated per release from the same source, and its version follows the tag, so drift is bounded to release cadence.
+- No LICENSE file exists in this repository, so the published manifest declares no license (all rights reserved by default) — add one before inviting outside use.
+
+### Revisit later?
+Whether to publish `@sabi/core` for proxy-path users; whether the mod should notify about newer dist-tags; and the open defect this work surfaced — a mod-planned `zai-org/glm-5.3` (the shipped `strong` tier) fails with `403 Model/provider not recognized`, while the same id works as a session model in both casings (repro in `docs/handoff.md`).

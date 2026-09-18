@@ -6,6 +6,9 @@ dist/
 build/
 *.tsbuildinfo
 
+# Generated publishable package (pack.mjs / release workflow)
+packages/adapters/command-code/pkg/
+
 # Coverage / caches
 coverage/
 .turbo/
