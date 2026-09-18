@@ -70,6 +70,12 @@ cmd mods add ./packages/adapters/command-code                  # registers the m
 cmd mods list                                                  # → sabi · project · from local:/…/packages/adapters/command-code
 ```
 
+Or install the same mod without cloning — it is published as a bundled npm package with no runtime dependencies (mod only; the proxy path below still needs the clone):
+
+```bash
+cmd mods add -g npm:@vizuh/sabi                                # user scope; update later with `cmd mods update`
+```
+
 The mod loads on your next session in that project (the first session also asks you to trust the workspace, which project mods require). Sabi then plans each continuing round; round 1 always runs on the session model, because `prepareNextTurn` fires only from the second round on.
 
 To verify it is routing, ask for one file read and watch the model change between rounds:

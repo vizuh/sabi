@@ -1,0 +1,37 @@
+name: release
+
+# Publishing is deliberately tag-driven: the tag is the version, and nothing publishes on a branch.
+#
+# One-time setup before the first release:
+#   1. create the package (or the @vizuh org) on npmjs.com
+#   2. add an npm automation token as the repository secret NPM_TOKEN
+#   3. git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write # npm provenance attestation
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Build the publishable package
+        run: node packages/adapters/command-code/pack.mjs
+        env:
+          SABI_VERSION: ${{ github.ref_name }}
+      - name: Publish @vizuh/sabi
+        run: npm publish ./packages/adapters/command-code/pkg --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

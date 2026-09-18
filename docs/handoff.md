@@ -8,6 +8,14 @@ PR #3 merged to `main` as `7d57ff4` from `feat/multi-harness-support`. A follow-
 
 2026-09-18
 
+## npm distribution — 2026-09-18
+
+`@vizuh/sabi` is packaged: `packages/adapters/command-code/pack.mjs` bundles the mod (esbuild, devDependency only) plus the repository's default `sabi.config.json` into the gitignored `pkg/`, and `.github/workflows/release.yml` publishes it on a `v*` tag with provenance. The source layout is untouched, so a clone keeps loading `mod/sabi.ts` in place. Before the first release: create the `@vizuh` npm scope/package, add an `NPM_TOKEN` repository secret, then `git tag v0.1.0 && git push origin v0.1.0`. No LICENSE file exists, so the published manifest declares none.
+
+Verified without publishing: `npm pack` yields exactly four files (`package.json`, `mod/sabi.mjs`, `sabi.config.json`, `README.md`); the bundle imports standalone; and extracted into a neutral directory with no project or user config, `cmd -p "Read package.json…" --mod …/mod/sabi.mjs --model gpt-5.6-luna` exited 0 with turn 2 planned on the shipped `cheap` tier (`deepseek/deepseek-v4-flash`, rule `exploration`, `contextTokens` = turn 1's billed total). A control run with the shipped config's `cheap` id altered to `zai-org/glm-5.3` planned exactly that value, proving the bundle read its own shipped config rather than the repository's.
+
+**Open defect found by that control run:** when the *mod* plans `zai-org/glm-5.3` (the shipped `strong` tier), the harness fails the round with `403 Model/provider not recognized: anthropic:zai-org/glm-5.3`. Both `zai-org/GLM-5.3` and `zai-org/glm-5.3` succeed as a session model via `--model`, so the id exists — provider resolution for a mod-supplied id is what fails. Print mode refuses shell/file tools, so a failure round cannot be induced headlessly; this needs one interactive session to test candidate strong ids (`deepseek/deepseek-v4-pro`, `moonshotai/kimi-k3`, `qwen/qwen3.8-max`) and fix `harness.tiers.strong`. Pre-existing on `main`; the README's plan coverage now states it.
+
 ## Limit classification — 2026-09-18
 
 Same-day follow-up on a real plan wall. Subscription/session limit messages (`You've hit your session limit`, `Usage limit reached`, `uses your weekly limit`, `error type rate_limit`) carried no evidence at all, so such a round fell to `unclassified` — the one rule the proxy consults Jev on — and an `Error:`-prefixed limit became `hard`, escalating to strong. Measured before the change and re-measured after, with those exact strings.

@@ -70,6 +70,14 @@ The package declares what it ships in its own `package.json`:
 { "commandcode": { "mods": ["./mod/sabi.ts"] } }
 ```
 
+If you would rather not keep a checkout, the same mod is published to npm as one bundled file with no runtime dependencies, shipping its own default `sabi.config.json`:
+
+```bash
+cmd mods add -g npm:@vizuh/sabi     # user scope — loads in every project
+```
+
+A `sabi.config.json` in the project (or `~/.config/sabi/sabi.config.json`) takes precedence over the shipped default. Updates come from `cmd mods update`. Path B below still needs the clone.
+
 ### Confirm it loaded
 
 ```bash
@@ -363,6 +371,6 @@ round. The mod never calls the judge; this applies to proxy clients only.
 cd /path/to/sabi && git pull && npm install
 ```
 
-Nothing else to do for path A (the mod is referenced in place). For path B, restart the proxy.
+Nothing else to do for path A (the mod is referenced in place). For the npm install (`cmd mods add -g npm:@vizuh/sabi`), update with `cmd mods update`, which reinstalls the newest published version. For path B, restart the proxy.
 If a model id or price has drifted, re-check upstream before trusting the cost report — see the
 provenance notes in `sabi.config.json`.
