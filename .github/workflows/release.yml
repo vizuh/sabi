@@ -1,17 +1,19 @@
 name: release
 
-# Publishing is deliberately tag-driven: the tag is the version, and nothing publishes on a branch.
+# A release is one command:  git tag v0.1.2 && git push origin v0.1.2
 #
-# One-time setup before the first release:
-#   1. create the package (or the @vizuh org) on npmjs.com
-#   2. add an npm automation token as the repository secret NPM_TOKEN
-#   3. git tag v0.1.0 && git push origin v0.1.0
+# The tag is the version — pack.mjs stamps it into the published manifest (the `v` is stripped) —
+# so bump `packages/adapters/command-code/package.json` and merge before tagging. This job
+# typechecks, runs the suite, publishes @vizuh/sabi with provenance, and opens a GitHub Release
+# carrying generated notes and the packed tarball.
+#
+# Repository secret: NPM_TOKEN — an npm automation token for an owner of the @vizuh scope.
 on:
   push:
     tags: ['v*']
 
 permissions:
-  contents: read
+  contents: write # create the GitHub Release
   id-token: write # npm provenance attestation
 
 jobs:
@@ -35,3 +37,9 @@ jobs:
         run: npm publish ./packages/adapters/command-code/pkg --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: GitHub Release — notes and the packed tarball
+        run: |
+          npm pack ./packages/adapters/command-code/pkg --pack-destination dist
+          gh release create "$GITHUB_REF_NAME" dist/*.tgz --generate-notes --title "$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

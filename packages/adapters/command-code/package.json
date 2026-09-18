@@ -1,7 +1,8 @@
 {
   "name": "@sabi/adapter-command-code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
+  "license": "MIT",
   "description": "Adaptive inference scheduling for Command Code: one bundled mod that routes each continuing round by model, effort and trajectory state.",
   "type": "module",
   "repository": {
