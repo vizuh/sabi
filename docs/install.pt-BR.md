@@ -206,6 +206,44 @@ O Sabi se recusa a enviar mídia para um modelo que não consegue lê-la. Declar
 - O caminho do mod lê a mesma ideia de `harness.tiers[].inputModalities` e varre o transcript em busca de mídia. Ele não consegue corrigir um modelo que o host já escolheu: se nenhum nível consegue ler a imagem, a rodada fica no modelo da sessão em vez de ser roteada para um nível só-texto que teria a imagem removida em silêncio.
 - A mídia é cobrada na estimativa de contexto — 1500 tokens por imagem, o limite do próprio host — então uma captura de tela não parece uma rodada pequena para a regra de pressão de contexto.
 
+## Clientes além do Command Code
+
+O proxy é um endpoint compatível com OpenAI, então qualquer cliente que aceite uma `baseURL` pode usá-lo. Esses clientes recebem **só a classe B**: o Sabi continua escolhendo o modelo a cada rodada, mas não o esforço de raciocínio, e infere uma rodada com falha a partir do texto da saída, não do sinal de erro do próprio harness. O juiz continua rodando (veja [Jev para esses clientes](#jev-para-esses-clientes)).
+
+### OpenCode
+
+Verificado ponta a ponta em 2026-09-18 com o OpenCode 1.18.30: uma sessão real de `opencode run --model sabi/sabi-code` alcançou um Sabi local, completou uma rodada de ferramenta e foi gravada com `client: opencode`.
+
+```bash
+npm start                       # proxy do Sabi em 127.0.0.1:8787
+npm run connect:opencode        # grava o provider "sabi" em ~/.config/opencode/opencode.json
+opencode run --model sabi/sabi-code "resuma este repositório"
+```
+
+O que o escritor faz — e o que deliberadamente não faz:
+
+- Grava apenas `provider.sabi`. Providers existentes, credenciais e seu modelo padrão ficam intactos; `--set-default` coloca a sessão no alias adaptativo.
+- Cria um backup (`<config>.sabi-backup`) e nunca o sobrescreve em uma nova execução.
+- Recusa-se a tocar em uma config que não seja JSON válido, e não a modifica.
+- Declara cada alias com a menor janela entre os níveis que ele pode atender. O OpenCode rejeita uma entrada de modelo que defina `limit.context` sem `limit.output`, então um nível sem declaração recebe um teto conservador de 4.096 tokens no cliente — declare `maxOutputTokens` no nível para torná-lo exato.
+- Declara entrada só de texto. Adicione `image` em `modalities.input` apenas quando os níveis para os quais você roteia declararem `capabilities.inputModalities` com `image`; caso contrário, o Sabi vai recusar a rodada.
+- Pula o nível `local` (Ollama) a menos que você passe `--include-local`.
+
+Verifique com `npm run report` (ou `.sabi/decisions.jsonl`): as rodadas aparecem com `client: opencode`. Reverter: remova o provider `sabi` da config, ou restaure o backup.
+
+### Hermes
+
+O Hermes é atendido pelo mesmo proxy, mais um plugin opcional que adiciona atribuição estável. Isto segue `packages/adapters/hermes/README.md`: o plugin e uma sonda Hermes → Sabi → mock estão verificados em isolamento, mas **nenhum perfil real do Hermes rodou contra o Sabi ainda** — trate como template, não como caminho certificado.
+
+1. Crie um `HERMES_HOME` novo. Não aponte para um perfil pessoal existente.
+2. Copie `packages/adapters/hermes/plugin/` para `$HERMES_HOME/plugins/sabi-metadata/`.
+3. Adapte `packages/adapters/hermes/config.yaml.example`: troque o placeholder de contexto por um limite verificado e mantenha `supports_tools`, `supports_vision` e `supports_reasoning` conservadores até verificar todos os níveis para os quais o Sabi pode rotear. O template traz `false`, o que significa sem ferramentas.
+4. `HERMES_HOME=… hermes chat`, e selecione `sabi-code`.
+
+### Jev para esses clientes
+
+O juiz precisa de uma chave da TypeSafe: exporte `TYPESAFE_API_KEY`, ou ponha `judge.enabled: false`. Sem chave, o proxy avisa na subida e toda rodada julgada **falha aberta** — a rodada ainda completa pela política determinística, a decisão registra `judge.status: error` com `note: typesafe unavailable`, e os sinais de veto e de dificuldade se perdem. Verificado em 2026-09-18: HTTP 200, cerca de 0,6 s a mais por rodada julgada. O mod nunca chama o juiz; isto vale só para clientes do proxy.
+
 ## Problemas comuns
 
 | Sintoma | Causa e solução |
@@ -220,6 +258,7 @@ O Sabi se recusa a enviar mídia para um modelo que não consegue lê-la. Declar
 | `WARN: missing upstream credentials` na subida | A config referencia uma variável de ambiente não definida. Exporte, ou ponha `apiKey: false` nesse upstream. |
 | A rodada 1 ignora o Sabi | Por desenho: `prepareNextTurn` só dispara da segunda rodada, então a primeira roda no modelo da sessão. |
 | Uma rodada com imagem parece maior que o texto dela | Esperado: a mídia é cobrada a 1500 tokens por imagem em `state.estimatedTokens`, e `state.mediaCounts` registra a contagem. |
+| Um erro do provedor chega no meio do stream (`402`, tamanho de contexto) | Provedores podem reportá-lo dentro de um stream HTTP 200. A decisão registra a mensagem do próprio provedor, e o stream do cliente é reiniciado em vez de completado com saída parcial — nada é fabricado. |
 
 ## Segurança
 

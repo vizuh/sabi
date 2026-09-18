@@ -85,9 +85,11 @@ npm start                        # http://127.0.0.1:8787/v1
 
 npm run connect:command-code     # grava/atualiza o provider "sabi" em ~/.commandcode/providers.json
 cmd --list-models | grep sabi    # confirme que os quatro modelos aparecem
+
+npm run connect:opencode         # OpenCode: grava o provider "sabi" em ~/.config/opencode/opencode.json
 ```
 
-Depois escolha `sabi/sabi-code` em `/model` (ou `--model sabi/sabi-code`). Aliases fixos para comparação: `sabi-cheap`, `sabi-mid`, `sabi-strong`. `sabi-local` aponta para o Ollama e não é exposto por padrão — a janela de 32k é pequena demais para prompts de harness.
+Depois escolha `sabi/sabi-code` em `/model` (ou `--model sabi/sabi-code`). Aliases fixos para comparação: `sabi-cheap`, `sabi-mid`, `sabi-strong`. `sabi-local` aponta para o Ollama e não é exposto por padrão — a janela de 32k é pequena demais para prompts de harness. Outros clientes — OpenCode e Hermes, com o que eles ganham e não ganham — estão em [docs/install.pt-BR.md](docs/install.pt-BR.md#clientes-além-do-command-code).
 
 O Sabi é um processo em primeiro plano, não um serviço: se não estiver rodando, toda requisição `sabi/*` falha dentro do harness com `ECONNREFUSED 127.0.0.1:8787`. Nesta máquina as duas chaves vêm do arquivo de segredos do workspace:
 
@@ -161,6 +163,7 @@ npm run report  # decisões, tokens, custo, economia vs. contrafactual all-stron
 packages/core                    estado da trajetória, política, aplicação do juiz, roteador, descoberta de config, log de decisões
 packages/server                  proxy compatível com OpenAI (passthrough + tap de SSE), cliente TypeSafe, /v1/models, report
 packages/adapters/command-code   o mod em processo (mod/sabi.ts) + o escritor do provider BYOK (src/connect.ts)
+packages/adapters/opencode       escritor de config do OpenCode (npm run connect:opencode)
 packages/adapters/hermes         ponte de metadados opt-in e sonda de compatibilidade isolada
 packages/adapters/prime-agent   sonda privada e isolada de proxy/timing; sem adaptador nativo
 ```

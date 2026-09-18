@@ -217,6 +217,64 @@ router does the rest:
 - Media is charged to the context estimate — 1500 tokens per image, the host's own bound — so a
   screenshot does not look like a small round to the context-pressure rule.
 
+## Clients other than Command Code
+
+The proxy is an OpenAI-compatible endpoint, so any client that accepts a `baseURL` can use it. These
+clients get **class B only**: Sabi still picks the model per round, but not the reasoning effort, and it
+infers a failed round from output text rather than the harness's own error signal. The judge still runs
+(see [Jev for these clients](#jev-for-these-clients)).
+
+### OpenCode
+
+Verified end to end on 2026-09-18 against OpenCode 1.18.30: a real
+`opencode run --model sabi/sabi-code` session reached a local Sabi, completed a tool round, and was
+recorded with `client: opencode`.
+
+```bash
+npm start                       # Sabi proxy on 127.0.0.1:8787
+npm run connect:opencode        # merges provider "sabi" into ~/.config/opencode/opencode.json
+opencode run --model sabi/sabi-code "summarise this repository"
+```
+
+What the writer does — and deliberately does not do:
+
+- Merges `provider.sabi` only. Existing providers, credentials and your default model are untouched;
+  `--set-default` opts the session into the adaptive alias.
+- Writes one backup (`<config>.sabi-backup`) and never overwrites it on a re-run.
+- Refuses to touch a config that is not valid JSON, and leaves it unmodified.
+- Declares each alias with the smallest window among the tiers it can serve. OpenCode rejects a model
+  entry that sets `limit.context` without `limit.output`, so an undeclared tier gets a conservative
+  4,096-token client cap — declare `maxOutputTokens` on a tier to make it exact.
+- Declares text-only input. Add `image` to `modalities.input` only when the tiers you route to declare
+  `capabilities.inputModalities` including `image`; otherwise Sabi will refuse the round.
+- Skips the `local` (Ollama) tier unless you pass `--include-local`.
+
+Verify with `npm run report` (or `.sabi/decisions.jsonl`): the rounds appear with `client: opencode`.
+Rollback: remove the `sabi` provider from the config, or restore the backup.
+
+### Hermes
+
+Hermes is served through the same proxy, plus an optional plugin that adds stable attribution. This
+follows `packages/adapters/hermes/README.md`: the plugin and a Hermes → Sabi → mock probe are verified
+in isolation, but **no real Hermes profile has been run against Sabi yet** — treat this as a template,
+not a certified path.
+
+1. Create a new `HERMES_HOME`. Do not point it at an existing personal profile.
+2. Copy `packages/adapters/hermes/plugin/` to `$HERMES_HOME/plugins/sabi-metadata/`.
+3. Adapt `packages/adapters/hermes/config.yaml.example`: replace the context placeholder with a
+   verified limit, and keep `supports_tools`, `supports_vision` and `supports_reasoning` conservative
+   until you have verified every tier Sabi can route to. The template ships them `false`, which means
+   no tools.
+4. `HERMES_HOME=… hermes chat`, then select `sabi-code`.
+
+### Jev for these clients
+
+The judge needs a TypeSafe key: export `TYPESAFE_API_KEY`, or set `judge.enabled: false`. Without a key
+the proxy warns at startup and every judged round **fails open** — the round still completes on the
+deterministic policy, the decision records `judge.status: error` with `note: typesafe unavailable`, and
+the veto and difficulty signals are lost. Verified on 2026-09-18: HTTP 200, about 0.6 s added per judged
+round. The mod never calls the judge; this applies to proxy clients only.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -231,6 +289,7 @@ router does the rest:
 | `WARN: missing upstream credentials` at startup | The config references an env var that is unset. Export it, or set that upstream's `apiKey` to `false`. |
 | Round 1 ignores Sabi | By design: `prepareNextTurn` fires only from the second round, so the first round runs on the session model. |
 | An image round looks bigger than its text | Expected: media is charged 1500 tokens per image in `state.estimatedTokens`, and `state.mediaCounts` records the count. |
+| A provider error arrives mid-stream (`402`, context length) | Providers can report it inside an HTTP 200 stream. The decision records the provider's own message, and the client's stream is reset rather than completed with partial output — nothing is fabricated. |
 
 ## Security
 

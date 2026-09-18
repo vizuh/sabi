@@ -5,7 +5,7 @@ provider entitlement or savings. No paid provider smoke test has run in this imp
 
 | Client | Evidence | Limit |
 |---|---|---|
-| OpenCode 1.18.30 | Real client → Sabi → mock; fragmented tool call, read result, mid → cheap | No native model hook; no paid smoke |
+| OpenCode 1.18.30 | Real client → Sabi → mock; fragmented tool call, read result, mid → cheap. Also verified against the real proxy through a real profile: `npm run connect:opencode`, then a read tool round completed (2026-09-18) | No native model hook; only a read round has run against the real proxy, and paid smoke is blocked by provider credit |
 | Kilo CLI 7.7.4 | Same real-client proxy flow, isolated npm install | Does not certify the VS Code extension |
 | Prime Agent 0.9.5 | Strict Sabi → mock, three requests; parallel tools/IDs/usage preserved | Native setters affect the next user prompt, not continuing rounds |
 | Hermes 0.21.3, pinned source | Native mock + metadata plugin; Hermes → Sabi → mock `mid → cheap → mid` | Extra capability-discovery GETs still occur; native routing not certified |
@@ -22,7 +22,7 @@ local placeholder. Host subscription credits and login tokens are not transferre
 
 | Client | Configuration path |
 |---|---|
-| OpenCode | Custom provider using `@ai-sdk/openai-compatible`, `options.baseURL`, explicit alias and limits; see [recipe](research/opencode-terminal-plan.md) |
+| OpenCode | Custom provider using `@ai-sdk/openai-compatible`, `options.baseURL`, explicit alias and limits; `npm run connect:opencode` writes and preserves it; see [recipe](research/opencode-terminal-plan.md) |
 | Kilo CLI | Project `kilo.jsonc`; `openai-compatible` provider, `options.baseURL`, model `openai-compatible/sabi-code` |
 | Kilo VS Code | Custom provider → **OpenAI Compatible**, base URL above, manual alias; set tool/context/output metadata in `kilo.jsonc`, not guessed UI defaults |
 | Prime Agent | Isolated custom `models.json` provider with `api: "openai-completions"`; see [tested limits](research/prime-agent-compatibility.md) |
