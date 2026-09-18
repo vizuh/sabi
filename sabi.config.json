@@ -1,5 +1,5 @@
 {
-  "provenance": "Model ids, context windows and prices verified live from https://openrouter.ai/api/v1/models on 2026-09-18. Prices are USD per 1M tokens.",
+  "provenance": "Model ids, context windows and prices verified live from https://openrouter.ai/api/v1/models on 2026-09-18; input modalities for the same ids verified from the same endpoint the same day (`architecture.input_modalities`). Prices are USD per 1M tokens. Declared modalities are enforced: an undeclared capability is unknown, a declared one is binding.",
   "server": { "host": "127.0.0.1", "port": 8787 },
   "upstreams": {
     "openrouter": {
@@ -22,24 +22,28 @@
       "upstream": "openrouter",
       "model": "deepseek/deepseek-v4-flash-0731",
       "contextWindow": 1310720,
+      "capabilities": { "inputModalities": ["text"] },
       "cost": { "input": 0.06, "output": 0.12, "cacheRead": 0.012 }
     },
     "mid": {
       "upstream": "openrouter",
       "model": "openai/gpt-5.6-luna",
       "contextWindow": 1050000,
+      "capabilities": { "inputModalities": ["text", "image", "file"] },
       "cost": { "input": 0.2, "output": 1.2, "cacheRead": 0.02 }
     },
     "strong": {
       "upstream": "openrouter",
       "model": "anthropic/claude-sonnet-5",
       "contextWindow": 1000000,
+      "capabilities": { "inputModalities": ["text", "image", "file"] },
       "cost": { "input": 2, "output": 10, "cacheRead": 0.2 }
     },
     "local": {
       "upstream": "ollama",
       "model": "qwen2.5-coder:7b",
       "contextWindow": 32768,
+      "capabilities": { "inputModalities": ["text"] },
       "cost": { "input": 0, "output": 0 }
     }
   },
@@ -79,11 +83,26 @@
     "costPerMTokInput": 0.042
   },
   "harness": {
-    "provenance": "Command Code catalog ids, efforts and min plans verified 2026-09-18 against `cmd --list-models` and the bundled reference models.md. Used by the in-process mod adapter (harness keeps its own loop, no proxy, no key). The `models` tiers above are the separate BYOK proxy path and are unused while the mod is active. A tier must be a model the account can actually serve: `cmd --list-models` prints the whole catalog regardless of plan, and an out-of-plan model answers 403 MODEL_NOT_IN_PLAN and fails that round. The defaults are the strongest ids available from the Go plan up; docs/install.md lists Pro and Max presets. `contextWindow` is the largest verified window among the tiers (1M), used by the context-pressure rule.",
+    "provenance": "Command Code catalog ids, efforts and min plans verified 2026-09-18 against `cmd --list-models` and the bundled reference models.md. Used by the in-process mod adapter (harness keeps its own loop, no proxy, no key). The `models` tiers above are the separate BYOK proxy path and are unused while the mod is active. A tier must be a model the account can actually serve: `cmd --list-models` prints the whole catalog regardless of plan, and an out-of-plan model answers 403 MODEL_NOT_IN_PLAN and fails that round. The defaults are the strongest ids available from the Go plan up; docs/install.md lists Pro and Max presets. `contextWindow` is the largest verified window among the tiers (1M), used by the context-pressure rule. `inputModalities` mirror the CLI's own model registry, read from the shipped bundle on 2026-09-18: plain `deepseek-v4-flash` and `glm-5.3` are text-only while `gpt-5.6-luna` accepts images. The host strips images for a text-only model, so a tier that cannot read them is passed over for one that can.",
     "tiers": {
-      "cheap": { "model": "deepseek/deepseek-v4-flash", "effort": "high", "minPlan": "Go" },
-      "mid": { "model": "gpt-5.6-luna", "effort": "high", "minPlan": "Go" },
-      "strong": { "model": "zai-org/glm-5.3", "effort": "high", "minPlan": "Go" }
+      "cheap": {
+        "model": "deepseek/deepseek-v4-flash",
+        "effort": "high",
+        "minPlan": "Go",
+        "inputModalities": ["text"]
+      },
+      "mid": {
+        "model": "gpt-5.6-luna",
+        "effort": "high",
+        "minPlan": "Go",
+        "inputModalities": ["text", "image"]
+      },
+      "strong": {
+        "model": "zai-org/glm-5.3",
+        "effort": "high",
+        "minPlan": "Go",
+        "inputModalities": ["text"]
+      }
     },
     "contextWindow": 1000000
   }

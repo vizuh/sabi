@@ -236,3 +236,28 @@ The competitive scorecard's core finding: Sabi had no evidence it completes task
 
 ### Revisit later?
 Wire Jev or the upstream retry into the eval replay once a fixed-policy baseline task set is stable; add more transport signals (e.g. 402 quota, provider 429 bodies) after real 429s are observed.
+
+---
+
+## [2026-09-18] Media is a routing constraint, not a post-hoc validation
+
+### Decision
+Input modality joins the state Sabi routes on. `TrajectoryState` gains `inputModalities` and `mediaCounts`, extracted from the request's content parts (including nested tool-result content); every model tier can declare what it accepts (`models[].capabilities.inputModalities` on the proxy, `harness.tiers[].inputModalities` on the mod). When the policy's chosen tier cannot accept what the round carries, the adaptive path serves it from the first tier in configuration order that can, and records `rule: capability`. A fixed alias does not upgrade — it refuses with a 400 naming the modality. When no tier can serve it, the proxy refuses and the mod leaves the round on the session model. Images are charged 1500 tokens each in the context estimate, mirroring the host's own per-image bound; other media are charged by payload size.
+
+### Why
+Verified from the proxy's own decision log (2026-09-18): 8 of 12 recorded errors were the same upstream failure — `No endpoints found that support image input` (OpenRouter 404, `failed_routing_step: Filter by Image Support`) — every one of them routed to cheap → `deepseek/deepseek-v4-flash-0731`, the tier that serves most rounds. The router had no notion of modality, and the compatibility gate could not help because no capabilities were declared: `ensureRouteCompatible` enforces declared values only, so an undeclared modality is unknown and passes. The same screenshot behaves differently per class, which is why it read as "sometimes" broken: the proxy forwards the image and the upstream 404s, while the harness strips images for a text-only model and the round silently answers blind. Both are failures; only one is visible.
+
+### Alternatives considered
+- Declaring `capabilities` alone and letting `ensureRouteCompatible` reject — rejected as the whole fix; it converts a confusing upstream 404 into a clear refusal but still fails the round. Declared capabilities remain the backstop, and the routing constraint is what makes the round succeed.
+- Counting base64 bytes as text tokens — rejected; providers tokenize a decoded image by resolution, and 400 KB of base64 became ~111k phantom tokens in a measured test. The host charges 1500 per image; mirroring it keeps Sabi's estimate comparable with the host's.
+- Detecting media for the mod from a host API — none exists (`cmd.ui.capabilities` exposes only `.status`). The scan mirrors the host's own predicate (`content.some(part => part.type === 'image')`), widened to every role and to nested tool-result content, and reports positive evidence only.
+- Making tier order explicit in config — rejected; declaration order already is the preference order, so cheap-before-strong sorts itself.
+
+### Tradeoffs
+- A fixed alias can now fail where it previously failed anyway, but earlier and with a clearer message; `sabi-cheap` is a baseline and stays a baseline.
+- Media detection on the mod path is best-effort against an undocumented transcript shape; a transcript it cannot read yields no modalities, which leaves routing as it was rather than inventing a constraint.
+- The per-image bound is a bound, not a measurement: a very large image is undercounted, and a remote URL is charged only its URL length.
+- Rejected routes are not written to the decision log — the refusal happens before a record exists, so the log shows successful rounds only.
+
+### Revisit later?
+Per-harness media shapes (Prime Agent, OpenCode, Hermes) should reuse `tallyMedia` once their transcript formats are verified; consider logging refused routes for operator visibility; refresh `inputModalities` from the upstream API whenever model ids are refreshed.
