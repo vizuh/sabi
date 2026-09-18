@@ -2,7 +2,7 @@
 
 ## Current status
 
-Multi-harness implementation is on `feat/multi-harness-support`, PR [#3](https://github.com/vizuh/sabi/pull/3) targets `main`. Checkpoints `87c4962`, `72fee25` and `cf02b6d` are pushed; the review-fix checkpoint is local and not yet committed. Last combined validation: 164 Node tests, typecheck and offline eval pass; Hermes adapter adds 12 Python tests. OpenCode 1.18.30 and Kilo CLI 7.7.4 passed real-client read tasks through Sabi + a local mock. Prime 0.9.5 passed a strict three-round proxy probe; same-parent native setters are proven ineffective and remain deferred. Hermes 0.21.3 passed the isolated Hermes → Sabi → mock probe (`mid → cheap → mid`). No paid provider certification.
+Multi-harness implementation is on `feat/multi-harness-support`, PR [#3](https://github.com/vizuh/sabi/pull/3) targets `main`. Checkpoints `87c4962`, `72fee25`, `cf02b6d` and `a28ee7d` are pushed; PR #3 remains draft pending final peer review before merge. Last combined validation: 164 Node tests, typecheck and offline eval pass; Hermes adapter adds 12 Python tests. OpenCode 1.18.30 and Kilo CLI 7.7.4 passed real-client read tasks through Sabi + a local mock. Prime 0.9.5 passed a strict three-round proxy probe; same-parent native setters are proven ineffective and remain deferred. Hermes 0.21.3 passed the isolated Hermes → Sabi → mock probe (`mid → cheap → mid`). No paid provider certification.
 
 ## Last meaningful update
 
@@ -80,7 +80,7 @@ None technical. Unconfirmed: business goal and success metrics (marked TODO in `
 
 ## What to check first when reopening
 
-- `git fetch`; confirm `origin/main` and `origin/feat/multi-harness-support`; inspect the local review-fix checkpoint before committing or merging.
+- `git fetch`; confirm `origin/main` and `origin/feat/multi-harness-support`; inspect PR #3 and the pushed review-fix checkpoint before merging.
 - `docs/decisions.md` — integration path, policy v0, baseline aliases, two adapter classes, distribution.
 - Whether model ids/prices in `sabi.config.json` are still current — refetch the OpenRouter API, and re-check `harness.tiers` ids against the account's plan (a listed id is not necessarily a usable one).
 - `.sabi/decisions.jsonl` (class B) and the session's `sabi/decision` entries (class A) for recent decisions.
