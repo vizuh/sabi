@@ -7,8 +7,9 @@ name: release
 # typechecks, runs the suite, publishes @vizuh/sabi with provenance, and opens a GitHub Release
 # carrying generated notes and the exact tarball npm serves.
 #
-# A version that is already on the registry (a backfilled or re-pushed tag) skips the publish
-# instead of failing; its Release is still created, from the registry's own tarball.
+# Tags that predate this packaging (or a version that is already on the registry) are handled
+# rather than failed: there is nothing to build and nothing to publish, so both steps stand down
+# and the Release is created from the registry's own tarball.
 #
 # Repository secret: NPM_TOKEN — an npm automation token for an owner of the @vizuh scope.
 on:
@@ -33,6 +34,9 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - name: Build the publishable package
+        # A tag cut before this packaging existed has nothing to build; the publish step below
+        # skips for it too, and the Release step falls back to the registry's tarball.
+        if: ${{ hashFiles('packages/adapters/command-code/pack.mjs') != '' }}
         run: node packages/adapters/command-code/pack.mjs
         env:
           SABI_VERSION: ${{ github.ref_name }}
