@@ -284,3 +284,24 @@ Class B (the proxy) registered every paid-backed alias in `~/.commandcode/provid
 
 ### Revisit later?
 Each of Hermes/OpenCode/Kilo needs its own consent branch before Sabi is wired into them by anything beyond `docs/harnesses.md`'s manual recipes. A self-service "add a model" flow needs a real fetch against the provider's live models endpoint (never hand-typed pricing/context, per the no-invented-facts rule) plus a plan-verification step equivalent to what `harness.tiers` already gets right for Class A — neither is built here; `enabled` and the paid/free split are shaped so that work extends them rather than replacing them.
+
+---
+
+## [2026-09-18] Correction: the repo is public; the npm-publishing blocker from the distribution decision no longer holds
+
+### Decision
+`github.com/vizuh/sabi` is public (confirmed live via `gh repo view` — `"isPrivate":false`), not private. `AGENTS.md` and `docs/context.md` said "private" and were stale; corrected. This does **not** change the distribution decision above (clone + local install) — it removes one premise of its reasoning, not the decision itself. Still not building: a signed-update daemon, a hosted model/routing-registry server, or an auto-updater (`router update`/`rollback`/`doctor`-style tooling proposed this session). No change to `sabi.config.json`'s discovery order or the install docs.
+
+### Why
+The original entry's first "why" bullet was "npm publishing is not available for a private repo." That's now false — the repo being public means `npm publish` (or a GitHub-Release-based install) is mechanically possible today. But visibility and *need* are different facts: this repo has one user (Hugo, this machine) and zero external installs to manage. The proposed daemon/updater/hosted-registry stack solves a distribution-at-scale problem — versioning a running service for people who aren't the maintainer — that doesn't exist yet. Building release infrastructure, a CDN/version endpoint, and a rollback story for zero current external installs is exactly the "speculative abstraction" this repo's own working style rejects elsewhere.
+
+### Alternatives considered
+- Build the full proposal now (daemon, signed releases, `router update`, hosted routing-registry) — rejected for now; no external user to serve, and it reopens key-custody/hosting tradeoffs the original distribution decision deliberately avoided.
+- Do nothing, leave the stale "private" claims uncorrected — rejected; they're simply wrong and would mislead the next reader into thinking npm publishing is blocked when it isn't.
+- Publish `@sabi/core` to npm right now, since it's newly possible — not decided here; no consumer has asked for install-without-clone yet, which is this repo's own stated trigger (below) for that step specifically.
+
+### Tradeoffs
+None from the correction itself. Deferring the daemon/registry proposal means Hermes/OpenCode/Kilo users (if any appear) still follow the manual recipes in `docs/harnesses.md` until a real need for centralized distribution shows up.
+
+### Revisit later?
+Genuinely good idea worth keeping, not building yet: separating update cadence by layer (runtime binary version, changes rarely; model/routing registry, could change daily; skills, versioned independently) — if Sabi ever does need a registry-fed routing manifest, that three-layer split is the right shape, not a single version number for everything. The concrete trigger for `npm publish` specifically (not the daemon) is unchanged from the earlier entry: someone other than Hugo asking to install Sabi without cloning this repo.

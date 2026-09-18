@@ -55,7 +55,7 @@ As modalidades declaradas precisam ser verificadas por id de modelo, não inferi
 
 ## Instalar — mod do Command Code (recomendado)
 
-Requisitos: Node 22.6+, Command Code, acesso git a este repositório privado, e um plano que cubra os modelos em `harness.tiers` (veja [Cobertura de plano](#cobertura-de-plano)).
+Requisitos: Node 22.6+, Command Code, git (este repositório é público), e um plano que cubra os modelos em `harness.tiers` (veja [Cobertura de plano](#cobertura-de-plano)).
 
 ```bash
 git clone https://github.com/vizuh/sabi && cd sabi
@@ -178,7 +178,7 @@ Planejado: `evals`, adaptadores `prime-agent` e `opencode`, perfis de modelo apr
 
 ## Nome
 
-Nome do produto: **Sabi**. Os handles `sabi`, `uasabi` e `sabido` no GitHub já estavam tomados, então o repositório vive no namespace Vizuh: https://github.com/vizuh/sabi (privado). Sem relação com o Sabido, o outro produto de aprendizagem da Vizuh.
+Nome do produto: **Sabi**. Os handles `sabi`, `uasabi` e `sabido` no GitHub já estavam tomados, então o repositório vive no namespace Vizuh: https://github.com/vizuh/sabi (público). Sem relação com o Sabido, o outro produto de aprendizagem da Vizuh.
 
 ## Documentação
 

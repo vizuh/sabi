@@ -18,7 +18,7 @@ You can install both; they do not interfere (different mechanisms, different mod
 |---|---|
 | Node | 22.6 or newer (type stripping; developed on 24) |
 | Harness | Command Code for path A; anything OpenAI-compatible for path B |
-| Access | read access to the private repo |
+| Access | none — the repo is public |
 | Keys | path A: none; path B: an upstream key (e.g. OpenRouter) and optionally a TypeSafe key for Jev |
 | Plan | path A only: every id in `harness.tiers` must be covered — see [Plan coverage](#plan-coverage) |
 

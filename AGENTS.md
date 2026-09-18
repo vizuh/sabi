@@ -7,7 +7,7 @@ Sabi is a Vizuh product: adaptive inference scheduling for AI agents — per-rou
 ## Repository
 
 - Canonical checkout: `/home/hugocarvalho/Desktop/HugoOS/www/products/sabi`
-- Remote: https://github.com/vizuh/sabi (private)
+- Remote: https://github.com/vizuh/sabi (public — confirmed via `gh repo view` 2026-09-18; earlier docs said private, that was stale)
 - Not Sabido. Sabido (`www/products/sabido`) is a separate Vizuh product; never merge the two scopes.
 
 ## Where things live

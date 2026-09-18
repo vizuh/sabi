@@ -55,7 +55,7 @@ Declared modalities must be verified per model id, not inferred from the family:
 
 ## Install — Command Code mod (recommended)
 
-Requirements: Node 22.6+, Command Code, git access to this private repo, and a plan that covers the models in `harness.tiers` (see [Plan coverage](#plan-coverage)).
+Requirements: Node 22.6+, Command Code, git (this repo is public), and a plan that covers the models in `harness.tiers` (see [Plan coverage](#plan-coverage)).
 
 ```bash
 git clone https://github.com/vizuh/sabi && cd sabi
@@ -179,7 +179,7 @@ The compatibility notes and isolated probes for Hermes, Prime Agent, OpenCode an
 
 ## Naming
 
-Product name: **Sabi**. GitHub handles `sabi`, `uasabi` and `sabido` were taken, so the repo lives under the Vizuh namespace: https://github.com/vizuh/sabi (private). Not related to Sabido, the separate Vizuh learning product.
+Product name: **Sabi**. GitHub handles `sabi`, `uasabi` and `sabido` were taken, so the repo lives under the Vizuh namespace: https://github.com/vizuh/sabi (public). Not related to Sabido, the separate Vizuh learning product.
 
 ## Docs
 
