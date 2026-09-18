@@ -96,7 +96,7 @@ const sabiPort = await sabi.listen(0, '127.0.0.1')
 const provider = host === 'kilo-cli' ? 'openai-compatible' : 'sabi'
 const clientConfig = {
   model: `${provider}/sabi-code`, small_model: `${provider}/sabi-code`,
-  permission: { '*': 'deny', read: { '*': 'deny', 'fixture.txt': 'allow', [fixturePath]: 'allow' } },
+  permission: { '*': 'deny', external_directory: { '*': 'deny', [`${workspace}/*`]: 'allow' }, read: { '*': 'deny', 'fixture.txt': 'allow', [fixturePath]: 'allow', [path.relative(process.cwd(), fixturePath)]: 'allow' } },
   provider: { [provider]: { npm: '@ai-sdk/openai-compatible', name: 'Sabi synthetic fixture',
     options: { baseURL: `http://127.0.0.1:${sabiPort}/v1`, apiKey: 'local-fixture-not-a-secret',
       headers: { 'X-Sabi-Client': host } },

@@ -115,3 +115,63 @@ test('telemetry config is validated', () => {
   assert.doesNotThrow(() => validateConfig({ ...base, telemetry: { allowlistOnly: true, captureChars: 400 } }))
   assert.throws(() => validateConfig({ ...base, telemetry: { captureChars: -1 } }), /captureChars/)
 })
+
+
+test('compatibility mode is explicit and strict metadata omissions remain unknown until a route is checked', () => {
+  assert.equal(validateConfig(minimal).compatibility, undefined)
+  assert.equal(validateConfig({ ...minimal, compatibility: { mode: 'strict' } }).compatibility?.mode, 'strict')
+  assert.equal(validateConfig({ ...minimal, compatibility: { mode: 'legacy' } }).compatibility?.mode, 'legacy')
+  for (const compatibility of [null, [], {}, { mode: 'yes' }, { mode: 'strict', silentFallback: true }]) {
+    assert.throws(() => validateConfig({ ...minimal, compatibility }), /compatibility/)
+  }
+})
+
+test('model limits, capabilities and operator-supplied context assumptions are validated', () => {
+  const metadata = {
+    contextWindow: 10000, maxOutputTokens: 1000,
+    capabilities: {
+      tools: true, parallelTools: true, strictTools: false,
+      inputModalities: ['text', 'image'], outputModalities: ['text'],
+      structuredOutput: ['json_schema'], reasoningEfforts: ['high'], supportedParameters: ['tools', 'max_tokens'],
+    },
+    contextAccounting: { textTokensPerByte: 1, requestOverheadTokens: 0, perMessageOverheadTokens: 2, mediaTokens: { image: 100 } },
+  }
+  const withMetadata = (patch: Record<string, unknown>) => ({
+    ...minimal, models: { cheap: { ...minimal.models.cheap, ...metadata, ...patch } },
+  })
+  assert.doesNotThrow(() => validateConfig(withMetadata({})))
+  for (const field of ['contextWindow', 'maxOutputTokens']) {
+    for (const bad of [-1, 0, 1.5, Infinity, NaN, '100', null]) {
+      assert.throws(() => validateConfig(withMetadata({ [field]: bad })), new RegExp(field))
+    }
+  }
+  assert.throws(() => validateConfig(withMetadata({ maxOutputTokens: 10001 })), /cannot exceed contextWindow/)
+  for (const capabilities of [
+    false, [], { tools: 'yes' }, { inputModalities: ['unknown'] }, { outputModalities: ['text', 'text'] },
+    { structuredOutput: ['yaml'] }, { reasoningEfforts: 'high' }, { supportedParameters: [''] },
+    { typoTools: true }, { tools: false, parallelTools: true },
+  ]) assert.throws(() => validateConfig(withMetadata({ capabilities })), /capabilities/)
+  for (const contextAccounting of [
+    null, {}, { ...metadata.contextAccounting, textTokensPerByte: NaN },
+    { ...metadata.contextAccounting, textTokensPerByte: 0 },
+    { ...metadata.contextAccounting, requestOverheadTokens: -1 },
+    { ...metadata.contextAccounting, perMessageOverheadTokens: 0.1 },
+    { ...metadata.contextAccounting, mediaTokens: { image: 0 } },
+    { ...metadata.contextAccounting, mediaTokens: { speech: 100 } },
+    { ...metadata.contextAccounting, typo: 5 },
+  ]) assert.throws(() => validateConfig(withMetadata({ contextAccounting })), /contextAccounting/)
+})
+
+test('unknown price stays absent and invalid numeric rates never become free', () => {
+  assert.equal(validateConfig(minimal).models.cheap!.cost, undefined)
+  for (const cost of [{ input: NaN, output: 1 }, { input: 1, output: Infinity }, { input: -1, output: 1 }, { input: 1 }, { input: 1, output: 1, cacheRead: -1 }]) {
+    assert.throws(() => validateConfig({ ...minimal, models: { cheap: { ...minimal.models.cheap, cost } } }), /cost/)
+  }
+  assert.doesNotThrow(() => validateConfig({ ...minimal, models: { cheap: { ...minimal.models.cheap, cost: { input: 0, output: 0 } } } }))
+})
+
+test('model and policy dictionaries cannot resolve inherited properties', () => {
+  assert.throws(() => validateConfig({ ...minimal, aliases: { bad: 'toString' } }), /unknown tier/)
+  assert.throws(() => validateConfig({ ...minimal, policy: { unclassified: 'constructor' } }), /unknown tier/)
+  assert.throws(() => validateConfig({ ...minimal, models: [] }), /models must be an object/)
+})

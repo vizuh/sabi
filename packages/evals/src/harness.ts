@@ -45,11 +45,11 @@ export interface EvalSummary {
   baseline: {
     tier: string
     rounds: number
-    cost: number
+    cost: number | null
   }
   sabi: {
-    cost: number
-    savingsPct: number
+    cost: number | null
+    savingsPct: number | null
   }
   quality: {
     /** Passed tasks that Sabi would route through at most the baseline tier. */
@@ -89,6 +89,8 @@ export function runEval(config: EvalConfigInput, tasks: EvalTask[]): EvalSummary
   let blocked = 0
   let sabiCost = 0
   let baselineCost = 0
+  let unknownSabiCost = false
+  let unknownBaselineCost = false
   let passedWithinBaseline = 0
   let failedEscalated = 0
 
@@ -145,7 +147,9 @@ export function runEval(config: EvalConfigInput, tasks: EvalTask[]): EvalSummary
       byTier[decision.tier] = (byTier[decision.tier] ?? 0) + 1
       totalRounds += 1
       const model = config.models[decision.tier]
-      sabiCost += estimateCost({ promptTokens: 1000, completionTokens: 200, cachedTokens: 0, totalTokens: 1200 }, model?.cost).total
+      const priced = estimateCost({ promptTokens: 1000, completionTokens: 200, cachedTokens: 0, totalTokens: 1200 }, model?.cost)
+      if (priced) sabiCost += priced.total
+      else unknownSabiCost = true
       previousFailure = { failure: state.failure, failureEvidence: state.failureEvidence }
     }
 
@@ -170,26 +174,29 @@ export function runEval(config: EvalConfigInput, tasks: EvalTask[]): EvalSummary
 
     // Baseline cost: count the same rounds but always on the baseline tier.
     const baselineModel = config.models[baselineTier]
-    baselineCost += rounds.length * estimateCost({ promptTokens: 1000, completionTokens: 200, cachedTokens: 0, totalTokens: 1200 }, baselineModel?.cost).total
+    const pricedBaseline = estimateCost({ promptTokens: 1000, completionTokens: 200, cachedTokens: 0, totalTokens: 1200 }, baselineModel?.cost)
+    if (pricedBaseline) baselineCost += rounds.length * pricedBaseline.total
+    else unknownBaselineCost = true
   }
 
   return {
     tasks: results,
     totals: { tasks: tasks.length, passed, failed, blocked, rounds: totalRounds },
     routing: { byRule, byTier },
-    baseline: { tier: baselineTier, rounds: totalRounds, cost: baselineCost },
-    sabi: { cost: sabiCost, savingsPct: baselineCost > 0 ? (1 - sabiCost / baselineCost) * 100 : 0 },
+    baseline: { tier: baselineTier, rounds: totalRounds, cost: unknownBaselineCost ? null : baselineCost },
+    sabi: { cost: unknownSabiCost ? null : sabiCost, savingsPct: !unknownSabiCost && !unknownBaselineCost && baselineCost > 0 ? (1 - sabiCost / baselineCost) * 100 : null },
     quality: { passedWithinBaseline, failedEscalated },
   }
 }
 
 export function formatSummary(summary: EvalSummary): string {
+  const money = (n: number | null) => n === null ? 'unknown' : `$${n.toFixed(4)}`
   const lines = [
     `Sabi offline eval — ${summary.totals.tasks} tasks, ${summary.totals.rounds} rounds`,
     `pass ${summary.totals.passed} · fail ${summary.totals.failed} · blocked ${summary.totals.blocked}`,
     `routing  ${[...Object.entries(summary.routing.byTier)].map(([k, v]) => `${k}:${v}`).join(' ') || '—'}`,
     `rules    ${[...Object.entries(summary.routing.byRule)].map(([k, v]) => `${k}:${v}`).join(' ') || '—'}`,
-    `baseline ${summary.baseline.tier} → $${summary.baseline.cost.toFixed(4)} · sabi → $${summary.sabi.cost.toFixed(4)} · savings ${summary.sabi.savingsPct.toFixed(1)}% (offline repricing)`,
+    `baseline ${summary.baseline.tier} → ${money(summary.baseline.cost)} · sabi → ${money(summary.sabi.cost)} · savings ${summary.sabi.savingsPct === null ? 'unknown' : `${summary.sabi.savingsPct.toFixed(1)}%`} (offline repricing)`,
     `quality  ${summary.quality.passedWithinBaseline}/${summary.totals.passed} passed tasks never above the baseline · ${summary.quality.failedEscalated}/${summary.totals.failed} failed tasks escalated to strong`,
   ]
   return lines.join('\n')

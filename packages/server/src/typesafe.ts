@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 import { resolveKey, type JudgeConfig, type JudgeOutcome, type JudgeQuestions } from '@sabi/core'
 
 export interface JudgeCallResult {
@@ -8,7 +9,7 @@ export interface JudgeCallResult {
 }
 
 export interface JudgeClient {
-  ask(state: unknown, questions: JudgeQuestions, config: JudgeConfig): Promise<JudgeCallResult>
+  ask(state: unknown, questions: JudgeQuestions, config: JudgeConfig, signal?: AbortSignal): Promise<JudgeCallResult>
 }
 
 interface CacheEntry {
@@ -76,6 +77,7 @@ async function callJev(
   model: string,
   state: unknown,
   questions: JudgeQuestions,
+  signal?: AbortSignal,
 ): Promise<JudgeOutcome> {
   const url = `${config.baseURL.replace(/\/+$/, '')}/systemone`
   const headers: Record<string, string> = { 'content-type': 'application/json' }
@@ -83,18 +85,22 @@ async function callJev(
   if (key) headers.authorization = `Bearer ${key}`
   const body = JSON.stringify({ state, model, questions })
   const timeoutMs = config.timeoutMs ?? 2500
+  const timeout = AbortSignal.timeout(timeoutMs)
+  const callSignal = signal ? AbortSignal.any([signal, timeout]) : timeout
 
   for (let attempt = 1; ; attempt += 1) {
-    const response = await fetchImpl(url, { method: 'POST', headers, body, signal: AbortSignal.timeout(timeoutMs) })
+    callSignal.throwIfAborted()
+    const response = await fetchImpl(url, { method: 'POST', redirect: 'error', headers, body, signal: callSignal })
     if ((RETRYABLE.has(response.status) || response.status >= 500) && attempt < 2) {
       const retryAfter = Number(response.headers.get('retry-after') ?? 0)
-      const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 2000) : 400
-      await new Promise((resolve) => setTimeout(resolve, delay))
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 2000) : 400
+      await response.body?.cancel()
+      await delay(waitMs, undefined, { signal: callSignal })
       continue
     }
     if (!response.ok) {
-      const text = await response.text().catch(() => '')
-      throw new Error(`typesafe ${response.status}: ${text.slice(0, 200)}`)
+      await response.body?.cancel()
+      throw new Error(`typesafe ${response.status}`)
     }
     const payload = (await response.json()) as unknown
     return validateAnswers(payload, questions, model)
@@ -108,7 +114,8 @@ export function createTypesafeClient(options: TypesafeClientOptions = {}): Judge
   const cache = new Map<string, CacheEntry>()
 
   return {
-    async ask(state, questions, config) {
+    async ask(state, questions, config, signal) {
+      signal?.throwIfAborted()
       const model = config.model ?? 'jev-latest'
       const cacheKey = createHash('sha256')
         .update(JSON.stringify({ model, state, questions }))
@@ -119,7 +126,7 @@ export function createTypesafeClient(options: TypesafeClientOptions = {}): Judge
         return { outcome: hit.outcome, cached: true, latencyMs: 0 }
       }
       const started = now()
-      const outcome = await callJev(fetchImpl, config, model, state, questions)
+      const outcome = await callJev(fetchImpl, config, model, state, questions, signal)
       const latencyMs = now() - started
       if (ttl > 0) {
         cache.set(cacheKey, { expires: now() + ttl, outcome })

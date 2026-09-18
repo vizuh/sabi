@@ -349,8 +349,11 @@ test('decision records never embed secret-like markers (canary)', async () => {
 
 test('an upstream 429 is recorded as a transport outcome, distinct from a task error', async () => {
   mock429 = true
+  const callsBefore = mockBodies.length
   const response = await postChat({ model: 'sabi-code', stream: false, messages: [system, user] })
   assert.equal(response.status, 429)
+  assert.equal(response.headers.get('retry-after'), '1')
+  assert.equal(mockBodies.length, callsBefore + 1)
   const rows = await readDecisions()
   const record = rows[rows.length - 1]
   assert.equal(record.outcome, 'transport')

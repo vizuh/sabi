@@ -1,8 +1,7 @@
 import { appendFileSync, mkdirSync } from 'node:fs'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
-import { textOf } from './state.ts'
-import type { ChatRequestBody, CostBreakdown, CostRates, DecisionRecord, UsageTotals } from './types.ts'
+import type { CostBreakdown, CostRates, DecisionRecord, UsageTotals } from './types.ts'
 
 /** Decisions land beside the work, not beside the installation: `./.sabi/decisions.jsonl`. */
 export function defaultLogPath(): string {
@@ -18,19 +17,25 @@ export function emptyUsage(): UsageTotals {
   return { promptTokens: 0, completionTokens: 0, cachedTokens: 0, totalTokens: 0 }
 }
 
-export function sessionIdFor(body: ChatRequestBody): string {
-  const messages = Array.isArray(body.messages) ? body.messages : []
-  const system = messages.find((message) => message?.role === 'system')
-  const user = messages.find((message) => message?.role === 'user')
-  const basis = `${textOf(system?.content).slice(0, 2000)}::${textOf(user?.content).slice(0, 500)}`
-  return createHash('sha1').update(basis).digest('hex').slice(0, 12)
+/** Domain-separated hashes keep untrusted client/tool identifiers out of logs. */
+export function hashIdentity(kind: 'session' | 'turn' | 'tool', ...parts: string[]): string {
+  return createHash('sha256').update(JSON.stringify([kind, ...parts])).digest('hex')
 }
 
-export function estimateCost(usage: UsageTotals, rates?: CostRates): CostBreakdown {
-  if (!rates) return { input: 0, output: 0, total: 0 }
+/** No explicit session means no grouping. Never derive identity from prompt content. */
+export function sessionIdFor(session?: string, client = 'unknown'): string {
+  return session === undefined ? randomUUID() : hashIdentity('session', client, session)
+}
+
+export function estimateCost(usage: UsageTotals, rates?: CostRates): CostBreakdown | undefined {
+  if (!rates || ![rates.input, rates.output, rates.cacheRead ?? rates.input]
+    .every((rate) => typeof rate === 'number' && Number.isFinite(rate) && rate >= 0)) return undefined
+  if (![usage.promptTokens, usage.completionTokens, usage.cachedTokens, usage.totalTokens]
+    .every((tokens) => Number.isSafeInteger(tokens) && tokens >= 0)) return undefined
   const cached = Math.max(0, Math.min(usage.cachedTokens, usage.promptTokens))
   const uncached = Math.max(0, usage.promptTokens - cached)
   const input = (uncached * rates.input + cached * (rates.cacheRead ?? rates.input)) / 1e6
   const output = (usage.completionTokens * rates.output) / 1e6
-  return { input, output, total: input + output }
+  const total = input + output
+  return [input, output, total].every(Number.isFinite) ? { input, output, total } : undefined
 }

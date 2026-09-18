@@ -117,3 +117,9 @@ First honest finding: on the current task set the deterministic policy over-esca
 ## [2026-09-18] implementation | Multi-harness checkpoint 1 (in progress)
 
 User approved all implementation phases and requested incremental pushes plus a PR to main. Restored the approved plan/evidence files, which were absent from the checkout at start. Baseline: 90 tests passed, typecheck passed, offline eval passed. Added an opt-in, isolated real-client smoke runner using only Sabi plus a synthetic localhost provider; it is a diagnostic runner, not a compatibility certification. First OpenCode probe did not complete the tool round; investigation continues. Native Prime/Hermes and shared compatibility/proxy work are in progress separately. No paid calls; OPENROUTER_API_KEY is absent and live spending budget is unresolved. This checkpoint is not a support release.
+
+## [2026-09-18] implementation | Multi-harness checkpoint 2: shared contract
+
+Added opt-in strict request/model compatibility, post-judge revalidation, exact host tool-name classification, explicit hashed attribution and unknown-session isolation, bounded proxy cancellation/deadlines, validated SSE/JSON responses, one-attempt transport and redirect rejection. Missing usage/pricing now stays unknown through reporting and offline evals. Existing native Command Code policy/loop remains unchanged; legacy proxy mode remains explicit.
+
+Combined local checks passed 155 tests, typecheck and offline eval before the final checkpoint review. Real OpenCode 1.18.30 and isolated Kilo CLI 7.7.4 each completed a read-only two-round task through Sabi and a synthetic provider, routing mid→cheap. Prime's isolated strict proxy probe also passed three rounds; its native setters failed the same-parent-round gate, so no native adapter is claimed. Hermes work is tracked separately. No paid inference or normal client configuration changes. PR #3 targets main; merge waits for review and the final staged validation.
