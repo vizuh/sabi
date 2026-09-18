@@ -22,7 +22,8 @@ for (const line of readFileSync(logFile, 'utf8').split('\n')) {
 }
 
 const strong = config.models.strong ?? Object.values(config.models)[0]
-const sessions = new Set(rows.map((row) => row.sessionId))
+const sessions = new Set(rows.filter(row => row.sessionKnown === true).map(row => row.sessionId))
+const unattributedRequests = rows.filter(row => row.sessionKnown !== true).length
 const byTier = new Map<string, number>()
 const byRule = new Map<string, number>()
 const byModel = new Map<string, number>()
@@ -41,6 +42,9 @@ let judgeOverridesUp = 0
 let judgeLatencyMs = 0
 let judgeLatencyCount = 0
 let judgeInputTokens = 0
+let unknownCostRows = 0
+let unknownCounterfactualRows = 0
+let unknownJudgeUsageCalls = 0
 
 for (const row of rows) {
   byTier.set(row.tier, (byTier.get(row.tier) ?? 0) + 1)
@@ -61,17 +65,32 @@ for (const row of rows) {
       judgeLatencyCount += 1
     }
     // Cache hits carry the usage of the original call; count the spend once per real call.
-    if (!row.judge.cached) judgeInputTokens += row.judge.usage?.inputTokens ?? 0
+    if (!row.judge.cached) {
+      const tokens = row.judge.usage?.inputTokens
+      if (typeof tokens === 'number' && Number.isFinite(tokens) && tokens >= 0) judgeInputTokens += tokens
+      else unknownJudgeUsageCalls += 1
+    }
   }
-  if (!row.usage) continue
+  if (!row.usage) {
+    unknownCostRows += 1
+    unknownCounterfactualRows += 1
+    continue
+  }
   promptTokens += row.usage.promptTokens
   completionTokens += row.usage.completionTokens
   cachedTokens += row.usage.cachedTokens
-  cost += row.cost?.total ?? 0
-  counterfactual += estimateCost(row.usage, strong?.cost).total
+  if (typeof row.cost?.total === 'number' && Number.isFinite(row.cost.total) && row.cost.total >= 0) cost += row.cost.total
+  else unknownCostRows += 1
+  const pricedBaseline = estimateCost(row.usage, strong?.cost)
+  if (pricedBaseline) counterfactual += pricedBaseline.total
+  else unknownCounterfactualRows += 1
 }
 
-const judgeCost = (judgeInputTokens / 1e6) * (config.judge?.costPerMTokInput ?? 0.042)
+const judgeRate = config.judge?.costPerMTokInput
+const judgeCost = judgeCalls === 0 ? 0 : unknownJudgeUsageCalls > 0 || judgeRate === undefined ? null : (judgeInputTokens / 1e6) * judgeRate
+const modelCost = unknownCostRows > 0 ? null : cost
+const baselineCost = unknownCounterfactualRows > 0 ? null : counterfactual
+const money = (value: number | null): string => value === null ? 'unknown' : `$${value.toFixed(4)}`
 
 const formatMap = (map: Map<string, number>): string =>
   [...map.entries()]
@@ -79,8 +98,8 @@ const formatMap = (map: Map<string, number>): string =>
     .map(([key, count]) => `${key} ${count}`)
     .join(' · ') || '—'
 
-const savings = counterfactual > 0 ? (1 - cost / counterfactual) * 100 : 0
-const netCost = cost + judgeCost
+const netCost = modelCost === null || judgeCost === null ? null : modelCost + judgeCost
+const savings = baselineCost !== null && baselineCost > 0 && netCost !== null ? (1 - netCost / baselineCost) * 100 : null
 
 if (asJson) {
   console.log(
@@ -89,6 +108,10 @@ if (asJson) {
         logFile,
         decisions: rows.length,
         sessions: sessions.size,
+        unattributedRequests,
+        unknownCostRows,
+        unknownCounterfactualRows,
+        unknownJudgeUsageCalls,
         errors,
         transports,
         byTier: Object.fromEntries(byTier),
@@ -97,10 +120,11 @@ if (asJson) {
         promptTokens,
         completionTokens,
         cachedTokens,
-        cost,
+        cost: modelCost,
+        knownCostSubtotal: cost,
         judgeCost,
         netCost,
-        counterfactual,
+        counterfactual: baselineCost,
         savingsPct: savings,
         counterfactualType: 'estimate',
         judge: {
@@ -120,7 +144,7 @@ if (asJson) {
   )
 } else {
   console.log(`Sabi report — ${logFile}`)
-  console.log(`decisions ${rows.length} · sessions ${sessions.size} · errors ${errors} · transport ${transports}`)
+  console.log(`decisions ${rows.length} · known sessions ${sessions.size} · unattributed requests ${unattributedRequests} · errors ${errors} · transport ${transports}`)
   console.log('')
   console.log(`by tier   ${formatMap(byTier)}`)
   console.log(`by rule   ${formatMap(byRule)}`)
@@ -129,7 +153,7 @@ if (asJson) {
     const avg = judgeLatencyCount ? Math.round(judgeLatencyMs / judgeLatencyCount) : 0
     console.log(
       `judge     ${judgeCalls} calls (${judgeCalls - judgeErrors} ok, ${judgeErrors} failed, ${judgeCached} cached)` +
-        ` · ${judgeOverridesDown} downgrades, ${judgeOverridesUp} upgrades · avg ${avg}ms · ${judgeInputTokens} tok ~$${judgeCost.toFixed(6)}`,
+        ` · ${judgeOverridesDown} downgrades, ${judgeOverridesUp} upgrades · avg ${avg}ms · ${judgeInputTokens} known tok · cost ${money(judgeCost)}`,
     )
   }
   console.log('')
@@ -137,6 +161,6 @@ if (asJson) {
     `tokens    in ${promptTokens.toLocaleString()} (cached ${cachedTokens.toLocaleString()}) · out ${completionTokens.toLocaleString()}`,
   )
   console.log(
-    `cost      $${cost.toFixed(4)} (nets $${netCost.toFixed(4)} with judge) · all-${strong ? 'strong' : 'baseline'} counterfactual $${counterfactual.toFixed(4)} · savings ${savings.toFixed(1)}% (rate-only estimate)`,
+    `cost      ${money(modelCost)} (net ${money(netCost)} with judge) · all-${strong ? 'strong' : 'baseline'} counterfactual ${money(baselineCost)} · savings ${savings === null ? 'unknown' : `${savings.toFixed(1)}%`} (rate-only estimate)`,
   )
 }

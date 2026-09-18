@@ -36,7 +36,7 @@ test('the frozen task set replays through deterministic routing without paid cal
     }
   }
   // No network: the run is pure.
-  assert.ok(summary.sabi.cost >= 0)
+  assert.ok(summary.sabi.cost !== null && summary.sabi.cost >= 0)
 })
 
 test('the verify-failing-test task escalates to strong', () => {
@@ -71,8 +71,8 @@ test('routing to cheaper tiers than the baseline produces positive savings', () 
   // A task set with only cheap rounds (explore + edit) should beat the all-mid baseline.
   const cheapTasks = TASK_SET.filter((task) => task.id === 'explore-small-grep' || task.id === 'edit-implementation')
   const summary = runEval(config, cheapTasks)
-  assert.ok(summary.sabi.savingsPct > 0)
-  assert.ok(summary.sabi.cost < summary.baseline.cost)
+  assert.ok(summary.sabi.savingsPct !== null && summary.sabi.savingsPct > 0)
+  assert.ok(summary.sabi.cost !== null && summary.baseline.cost !== null && summary.sabi.cost < summary.baseline.cost)
 })
 
 test('context-pressure fires when the window is small enough', () => {
@@ -107,4 +107,10 @@ test('a fixed baseline comparison is deterministic', () => {
   const a = runEval(config, TASK_SET)
   const b = runEval(config, TASK_SET)
   assert.deepEqual(a, b)
+})
+test('unknown pricing stays unknown instead of appearing free', () => {
+  const summary = runEval({ ...config, models: { cheap: {}, mid: {}, strong: {} } }, TASK_SET)
+  assert.equal(summary.sabi.cost, null)
+  assert.equal(summary.baseline.cost, null)
+  assert.equal(summary.sabi.savingsPct, null)
 })

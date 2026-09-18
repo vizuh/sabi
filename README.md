@@ -31,7 +31,7 @@ Each round is classified from the state of the trajectory — round position, to
 | read / search / bookkeeping | `exploration` | cheap |
 | anything else | `unclassified` | cheap |
 
-The proxy records routed rounds in `.sabi/decisions.jsonl` and summarizes them with `npm run report`. The mod records decisions as host session entries, which that report does not read. **Privacy:** records can contain tool-output excerpts and provider error text. Keep logs local until the [telemetry review](docs/research/folder-review.md) is addressed.
+The proxy records routed rounds in `.sabi/decisions.jsonl` and summarizes them with `npm run report`. The mod records decisions as host session entries, which that report does not read. **Privacy:** default telemetry stores allowlisted evidence and hashed opaque identities; diagnostic snippets are opt-in. Keep logs local and review `telemetry` settings before enabling capture.
 
 ## Install — Command Code mod (recommended)
 
@@ -130,7 +130,7 @@ One batched TypeSafe request covers both questions using excerpts of the last in
 ## Verify
 
 ```bash
-npm test        # state extraction, policy, judge, TypeSafe client, config discovery, proxy e2e (59 tests)
+npm test        # core, proxy, adapter-profile and eval tests
 npm run typecheck
 npm run report  # decisions, tokens, cost, savings vs an all-strong counterfactual, judge stats
 ```
@@ -141,11 +141,13 @@ npm run report  # decisions, tokens, cost, savings vs an all-strong counterfactu
 packages/core                    trajectory state, policy, judge application, router, config discovery, decision log
 packages/server                  OpenAI-compatible proxy (SSE passthrough + tap), TypeSafe client, /v1/models, report
 packages/adapters/command-code   the in-process mod (mod/sabi.ts) + the BYOK provider writer (src/connect.ts)
+packages/adapters/hermes         opt-in metadata bridge and isolated compatibility probe
+packages/adapters/prime-agent   private isolated proxy/timing probe; no native adapter
 ```
 
-`npm run mod` loads the mod from a checkout. The proxy adds `stream_options.include_usage` for upstreams that support it, rewrites the response `model` field back to the synthetic alias, taps the SSE stream for usage, and logs decision records with the privacy limits described above. Judge calls are made before forwarding and are recorded on the decision (`judge.status`, probabilities, override direction, latency, token cost).
+`npm run mod` loads the mod from a checkout. The proxy uses one shared effective-envelope check before adding `stream_options.include_usage` for eligible upstreams, rewrites the response `model` field back to the synthetic alias, taps the SSE stream for usage, and logs decision records with the privacy limits described above. Judge calls are made before forwarding and are recorded on the decision (`judge.status`, probabilities, override direction, latency, token cost).
 
-Planned: `evals`, `prime-agent` and `opencode` adapters, learned model profiles, quota awareness.
+The compatibility notes and isolated probes for Hermes, Prime Agent, OpenCode and Kilo live in [docs/harnesses.md](docs/harnesses.md). Native per-round hooks remain gated until same-trajectory behavior is proven. Future work includes learned model profiles and quota awareness.
 
 ## Prior art
 

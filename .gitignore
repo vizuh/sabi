@@ -29,3 +29,8 @@ coverage/
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Isolated Python adapter tests
+.venv/
+__pycache__/
+*.py[cod]
