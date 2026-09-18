@@ -2,17 +2,23 @@ import { once } from 'node:events'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import {
   appendDecision,
+  applyJudge,
+  buildJudgeState,
   defaultLogPath,
   estimateCost,
+  JUDGE_QUESTIONS,
+  judgeTriggers,
   route,
   SabiRouteError,
   sessionIdFor,
   type ChatRequestBody,
   type DecisionRecord,
+  type JudgeRecord,
   type RouteDecision,
   type SabiConfig,
 } from '@sabi/core'
 import { createSseTap } from './sse.ts'
+import { createTypesafeClient, type JudgeClient } from './typesafe.ts'
 import { buildUpstreamBody, callUpstream, readErrorText, usageFromJson } from './upstream.ts'
 
 const BODY_LIMIT = 32 * 1024 * 1024
@@ -22,6 +28,7 @@ export interface SabiServerOptions {
   config: SabiConfig
   logFile?: string
   verbose?: boolean
+  judgeClient?: JudgeClient
 }
 
 export interface SabiServer {
@@ -35,6 +42,7 @@ interface ServerState {
   options: SabiServerOptions
   logFile: string
   recent: DecisionRecord[]
+  judge: JudgeClient
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
@@ -88,6 +96,7 @@ export function createSabiServer(options: SabiServerOptions): SabiServer {
     options,
     logFile: options.logFile ?? defaultLogPath(),
     recent: [],
+    judge: options.judgeClient ?? createTypesafeClient(),
   }
 
   const server = createServer((req, res) => {
@@ -178,6 +187,25 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     return
   }
 
+  let judgeRecord: JudgeRecord | undefined
+  if (config.judge && judgeTriggers(decision, config.judge)) {
+    const judgeState = buildJudgeState(body, decision, config.judge.maxStateChars)
+    const judgeStarted = Date.now()
+    try {
+      const result = await state.judge.ask(judgeState, JUDGE_QUESTIONS, config.judge)
+      const applied = applyJudge(decision, config, result.outcome)
+      decision = applied.decision
+      judgeRecord = { ...applied.record, latencyMs: result.latencyMs, cached: result.cached }
+    } catch (error) {
+      const name = (error as Error).name
+      judgeRecord = {
+        status: name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'error',
+        latencyMs: Date.now() - judgeStarted,
+        note: String((error as Error).message ?? error).slice(0, 200),
+      }
+    }
+  }
+
   const streamRequested = body.stream === true
   const record: DecisionRecord = {
     ts: new Date().toISOString(),
@@ -191,6 +219,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     upstreamModel: decision.upstreamModel,
     stream: streamRequested,
     state: decision.state,
+    judge: judgeRecord,
     outcome: 'ok',
   }
 
@@ -206,9 +235,12 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     if (state.options.verbose !== false) {
       const cost = record.cost ? ` $${record.cost.total.toFixed(5)}` : ''
       const tokens = record.usage ? ` ${record.usage.promptTokens}in/${record.usage.completionTokens}out` : ''
+      const judge = record.judge
+        ? ` · jev ${record.judge.overridden ? `${record.judge.direction}->${record.judge.finalTier}` : record.judge.status}`
+        : ''
       console.log(
         `[sabi] ${record.alias} -> ${decision.tier} (${decision.rule}) -> ${decision.upstreamModel}` +
-          ` · ${record.latencyMs}ms${tokens}${cost}${record.outcome !== 'ok' ? ` · ${record.outcome}: ${record.error ?? ''}` : ''}`,
+          ` · ${record.latencyMs}ms${tokens}${cost}${judge}${record.outcome !== 'ok' ? ` · ${record.outcome}: ${record.error ?? ''}` : ''}`,
       )
     }
   }

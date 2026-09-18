@@ -65,6 +65,25 @@ export interface UpstreamEntry {
   streamUsage?: boolean
 }
 
+export interface JudgeThresholds {
+  realProblem?: number
+  veto?: number
+  difficultyConfidence?: number
+}
+
+export interface JudgeConfig {
+  enabled: boolean
+  baseURL: string
+  apiKey?: string | false
+  model?: string
+  timeoutMs?: number
+  cacheTtlMs?: number
+  callOn?: string[]
+  thresholds?: JudgeThresholds
+  maxStateChars?: number
+  costPerMTokInput?: number
+}
+
 export interface SabiConfig {
   provenance?: string
   server?: { host?: string; port?: number }
@@ -72,6 +91,7 @@ export interface SabiConfig {
   models: Record<string, ModelEntry>
   aliases: Record<string, string>
   policy: Record<string, string>
+  judge?: JudgeConfig
 }
 
 export interface UsageTotals {
@@ -99,6 +119,22 @@ export interface CostBreakdown {
   total: number
 }
 
+export interface JudgeRecord {
+  status: 'ok' | 'error' | 'timeout'
+  model?: string
+  latencyMs?: number
+  cached?: boolean
+  realProblem?: number
+  difficulty?: string
+  difficultyConfidence?: number
+  originalTier?: string
+  finalTier?: string
+  overridden?: boolean
+  direction?: 'down' | 'up'
+  note?: string
+  usage?: { inputTokens: number; outputTokens: number }
+}
+
 export interface DecisionRecord {
   ts: string
   sessionId: string
@@ -111,6 +147,7 @@ export interface DecisionRecord {
   upstreamModel: string
   stream: boolean
   state: TrajectoryState
+  judge?: JudgeRecord
   usage?: UsageTotals
   cost?: CostBreakdown
   latencyMs?: number

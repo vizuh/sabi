@@ -32,12 +32,34 @@ let cachedTokens = 0
 let cost = 0
 let counterfactual = 0
 let errors = 0
+let judgeCalls = 0
+let judgeErrors = 0
+let judgeCached = 0
+let judgeOverridesDown = 0
+let judgeOverridesUp = 0
+let judgeLatencyMs = 0
+let judgeLatencyCount = 0
+let judgeInputTokens = 0
 
 for (const row of rows) {
   byTier.set(row.tier, (byTier.get(row.tier) ?? 0) + 1)
   byRule.set(row.rule, (byRule.get(row.rule) ?? 0) + 1)
   byModel.set(row.upstreamModel, (byModel.get(row.upstreamModel) ?? 0) + 1)
   if (row.outcome !== 'ok') errors += 1
+  if (row.judge) {
+    judgeCalls += 1
+    if (row.judge.status !== 'ok') judgeErrors += 1
+    if (row.judge.cached) judgeCached += 1
+    if (row.judge.overridden) {
+      if (row.judge.direction === 'down') judgeOverridesDown += 1
+      if (row.judge.direction === 'up') judgeOverridesUp += 1
+    }
+    if (!row.judge.cached && typeof row.judge.latencyMs === 'number') {
+      judgeLatencyMs += row.judge.latencyMs
+      judgeLatencyCount += 1
+    }
+    judgeInputTokens += row.judge.usage?.inputTokens ?? 0
+  }
   if (!row.usage) continue
   promptTokens += row.usage.promptTokens
   completionTokens += row.usage.completionTokens
@@ -45,6 +67,8 @@ for (const row of rows) {
   cost += row.cost?.total ?? 0
   counterfactual += estimateCost(row.usage, strong?.cost).total
 }
+
+const judgeCost = (judgeInputTokens / 1e6) * (config.judge?.costPerMTokInput ?? 0.042)
 
 const formatMap = (map: Map<string, number>): string =>
   [...map.entries()]
@@ -71,6 +95,16 @@ if (asJson) {
         cost,
         counterfactual,
         savingsPct: savings,
+        judge: {
+          calls: judgeCalls,
+          errors: judgeErrors,
+          cached: judgeCached,
+          overridesDown: judgeOverridesDown,
+          overridesUp: judgeOverridesUp,
+          avgLatencyMs: judgeLatencyCount ? Math.round(judgeLatencyMs / judgeLatencyCount) : 0,
+          inputTokens: judgeInputTokens,
+          cost: judgeCost,
+        },
       },
       null,
       2,
@@ -83,6 +117,13 @@ if (asJson) {
   console.log(`by tier   ${formatMap(byTier)}`)
   console.log(`by rule   ${formatMap(byRule)}`)
   console.log(`by model  ${formatMap(byModel)}`)
+  if (judgeCalls > 0) {
+    const avg = judgeLatencyCount ? Math.round(judgeLatencyMs / judgeLatencyCount) : 0
+    console.log(
+      `judge     ${judgeCalls} calls (${judgeCalls - judgeErrors} ok, ${judgeErrors} failed, ${judgeCached} cached)` +
+        ` · ${judgeOverridesDown} downgrades, ${judgeOverridesUp} upgrades · avg ${avg}ms · ${judgeInputTokens} tok ~$${judgeCost.toFixed(6)}`,
+    )
+  }
   console.log('')
   console.log(
     `tokens    in ${promptTokens.toLocaleString()} (cached ${cachedTokens.toLocaleString()}) · out ${completionTokens.toLocaleString()}`,

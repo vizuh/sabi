@@ -57,5 +57,17 @@
     "implementation": "mid",
     "exploration": "cheap",
     "unclassified": "cheap"
+  },
+  "judge": {
+    "enabled": true,
+    "baseURL": "https://api.typesafe.ai/v1",
+    "apiKey": "$TYPESAFE_API_KEY",
+    "model": "jev-latest",
+    "timeoutMs": 2500,
+    "cacheTtlMs": 600000,
+    "callOn": ["failure", "unclassified"],
+    "thresholds": { "realProblem": 0.6, "veto": 0.25, "difficultyConfidence": 0.6 },
+    "maxStateChars": 6000,
+    "costPerMTokInput": 0.042
   }
 }

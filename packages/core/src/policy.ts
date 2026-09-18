@@ -44,8 +44,14 @@ export interface TierDecision {
   reason: string
 }
 
-export function decideTier(state: TrajectoryState, policy: Record<string, string>): TierDecision {
+export function decideTier(
+  state: TrajectoryState,
+  policy: Record<string, string>,
+  options: { exclude?: string[] } = {},
+): TierDecision {
+  const exclude = new Set(options.exclude ?? [])
   for (const condition of POLICY_ORDER) {
+    if (exclude.has(condition)) continue
     const tier = policy[condition]
     if (!tier || tier === 'off') continue
     if (matches(condition, state)) {

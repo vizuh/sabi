@@ -119,3 +119,25 @@ Enables A/B comparison against fixed models on the same tasks, and isolates bugs
 
 ### Revisit later?
 After the first controlled cost/quality comparison run.
+
+---
+
+## [2026-09-18] Jev (TypeSafe System One) as the semantic judgment layer
+
+### Decision
+Sabi consults Jev (`jev-latest`) only on rounds the deterministic policy cannot settle — `failure` and `unclassified` — with one batched TypeSafe request covering a `noul` question ("is this a real problem the agent must fix?") and a `choice` question ("how demanding is this step?"). Thresholds: confirm escalation at ≥0.6, veto at ≤0.25, difficulty override at confidence ≥0.6. Fail-open on error or timeout.
+
+### Why
+The heuristics are cheap and mostly right; semantics are needed exactly where they are blind. Live testing had exposed a real defect: a user-requested failing command escalated a trivial round to Sonnet at 34.6k prompt tokens (~$0.069). Jev vetoes that class of escalation — verified live (real-problem 0.04 → routed to cheap) — while confirming genuine failures (0.95 → strong). Two questions in one call plus caching keeps each judgment at ~500ms and ~$0.00003.
+
+### Alternatives considered
+- Jev on every round — latency and cost on rounds the heuristics already settle.
+- Replacing the deterministic policy entirely — loses the auditable baseline and the fail-open path.
+
+### Tradeoffs
+- Judged rounds pay ~0.3–0.8s before the upstream call.
+- Bounded state (≤6k chars: last user instruction, last tool excerpt, round metadata; never the full conversation) is sent to `api.typesafe.ai`; the decision log still stores no prompt content.
+- Thresholds are initial values that need tuning against real traffic.
+
+### Revisit later?
+After real sessions: tune thresholds from observed veto/confirm precision, then consider judgments for verification intent and repeated-failure (stuck-loop) detection.

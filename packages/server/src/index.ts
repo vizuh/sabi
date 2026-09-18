@@ -16,6 +16,14 @@ for (const [name, upstream] of Object.entries(config.upstreams)) {
     missingKeys.push(`${name} (${(error as Error).message})`)
   }
 }
+const judge = config.judge
+if (judge?.enabled) {
+  try {
+    if (!resolveKey(judge.apiKey)) missingKeys.push(`judge (${String(judge.apiKey)})`)
+  } catch (error) {
+    missingKeys.push(`judge (${(error as Error).message})`)
+  }
+}
 
 const sabi = createSabiServer({ config, logFile })
 const actualPort = await sabi.listen(port, host)
@@ -26,6 +34,9 @@ console.log(`  log    : ${logFile}`)
 console.log(`  models : ${Object.keys(config.aliases).join(', ')}`)
 for (const [tier, model] of Object.entries(config.models)) {
   console.log(`    ${tier.padEnd(7)} -> ${model.upstream}/${model.model}`)
+}
+if (judge?.enabled) {
+  console.log(`  judge  : ${judge.model ?? 'jev-latest'} at ${judge.baseURL} (on: ${(judge.callOn ?? ['failure', 'unclassified']).join(', ')})`)
 }
 if (missingKeys.length) {
   console.log(`  WARN   : missing upstream credentials for ${missingKeys.join(', ')} — those requests will fail`)

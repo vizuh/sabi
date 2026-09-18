@@ -70,6 +70,46 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
     }
   }
 
+  const judge = config.judge
+  if (judge !== undefined) {
+    if (typeof judge !== 'object' || judge === null || typeof judge.enabled !== 'boolean') {
+      throw new Error(`Sabi config ${source}: judge.enabled must be a boolean`)
+    }
+    if (judge.enabled) {
+      if (typeof judge.baseURL !== 'string' || !judge.baseURL) {
+        throw new Error(`Sabi config ${source}: judge.baseURL is required when the judge is enabled`)
+      }
+      try {
+        new URL(judge.baseURL)
+      } catch {
+        throw new Error(`Sabi config ${source}: judge.baseURL is not a valid URL`)
+      }
+      if (judge.model !== undefined && typeof judge.model !== 'string') {
+        throw new Error(`Sabi config ${source}: judge.model must be a string`)
+      }
+      if (judge.callOn !== undefined) {
+        if (!Array.isArray(judge.callOn) || judge.callOn.some((rule) => typeof rule !== 'string')) {
+          throw new Error(`Sabi config ${source}: judge.callOn must be an array of policy rule names`)
+        }
+      }
+      for (const [name, value] of Object.entries(judge.thresholds ?? {})) {
+        if (typeof value !== 'number' || value < 0 || value > 1) {
+          throw new Error(`Sabi config ${source}: judge.thresholds.${name} must be a number between 0 and 1`)
+        }
+      }
+      for (const [name, value] of [
+        ['timeoutMs', judge.timeoutMs],
+        ['cacheTtlMs', judge.cacheTtlMs],
+        ['maxStateChars', judge.maxStateChars],
+        ['costPerMTokInput', judge.costPerMTokInput],
+      ] as const) {
+        if (value !== undefined && (typeof value !== 'number' || value <= 0)) {
+          throw new Error(`Sabi config ${source}: judge.${name} must be a positive number`)
+        }
+      }
+    }
+  }
+
   return { ...config, upstreams, models, aliases, policy }
 }
 

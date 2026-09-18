@@ -4,14 +4,28 @@ import { createServer, type Server } from 'node:http'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { validateConfig, type DecisionRecord } from '@sabi/core'
+import { validateConfig, type DecisionRecord, type JudgeOutcome } from '@sabi/core'
 import { createSabiServer, type SabiServer } from '../src/server.ts'
+import type { JudgeClient } from '../src/typesafe.ts'
 
 let mock: Server
 let sabi: SabiServer
 let sabiPort = 0
 let logFile = ''
 let mockBodies: Array<Record<string, unknown>> = []
+
+const defaultJudge: JudgeOutcome = { realProblem: 0.9, difficulty: 'standard', difficultyConfidence: 0.9 }
+let judgeOutcome: JudgeOutcome = defaultJudge
+let judgeThrows = false
+let judgeCalls = 0
+
+const stubJudge: JudgeClient = {
+  async ask() {
+    judgeCalls += 1
+    if (judgeThrows) throw new Error('typesafe unavailable')
+    return { outcome: { ...judgeOutcome, model: 'jev-1.13.0', usage: { inputTokens: 400, outputTokens: 30 } }, cached: false, latencyMs: 7 }
+  },
+}
 
 function listen(server: Server): Promise<number> {
   return new Promise((resolve) => {
@@ -111,10 +125,11 @@ before(async () => {
       exploration: 'cheap',
       unclassified: 'cheap',
     },
+    judge: { enabled: true, baseURL: 'https://api.typesafe.ai/v1', callOn: ['failure', 'unclassified'] },
   })
   const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-test-'))
   logFile = path.join(dir, 'decisions.jsonl')
-  sabi = createSabiServer({ config, logFile, verbose: false })
+  sabi = createSabiServer({ config, logFile, verbose: false, judgeClient: stubJudge })
   sabiPort = await sabi.listen(0, '127.0.0.1')
 })
 
@@ -222,4 +237,87 @@ test('the models endpoint lists the synthetic aliases', async () => {
   const payload = (await response.json()) as { data?: Array<{ id?: string }> }
   const ids = (payload.data ?? []).map((entry) => entry.id)
   assert.deepEqual(ids.sort(), ['sabi-cheap', 'sabi-code', 'sabi-strong'])
+})
+
+async function postChat(payload: Record<string, unknown>): Promise<Response> {
+  return fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+async function lastDecision(): Promise<DecisionRecord> {
+  const rows = await readDecisions()
+  const record = rows[rows.length - 1]
+  assert.ok(record)
+  return record
+}
+
+const failingConversation = [
+  system,
+  user,
+  { role: 'assistant', tool_calls: [{ function: { name: 'shell_command', arguments: '{"command":"npm test"}' } }] },
+  { role: 'tool', content: 'Tests: 2 failed, 10 passed\nexit code: 1' },
+]
+
+const unclassifiedConversation = [
+  system,
+  user,
+  { role: 'assistant', tool_calls: [{ function: { name: 'shell_command', arguments: '{"command":"docker ps"}' } }] },
+  { role: 'tool', content: 'CONTAINER ID  IMAGE  STATUS' },
+]
+
+test('jev vetoes a false escalation when the failure is expected', async () => {
+  judgeOutcome = { realProblem: 0.05, difficulty: 'standard', difficultyConfidence: 0.9 }
+  const response = await postChat({ model: 'sabi-code', stream: false, messages: failingConversation })
+  assert.equal(response.status, 200)
+  const record = await lastDecision()
+  assert.equal(record.rule, 'verification')
+  assert.equal(record.tier, 'mid')
+  assert.equal(record.judge?.overridden, true)
+  assert.equal(record.judge?.direction, 'down')
+  assert.equal(record.judge?.realProblem, 0.05)
+  assert.equal(mockBodies[mockBodies.length - 1]?.model, 'mock-mid')
+  judgeOutcome = defaultJudge
+})
+
+test('a judge failure falls back to the deterministic decision', async () => {
+  judgeThrows = true
+  const response = await postChat({ model: 'sabi-code', stream: false, messages: unclassifiedConversation })
+  assert.equal(response.status, 200)
+  const record = await lastDecision()
+  assert.equal(record.rule, 'unclassified')
+  assert.equal(record.tier, 'cheap')
+  assert.equal(record.judge?.status, 'error')
+  assert.match(String(record.judge?.note), /typesafe unavailable/)
+  judgeThrows = false
+})
+
+test('jev upgrades an unclassified round when the step is demanding', async () => {
+  judgeOutcome = { realProblem: 0.9, difficulty: 'demanding', difficultyConfidence: 0.95 }
+  const response = await postChat({ model: 'sabi-code', stream: false, messages: unclassifiedConversation })
+  assert.equal(response.status, 200)
+  const record = await lastDecision()
+  assert.equal(record.tier, 'strong')
+  assert.equal(record.judge?.overridden, true)
+  assert.equal(record.judge?.direction, 'up')
+  assert.equal(record.judge?.difficulty, 'demanding')
+  assert.equal(mockBodies[mockBodies.length - 1]?.model, 'mock-strong')
+  judgeOutcome = defaultJudge
+})
+
+test('the judge is not called for rounds outside callOn', async () => {
+  const before = judgeCalls
+  await postChat({
+    model: 'sabi-code',
+    stream: false,
+    messages: [
+      system,
+      user,
+      { role: 'assistant', tool_calls: [{ function: { name: 'grep', arguments: '{}' } }] },
+      { role: 'tool', content: '2 matches' },
+    ],
+  })
+  assert.equal(judgeCalls, before)
 })

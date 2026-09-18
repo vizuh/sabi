@@ -1,0 +1,135 @@
+import { createHash } from 'node:crypto'
+import { resolveKey, type JudgeConfig, type JudgeOutcome, type JudgeQuestions } from '@sabi/core'
+
+export interface JudgeCallResult {
+  outcome: JudgeOutcome
+  cached: boolean
+  latencyMs: number
+}
+
+export interface JudgeClient {
+  ask(state: unknown, questions: JudgeQuestions, config: JudgeConfig): Promise<JudgeCallResult>
+}
+
+interface CacheEntry {
+  expires: number
+  outcome: JudgeOutcome
+}
+
+export interface TypesafeClientOptions {
+  fetchImpl?: typeof fetch
+  now?: () => number
+  maxCacheEntries?: number
+}
+
+const RETRYABLE = new Set([429, 529])
+
+export function validateAnswers(payload: unknown, questions: JudgeQuestions, requestedModel: string): JudgeOutcome {
+  if (!payload || typeof payload !== 'object') throw new Error('typesafe: empty response')
+  const record = payload as Record<string, unknown>
+  const answers = record.answers
+  if (!answers || typeof answers !== 'object') throw new Error('typesafe: missing answers map')
+  const map = answers as Record<string, unknown>
+
+  const real = map.real_problem as Record<string, unknown> | undefined
+  if (!real || real.type !== 'noul') throw new Error('typesafe: missing noul answer for real_problem')
+  const noul = Number(real.noul)
+  if (!Number.isFinite(noul) || noul < 0 || noul > 1) {
+    throw new Error('typesafe: real_problem.noul out of range')
+  }
+
+  const difficulty = map.difficulty as Record<string, unknown> | undefined
+  if (!difficulty || difficulty.type !== 'choice') throw new Error('typesafe: missing choice answer for difficulty')
+  const options = Object.keys(questions.difficulty.criteria)
+  const choice = String(difficulty.choice ?? '')
+  if (!options.includes(choice)) throw new Error(`typesafe: unknown difficulty choice '${choice}'`)
+  const confidence = Number(difficulty.confidence)
+  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+    throw new Error('typesafe: difficulty.confidence out of range')
+  }
+  const probabilities = (difficulty.probabilities ?? {}) as Record<string, unknown>
+  for (const option of options) {
+    const probability = Number(probabilities[option])
+    if (!Number.isFinite(probability) || probability < 0 || probability > 1) {
+      throw new Error(`typesafe: difficulty probability missing for '${option}'`)
+    }
+  }
+
+  const usage = (record.usage ?? {}) as Record<string, unknown>
+  const inputTokens = Number(usage.input_tokens ?? 0)
+  const outputTokens = Number(usage.output_tokens ?? 0)
+  return {
+    realProblem: noul,
+    difficulty: choice,
+    difficultyConfidence: confidence,
+    model: typeof record.model === 'string' && record.model ? record.model : requestedModel,
+    usage: {
+      inputTokens: Number.isFinite(inputTokens) ? Math.max(0, Math.trunc(inputTokens)) : 0,
+      outputTokens: Number.isFinite(outputTokens) ? Math.max(0, Math.trunc(outputTokens)) : 0,
+    },
+  }
+}
+
+async function callJev(
+  fetchImpl: typeof fetch,
+  config: JudgeConfig,
+  model: string,
+  state: unknown,
+  questions: JudgeQuestions,
+): Promise<JudgeOutcome> {
+  const url = `${config.baseURL.replace(/\/+$/, '')}/systemone`
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  const key = resolveKey(config.apiKey)
+  if (key) headers.authorization = `Bearer ${key}`
+  const body = JSON.stringify({ state, model, questions })
+  const timeoutMs = config.timeoutMs ?? 2500
+
+  for (let attempt = 1; ; attempt += 1) {
+    const response = await fetchImpl(url, { method: 'POST', headers, body, signal: AbortSignal.timeout(timeoutMs) })
+    if ((RETRYABLE.has(response.status) || response.status >= 500) && attempt < 2) {
+      const retryAfter = Number(response.headers.get('retry-after') ?? 0)
+      const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 2000) : 400
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      continue
+    }
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      throw new Error(`typesafe ${response.status}: ${text.slice(0, 200)}`)
+    }
+    const payload = (await response.json()) as unknown
+    return validateAnswers(payload, questions, model)
+  }
+}
+
+export function createTypesafeClient(options: TypesafeClientOptions = {}): JudgeClient {
+  const fetchImpl = options.fetchImpl ?? fetch
+  const now = options.now ?? (() => Date.now())
+  const maxEntries = options.maxCacheEntries ?? 256
+  const cache = new Map<string, CacheEntry>()
+
+  return {
+    async ask(state, questions, config) {
+      const model = config.model ?? 'jev-latest'
+      const cacheKey = createHash('sha256')
+        .update(JSON.stringify({ model, state, questions }))
+        .digest('hex')
+      const ttl = config.cacheTtlMs ?? 600_000
+      const hit = cache.get(cacheKey)
+      if (hit && hit.expires > now()) {
+        return { outcome: hit.outcome, cached: true, latencyMs: 0 }
+      }
+      const started = now()
+      const outcome = await callJev(fetchImpl, config, model, state, questions)
+      const latencyMs = now() - started
+      if (ttl > 0) {
+        cache.set(cacheKey, { expires: now() + ttl, outcome })
+        while (cache.size > maxEntries) {
+          const oldest = cache.keys().next().value
+          if (oldest === undefined) break
+          cache.delete(oldest)
+        }
+      }
+      return { outcome, cached: false, latencyMs }
+    },
+  }
+}

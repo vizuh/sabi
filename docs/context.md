@@ -36,7 +36,7 @@ Hypotheses to validate before committing:
 
 ## Current state
 
-MVP (2026-09-18): Sabi runs as a local OpenAI-compatible proxy (`packages/server`) with a deterministic policy (`packages/core`) and is connected to Command Code as a keyless BYOK provider (`sabi/sabi-code`). Verified end-to-end: 23 tests green, typecheck clean, and live Command Code headless sessions routing first-turn rounds to mid, tool rounds to cheap, and failing-test rounds to strong, with usage and estimated cost recorded. No learned profiles, quota awareness, or Jev judgments yet — routing conditions are heuristic.
+MVP (2026-09-18): Sabi runs as a local OpenAI-compatible proxy (`packages/server`) with a deterministic policy (`packages/core`), a Jev judgment layer (TypeSafe System One) for rounds the heuristics cannot settle, and is connected to Command Code as a keyless BYOK provider (`sabi/sabi-code`). Verified end-to-end: 41 tests green, typecheck clean, and live Command Code headless sessions routing first-turn rounds to mid, tool rounds to cheap, failing-test rounds to strong, and — with Jev — vetoing false escalations (a user-requested failing command now routes to cheap instead of strong). No learned profiles or quota awareness yet.
 
 ## Key flows
 
@@ -44,11 +44,12 @@ Implemented (v0, Command Code):
 
 1. The harness posts a chat completion to the local Sabi endpoint, addressed to the synthetic model `sabi-code`.
 2. Sabi classifies the round from the request: position, last tool calls, tool results, failure evidence, context size.
-3. The policy maps the round to a tier (cheap/mid/strong); `sabi.config.json` maps tiers to real upstream models.
-4. Sabi rewrites the model, forwards to the OpenAI-compatible upstream (OpenRouter today), and streams the response back with the model field rewritten to `sabi-code`.
-5. Usage is captured from the stream, cost estimated from configured rates, and the decision appended to `.sabi/decisions.jsonl`; `npm run report` aggregates.
+3. On rounds the heuristics cannot settle (`failure`, `unclassified`), one bounded Jev request judges whether the failure is real and how demanding the step is; low confidence, errors or timeouts fall back to the deterministic policy.
+4. The policy maps the round to a tier (cheap/mid/strong); `sabi.config.json` maps tiers to real upstream models.
+5. Sabi rewrites the model, forwards to the OpenAI-compatible upstream (OpenRouter today), and streams the response back with the model field rewritten to `sabi-code`.
+6. Usage is captured from the stream, cost estimated from configured rates, and the decision (including the judge outcome) appended to `.sabi/decisions.jsonl`; `npm run report` aggregates.
 
-Planned: Jev judgments, learned model profiles, quota/economics inputs, evaluation loop.
+Planned: learned model profiles, quota/economics inputs, evaluation loop.
 
 ## Constraints
 
