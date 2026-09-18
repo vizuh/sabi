@@ -1,5 +1,6 @@
 import { isEnabledUpstream, servesInputModalities } from './compatibility.ts'
 import { decideTier } from './policy.ts'
+import { candidateBeatsIncumbent, recoveryRate, type RecoveryProfile } from './recovery.ts'
 import { textOf } from './state.ts'
 import type { ChatRequestBody, JudgeConfig, JudgeRecord, SabiConfig, RouteDecision } from './types.ts'
 
@@ -124,6 +125,7 @@ export function applyJudge(
   decision: RouteDecision,
   config: SabiConfig,
   outcome: JudgeOutcome,
+  profile?: RecoveryProfile,
 ): { decision: RouteDecision; record: JudgeRecord } {
   const thresholds = config.judge?.thresholds ?? {}
   const realProblemFloor = thresholds.realProblem ?? 0.6
@@ -131,6 +133,10 @@ export function applyJudge(
   const difficultyFloor = thresholds.difficultyConfidence ?? 0.6
 
   let next = decision
+  // Set only by the ambiguous-band recovery tie-breaker below. Guards the difficulty block
+  // further down: retier() can resolve the fallback rule to 'unclassified', which would
+  // otherwise re-trigger that block and silently overwrite this decision.
+  let declinedViaRecovery = false
   const record: JudgeRecord = {
     status: 'ok',
     model: outcome.model,
@@ -192,11 +198,42 @@ export function applyJudge(
     } else if (outcome.realProblem >= realProblemFloor) {
       record.note = 'escalation confirmed'
     } else {
-      record.note = 'ambiguous; deterministic escalation kept'
+      // Ambiguous, not confident either way. If a locally-measured recovery rate (this session's
+      // own history, gated at a minimum sample size — see recovery.ts) says the deterministic
+      // fallback tier credibly recovers at least as often as the incumbent tier does (a
+      // non-overlapping-confidence-interval test, not a point-estimate comparison), decline the
+      // escalation. This can only fall back to a tier decideTier() itself already proposed —
+      // never invents one — and never fires outside this ambiguous band.
+      let declineNote: string | undefined
+      if (profile) {
+        const fallback = decideTier(decision.state, config.policy, { exclude: ['failure'] })
+        const incumbentModel = config.models[decision.tier]?.model
+        const candidateModel = config.models[fallback.tier]?.model
+        const incumbent = incumbentModel ? recoveryRate(profile, decision.tier, incumbentModel) : undefined
+        const candidate = candidateModel ? recoveryRate(profile, fallback.tier, candidateModel) : undefined
+        if (candidateBeatsIncumbent(candidate, incumbent)) {
+          const changed = retier(
+            fallback.tier,
+            fallback.rule,
+            `local recovery rate favors '${fallback.tier}' over '${decision.tier}' (${fallback.reason})`,
+          )
+          // retier() can itself fall further back to a capability/availability substitute if the
+          // proposed fallback tier can't serve this round. Only claim a decline when what
+          // actually served is no stronger than the incumbent — otherwise this tie-breaker would
+          // silently stop being decline-only/one-directional in that edge case.
+          if (changed && (TIER_ORDER[next.tier] ?? 0) <= (TIER_ORDER[decision.tier] ?? 0)) {
+            declineNote = `ambiguous; declined via local recovery rate (n=${candidate!.eligible}/${incumbent!.eligible})`
+            declinedViaRecovery = true
+          } else if (changed) {
+            declineNote = `ambiguous; local recovery favored a tier unavailable for this round, kept a different substitute (${next.rule})`
+          }
+        }
+      }
+      record.note = declineNote ?? 'ambiguous; deterministic escalation kept'
     }
   }
 
-  if (next.rule === 'unclassified' && typeof outcome.difficulty === 'string') {
+  if (next.rule === 'unclassified' && typeof outcome.difficulty === 'string' && !declinedViaRecovery) {
     const confidence = outcome.difficultyConfidence ?? 0
     const tier = DIFFICULTY_TIERS[outcome.difficulty]
     if (tier && config.models[tier] && confidence >= difficultyFloor) {

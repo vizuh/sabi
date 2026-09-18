@@ -12,6 +12,7 @@
     "report": "node packages/server/src/report.ts",
     "eval": "node packages/evals/src/run.ts",
     "setup": "node scripts/setup.ts",
+    "backtest": "node packages/evals/src/backtest.ts",
     "connect:command-code": "node packages/adapters/command-code/src/connect.ts",
     "connect:opencode": "node packages/adapters/opencode/src/connect.ts",
     "mod": "cmd --mod ./packages/adapters/command-code/mod/sabi.ts"

@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { CostBreakdown, CostRates, DecisionRecord, UsageTotals } from './types.ts'
@@ -11,6 +11,22 @@ export function defaultLogPath(): string {
 export function appendDecision(record: DecisionRecord, logFile = defaultLogPath()): void {
   mkdirSync(path.dirname(logFile), { recursive: true })
   appendFileSync(logFile, `${JSON.stringify(record)}\n`)
+}
+
+/** One JSON object per line, malformed lines skipped — the read side of `appendDecision`.
+ * Missing file returns an empty array rather than throwing: no traffic yet is not an error. */
+export function readDecisions(logFile = defaultLogPath()): DecisionRecord[] {
+  if (!existsSync(logFile)) return []
+  const rows: DecisionRecord[] = []
+  for (const line of readFileSync(logFile, 'utf8').split('\n')) {
+    if (!line.trim()) continue
+    try {
+      rows.push(JSON.parse(line) as DecisionRecord)
+    } catch {
+      // skip malformed line
+    }
+  }
+  return rows
 }
 
 export function emptyUsage(): UsageTotals {
