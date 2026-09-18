@@ -2,7 +2,7 @@
 
 ## Current status
 
-Multi-harness implementation is on `feat/multi-harness-support`, PR [#3](https://github.com/vizuh/sabi/pull/3) targets `main`. Checkpoints `87c4962`, `72fee25`, `cf02b6d` and `a28ee7d` are pushed; PR #3 remains draft pending final peer review before merge. Last combined validation: 164 Node tests, typecheck and offline eval pass; Hermes adapter adds 12 Python tests. OpenCode 1.18.30 and Kilo CLI 7.7.4 passed real-client read tasks through Sabi + a local mock. Prime 0.9.5 passed a strict three-round proxy probe; same-parent native setters are proven ineffective and remain deferred. Hermes 0.21.3 passed the isolated Hermes → Sabi → mock probe (`mid → cheap → mid`). No paid provider certification.
+PR #3 merged to `main` as `7d57ff4` from `feat/multi-harness-support`. A follow-up is on `fix/sse-terminal-choice-order` for one post-terminal SSE choice guard found by final peer probing. Last full validation before this follow-up: 164 Node tests, typecheck and offline eval pass; Hermes adapter adds 12 Python tests. OpenCode 1.18.30 and Kilo CLI 7.7.4 passed real-client read tasks through Sabi + a local mock. Prime 0.9.5 passed a strict three-round proxy probe; same-parent native setters are proven ineffective and remain deferred. Hermes 0.21.3 passed the isolated Hermes → Sabi → mock probe (`mid → cheap → mid`). No paid provider certification.
 
 ## Last meaningful update
 
@@ -11,10 +11,10 @@ Multi-harness implementation is on `feat/multi-harness-support`, PR [#3](https:/
 ## Multi-harness continuation — 2026-09-18
 
 - User authorized all implementation phases, incremental pushes, PR and merge to main after review. Do not wait for every client before delivering tested checkpoints.
-- PR #3 is draft pending peer review. Core/proxy/accounting code is already pushed; root owns staging/commits/merge. Never force-push or discard parallel changes.
+- PR #3 is merged after final review and local validation; follow-up PR #4 will carry only the post-terminal SSE guard. Root owns staging/commits/merge. Never force-push or discard parallel changes.
 - Native Prime timing evidence and reproducible proxy probe: [Prime compatibility](research/prime-agent-compatibility.md). Root verified four profile tests and the strict real-client evidence.
 - Hermes plugin has 12 passing tests and native standalone plus Hermes→Sabi→mock passes (`mid → cheap → mid`) in the isolated namespace. Metadata GETs still occur despite discovery-off; native routing remains gated. The proxy probe reports hashed attribution and stripped upstream headers.
-- Remaining: commit the reviewed fixes, complete peer-review disposition and final adapter checks, mark PR #3 ready and merge reviewed checkpoints, then continue Kilo VS Code runtime validation and paid smoke separately.
+- Remaining after PR #4: continue Kilo VS Code runtime validation and paid smoke separately; the native-routing and paid gates stay explicitly unclaimed.
 - VS Code is installed as Flatpak, but its Kilo extension is absent in the inspected extension directory. No normal app profile was changed.
 - Paid smoke is blocked: no `OPENROUTER_API_KEY` in the process and no approved USD cap. No credential files were searched. Ask for environment setup, never a key pasted into Git/chat.
 - The shared effective request envelope is now checked for generated model/stream-usage fields and context bytes. SSE terminal-state validation, unknown served-model pricing, implicit fallback model advertising and unknown Jev usage have regression coverage. Runtime logs/isolated clients are under `.sabi/compat/` and ignored. Do not commit them. No deployment or paid inference has happened.

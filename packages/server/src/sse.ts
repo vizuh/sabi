@@ -57,6 +57,9 @@ export function createSseTap(alias: string, onFinish: (result: SseTapResult) => 
       if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0) {
         throw new UpstreamProtocolError('invalid upstream stream choice index')
       }
+      if (choicesFinished.has(index)) {
+        throw new UpstreamProtocolError('upstream stream choice continued after terminal finish')
+      }
       choicesSeen.add(index)
       if (choice.finish_reason !== undefined && choice.finish_reason !== null) {
         if (typeof choice.finish_reason !== 'string' || !TERMINAL_REASONS.has(choice.finish_reason)) {
