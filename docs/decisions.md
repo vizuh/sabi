@@ -337,6 +337,26 @@ Re-check the thresholds after one real compaction; decide whether the shadow ans
 
 ---
 
+## [2026-09-18] One setup command instead of three manual procedures
+
+### Decision
+`scripts/setup.ts` (`npm run setup`) asks which harness (Command Code / OpenCode / Hermes) and, independently, whether to enable Jev, then dispatches to the harness-specific path. It does not replace the detailed per-harness sections in `docs/install.md` — it runs the same writers those sections document (Command Code, OpenCode) or automates the mechanical parts of a still-uncertified manual recipe (Hermes), and always defers to `docs/harnesses.md` for Kilo/Prime Agent rather than attempting to automate paths that have no writer at all.
+
+### Why
+Wiring Sabi in was three unrelated procedures with no common entry point, and turning on Jev was a fourth, separate manual step (export a key, hand-edit `sabi.config.json`). None of that changed technically this session — this is packaging, not new routing behavior.
+
+### Alternatives considered
+- A single `resolveChoice<T>` combinator generalized across the harness pick (3-way, no safe default) and the yes/no questions (Jev, paid/free) — rejected; the harness pick's "no flag + non-TTY = fail, don't guess" behavior is different enough from the yes/no questions' "fall back to the safe answer" that forcing one generic shape produced more branching than two small, honest functions (`resolveHarness`, `resolveYesNo`).
+- Importing `opencode/connect.ts` directly instead of spawning it — rejected; that file reads `process.argv`/`process.env` at module scope regardless of any main-guard, so importing it would never be side-effect-free. Spawning is the only option and is already the pattern its own test suite uses.
+- Auto-filling Hermes's `REPLACE_WITH_VERIFIED_CONTEXT_TOKENS` placeholder with the computed candidate (`minContextWindowFor(config, 'auto')`) — rejected; the number is mechanically correct but nobody has looked at it yet, and the Hermes recipe's own stance is that this value needs operator verification. The wizard prints the candidate and leaves the placeholder in the written file.
+
+### Tradeoffs
+- Jev is proxy-only (Class B / OpenCode / Hermes); the question is skipped for Command Code Class A specifically so a "no" or "yes" answer there never contradicts Class A's own "nothing written by this wizard" message.
+- `enableJev`/`setJevEnabled` needed to actively write `false`, not just skip writing on decline — the shipped `sabi.config.json` ships `judge.enabled: true`, so a no-op on decline would have silently ignored the user's answer. Caught in review, not in the original design.
+- The Hermes branch is new, uncertified code automating an already-uncertified manual recipe — it does not make that path more certified, just faster to attempt.
+
+### Revisit later?
+If Hermes ever gets a real certified run against Sabi, revisit whether the context-token candidate should become an assertion instead of a printed suggestion. Kilo/Prime Agent stay recipe-only until either gets its own writer.
 ## [2026-09-18] Publish the mod to npm as one bundled package (@vizuh/sabi), tag-driven
 
 ### Decision

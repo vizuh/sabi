@@ -18,6 +18,8 @@ O Sabi fica entre um harness de código e seus provedores de modelo. O harness m
 
 Os dois reutilizam as regras de roteamento de `packages/core`, mas seus sinais e comportamentos diferem. O mod usa sinais explícitos de erro de ferramenta e planeja as rodadas seguintes; o proxy infere falhas a partir de texto e pode chamar o Jev. `harness.tiers` contém ids do catálogo do Command Code; `models` contém ids de upstream. Compare os adaptadores separadamente.
 
+`npm run setup` escolhe o caminho certo interativamente — veja [Setup rápido](docs/install.pt-BR.md#setup-rápido).
+
 ## Política
 
 Cada rodada é classificada a partir do estado da trajetória — posição da rodada, chamadas de ferramenta e seus resultados, evidência de falha, tamanho do contexto — e roteada:

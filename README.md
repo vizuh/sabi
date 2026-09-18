@@ -18,6 +18,8 @@ Sabi sits between a coding harness and its model providers. The harness keeps it
 
 Both reuse `packages/core` routing rules, but their signals and behavior differ. The mod uses explicit tool-error signals and plans continuing rounds; the proxy infers failures from text and can call Jev. `harness.tiers` contains Command Code catalog ids; `models` contains upstream model ids. Compare the adapters separately.
 
+`npm run setup` picks the right one interactively — see [Quick setup](docs/install.md#quick-setup).
+
 ## Policy
 
 Each round is classified from the state of the trajectory — round position, tool calls and their results, failure evidence, context size — and routed:

@@ -2,9 +2,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import * as readline from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
-import { isEnabledUpstream, loadConfig, tiersFor, type SabiConfig, type UpstreamEntry } from '@sabi/core'
+import { isEnabledUpstream, loadConfig, promptWithTimeout, tiersFor, type SabiConfig, type UpstreamEntry } from '@sabi/core'
 
 const providersPath =
   process.env.SABI_CC_PROVIDERS ?? path.join(os.homedir(), '.commandcode', 'providers.json')
@@ -70,22 +69,11 @@ async function resolveAllowPaid(): Promise<boolean> {
     }
     return false
   }
-  // A TTY can be allocated with no one there to answer it (some CI runners, `docker run -t`
-  // without `-i`); bound the wait so a headless run can never hang here indefinitely.
-  const PROMPT_TIMEOUT_MS = 30_000
-  const TIMED_OUT = Symbol('timed out')
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-  const question = rl.question('Route paid upstream models (real API credits) through Command Code? [y/N] ').catch(() => '')
-  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
-    setTimeout(() => resolve(TIMED_OUT), PROMPT_TIMEOUT_MS).unref()
-  })
-  const result = await Promise.race([question, timeout])
-  rl.close()
-  if (result === TIMED_OUT) {
-    console.log(`No answer within ${PROMPT_TIMEOUT_MS / 1000}s: defaulting to no paid upstreams.`)
+  const answer = await promptWithTimeout('Route paid upstream models (real API credits) through Command Code? [y/N] ')
+  if (answer === undefined) {
+    console.log('No answer within the prompt timeout: defaulting to no paid upstreams.')
     return false
   }
-  const answer = result.trim().toLowerCase()
   return answer === 'y' || answer === 'yes'
 }
 

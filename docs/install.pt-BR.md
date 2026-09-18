@@ -3,6 +3,10 @@
 Para colocar o Sabi numa máquina que não é esta. O repositório `https://github.com/vizuh/sabi` é público;
 você precisa de uma conta no Command Code para o caminho de classe A.
 
+**Setup rápido**: `npm run setup` guia você na escolha do harness e, opcionalmente, do Jev — veja
+[Setup rápido](#setup-rápido) abaixo. As seções depois dela são os passos manuais detalhados que
+ela executa por você; leia-as se quiser automatizar uma peça isolada.
+
 São dois caminhos, e são alternativas entre si, não etapas:
 
 - **A — o mod** (recomendado se você usa Command Code): o Sabi roda dentro do harness, roteia o
@@ -11,6 +15,27 @@ São dois caminhos, e são alternativas entre si, não etapas:
   aceitam uma `baseURL`, ou para rotear seus próprios modelos via OpenRouter/Ollama.
 
 Dá para instalar os dois; eles não interferem (mecanismos diferentes, namespaces de modelo diferentes).
+
+## Setup rápido
+
+```bash
+git clone https://github.com/vizuh/sabi && cd sabi && npm install
+npm run setup
+```
+
+Pergunta qual harness (Command Code / OpenCode / Hermes) e, separadamente, se quer ativar o Jev.
+Para Command Code e OpenCode, roda o mesmo escritor certificado que a seção detalhada de cada
+harness abaixo documenta. Para Hermes, automatiza as partes mecânicas da receita manual abaixo
+(criar `HERMES_HOME`, copiar o plugin, escrever `config.yaml`) — esse caminho continua
+**não certificado**, exatamente como a seção do Hermes diz; ele imprime o candidato de janela de
+contexto para você verificar, não o afirma como verdade. Flags pulam qualquer pergunta:
+`npm run setup -- --harness=command-code --class=a`, `--harness=opencode --no-jev`,
+`--harness=hermes --hermes-home=<caminho>`. Sem flag de harness e sem TTY para perguntar, não
+escreve nada e imprime o uso — não existe harness padrão seguro, cada escolha grava um arquivo
+diferente. `--jev` só liga `judge.enabled`/`judge.baseURL` em `sabi.config.json`; nunca lê,
+imprime ou grava sua `TYPESAFE_API_KEY` — exporte-a você mesmo, como sempre.
+Kilo e Prime Agent não são automatizados — `--harness=kilo`/`prime-agent` só aponta para
+[as receitas manuais](harnesses.md).
 
 ## Requisitos
 
