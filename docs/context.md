@@ -6,7 +6,7 @@ Sabi is an adaptive inference scheduler for AI agents. A host coding harness kee
 
 ## Type
 
-product (Vizuh; private repo `vizuh/sabi`)
+product (Vizuh; public repo `vizuh/sabi` — confirmed via `gh repo view` 2026-09-18)
 
 ## Audience
 
@@ -67,7 +67,7 @@ Planned: learned model profiles, quota/economics inputs, evaluation loop.
 
 ## Important links
 
-- Repo: https://github.com/vizuh/sabi (private)
+- Repo: https://github.com/vizuh/sabi (public)
 - Local: `www/products/sabi`
 - Prior-art survey: `docs/research/github-landscape.md`
 - Related but separate product: Sabido (`www/products/sabido`)

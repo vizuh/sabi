@@ -1,7 +1,7 @@
 # Instalar o Sabi
 
-Para colocar o Sabi numa máquina que não é esta. O Sabi é software privado: você precisa de acesso a
-`https://github.com/vizuh/sabi` e de uma conta no Command Code para o caminho de classe A.
+Para colocar o Sabi numa máquina que não é esta. O repositório `https://github.com/vizuh/sabi` é público;
+você precisa de uma conta no Command Code para o caminho de classe A.
 
 São dois caminhos, e são alternativas entre si, não etapas:
 
@@ -18,7 +18,7 @@ Dá para instalar os dois; eles não interferem (mecanismos diferentes, namespac
 |---|---|
 | Node | 22.6 ou mais novo (type stripping; desenvolvido no 24) |
 | Harness | Command Code para o caminho A; qualquer coisa compatível com OpenAI para o caminho B |
-| Acesso | leitura no repositório privado |
+| Acesso | nenhum — o repositório é público |
 | Chaves | caminho A: nenhuma; caminho B: uma chave de upstream (ex.: OpenRouter) e opcionalmente uma chave TypeSafe para o Jev |
 | Plano | só caminho A: todo id em `harness.tiers` precisa estar coberto — veja [Cobertura de plano](#cobertura-de-plano) |
 
