@@ -2,11 +2,22 @@
 
 ## Current status
 
-usable by others — clone + `cmd mods add` installs the class-A mod; research backlog implemented (content-safe telemetry, stuck/context rules, attribution, transport-vs-task); offline evals harness (`npm run eval`); 90 tests, typecheck clean
+Multi-harness implementation in progress on `feat/multi-harness-support`, PR [#3](https://github.com/vizuh/sabi/pull/3) targets `main`. Checkpoints `87c4962` and `72fee25` are pushed. Last combined validation: 155 Node tests, typecheck and offline eval pass; Hermes adapter adds 12 Python tests. OpenCode 1.18.30 and Kilo CLI 7.7.4 passed real-client read tasks through Sabi + a local mock. Prime 0.9.5 passed a strict three-round proxy probe; same-parent native setters are proven ineffective and remain deferred. No paid provider certification.
 
 ## Last meaningful update
 
 2026-09-18
+
+## Multi-harness continuation — 2026-09-18
+
+- User authorized all implementation phases, incremental pushes, PR and merge to main after review. Do not wait for every client before delivering tested checkpoints.
+- PR #3 is draft pending peer review. Core/proxy/accounting code is already pushed; root owns staging/commits/merge. Never force-push or discard parallel changes.
+- Native Prime timing evidence and reproducible proxy probe: [Prime compatibility](research/prime-agent-compatibility.md). Root verified four profile tests and the strict real-client evidence.
+- Hermes plugin has 12 passing tests and a native standalone mock/resume pass. Hermes→Sabi→mock follow-up is still running; do not call it certified yet.
+- Remaining: review findings/fixes, final combined tests, merge reviewed checkpoint(s), finish Hermes proxy gate, Kilo VS Code runtime validation, client docs/recipes and paid smoke.
+- VS Code is installed as Flatpak, but its Kilo extension is absent in the inspected extension directory. No normal app profile was changed.
+- Paid smoke is blocked: no `OPENROUTER_API_KEY` in the process and no approved USD cap. No credential files were searched. Ask for environment setup, never a key pasted into Git/chat.
+- Runtime logs/isolated clients are under `.sabi/compat/` and ignored. Do not commit them. No deployment or paid inference has happened.
 
 ## What was done recently
 
