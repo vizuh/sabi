@@ -20,6 +20,8 @@ PR #3 merged to `main` as `7d57ff4` from `feat/multi-harness-support`. A follow-
 
 GitHub and npm now line up: `v0.1.0` (at `80a6ddb`, the manual publish) and `v0.1.1` (tag-driven, provenance) each have a Release carrying the exact tarball npm serves. `release.yml` checks the registry first and **skips the publish** when that version is already published — a backfilled or re-pushed tag still gets its Release, built from the registry's tarball rather than a rebuild — and Release creation is idempotent. The repository's About section is set (`gh repo edit`): description, homepage → the npm package, topics. `README.zh-CN.md` is the third language mirror (EN / PT-BR / ZH); the install guide remains EN/PT-BR.
 
+Note: the backfilled `v0.1.0` tag left one red workflow run — that push resolved the workflow from `main` before the registry-skip guard landed, so it attempted an already-published version and npm refused with `403`. A re-run replays the old definition; the tag, Release and registry are all correct, and the guard is on `main` from #18 on.
+
 ## Limit classification — 2026-09-18
 
 Same-day follow-up on a real plan wall. Subscription/session limit messages (`You've hit your session limit`, `Usage limit reached`, `uses your weekly limit`, `error type rate_limit`) carried no evidence at all, so such a round fell to `unclassified` — the one rule the proxy consults Jev on — and an `Error:`-prefixed limit became `hard`, escalating to strong. Measured before the change and re-measured after, with those exact strings.
