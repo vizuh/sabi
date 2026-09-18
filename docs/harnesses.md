@@ -33,6 +33,12 @@ model set. Missing Kilo limits can disable compaction. Do not copy synthetic fix
 or model IDs into a production configuration. Host cost displays for adaptive aliases are
 not authoritative; Sabi reports unknown usage/pricing as unknown, not free.
 
+Some clients rewrite the commands they run before execution (RTK prefixes `rtk` and wraps with
+`err`/`test`/`proxy`/`summary`). Sabi classifies a round partly from the command string, so it unwraps
+a leading `rtk` before classifying: without that, RTK-rewritten reads and test runs fall to
+`unclassified`, which changes tier and — on the proxy — buys a judge call per round. See
+[RTK learnings](research/rtk-learnings.md).
+
 ## Strict compatibility
 
 Existing configurations keep legacy behavior unless `compatibility.mode` is `strict`.

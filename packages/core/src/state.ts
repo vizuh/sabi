@@ -223,10 +223,32 @@ export function detectFailure(texts: string[]): { level: FailureLevel; evidence:
   return { level, evidence }
 }
 
+/**
+ * RTK (github.com/rtk-ai/rtk) rewrites shell commands to `rtk [<wrapper>] <command>` before the
+ * harness runs them, so the command string Sabi classifies is the wrapper's, not the command's.
+ * Classify what the command does: `rtk cargo test` is still verification, `rtk read` is still a read.
+ * Without this, RTK-rewritten rounds fall to `unclassified`, which the proxy consults the judge on.
+ */
+const RTK_WRAPPERS = new Set(['err', 'test', 'proxy', 'summary'])
+const RTK_READ_VERBS = new Set(['read', 'smart', 'json', 'env', 'log', 'deps', 'session', 'gain', 'discover', 'recall'])
+
+export function unwrapRtk(command: string): string {
+  const parts = command.trim().split(/\s+/)
+  if ((parts[0] ?? '').toLowerCase() !== 'rtk') return command.trim()
+  const rest = parts.slice(1)
+  // A wrapper verb takes the real command as its argument; with none, `rtk <verb>` is the command.
+  if (rest.length > 1 && RTK_WRAPPERS.has((rest[0] ?? '').toLowerCase())) rest.shift()
+  return rest.join(' ')
+}
+
 function shellKind(command: string | undefined): RoundKind {
   if (!command) return 'unclassified'
-  if (VERIFY_COMMAND.test(command)) return 'verification'
-  if (EXPLORE_COMMAND.test(command)) return 'exploration'
+  const wrapped = command.trim().toLowerCase().startsWith('rtk ')
+  const unwrapped = unwrapRtk(command)
+  const verb = (unwrapped.split(/\s+/)[0] ?? '').toLowerCase()
+  if (wrapped && RTK_READ_VERBS.has(verb)) return 'exploration'
+  if (VERIFY_COMMAND.test(unwrapped)) return 'verification'
+  if (EXPLORE_COMMAND.test(unwrapped)) return 'exploration'
   return 'unclassified'
 }
 

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { extractTrajectoryState, normalizeAlias } from '../src/index.ts'
+import { classifyRound, extractTrajectoryState, normalizeAlias } from '../src/index.ts'
 import type { ChatMessage } from '../src/types.ts'
 
 function body(messages: ChatMessage[], tools?: Array<{ function?: { name?: string } }>) {
@@ -173,4 +173,21 @@ test('a request with no media states text as its only modality', () => {
   const state = extractTrajectoryState(body([system, { role: 'user', content: 'plain question' }]))
   assert.deepEqual(state.inputModalities, ['text'])
   assert.equal(state.mediaCounts, undefined)
+})
+
+test('an RTK-rewritten command is classified by what it does, not by the wrapper', () => {
+  const kind = (command: string): string =>
+    classifyRound([{ name: 'shell_command', args: JSON.stringify({ command }) }])
+  assert.equal(kind('rtk cargo test'), 'verification')
+  assert.equal(kind('rtk err npm run build'), 'verification')
+  assert.equal(kind('rtk test cargo test'), 'verification')
+  assert.equal(kind('rtk git status'), 'exploration')
+  assert.equal(kind('rtk read src/a.ts'), 'exploration')
+  assert.equal(kind('rtk grep pattern .'), 'exploration')
+  assert.equal(kind('rtk gain --daily'), 'exploration')
+  // A wrapper with no inner command is still its own verb, and a non-RTK command is untouched.
+  assert.equal(kind('rtk test'), 'verification')
+  assert.equal(kind('echo rtk'), 'unclassified')
+  assert.equal(kind('cargo test'), 'verification')
+  assert.equal(kind('cat src/a.ts'), 'exploration')
 })
