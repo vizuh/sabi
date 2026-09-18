@@ -1,7 +1,11 @@
 # Install Sabi
 
-For putting Sabi on a machine that is not this one. Sabi is private software: you need access to
-`https://github.com/vizuh/sabi` and a Command Code account for the class-A path.
+For putting Sabi on a machine that is not this one. The repo (`https://github.com/vizuh/sabi`) is
+public; you need a Command Code account for the class-A path.
+
+**Quick setup**: `npm run setup` walks you through picking a harness and, optionally, Jev — see
+[Quick setup](#quick-setup) below. The sections after it are the detailed manual steps it runs
+for you; read them if you want to script around a single piece instead.
 
 Two ways in, and they are alternatives rather than stages:
 
@@ -11,6 +15,26 @@ Two ways in, and they are alternatives rather than stages:
   accept a `baseURL`, or to route your own OpenRouter/Ollama models.
 
 You can install both; they do not interfere (different mechanisms, different model namespaces).
+
+## Quick setup
+
+```bash
+git clone https://github.com/vizuh/sabi && cd sabi && npm install
+npm run setup
+```
+
+Asks which harness (Command Code / OpenCode / Hermes) and, separately, whether to enable Jev.
+For Command Code and OpenCode it runs the same certified writer each harness's detailed section
+below documents. For Hermes it automates the mechanical parts of the manual recipe below (create
+`HERMES_HOME`, copy the plugin, write `config.yaml`) — that path is still **uncertified**, exactly
+as the Hermes section says; it prints the context-window candidate for you to verify, it does not
+assert it. Flags skip any prompt: `npm run setup -- --harness=command-code --class=a`,
+`--harness=opencode --no-jev`, `--harness=hermes --hermes-home=<path>`. No harness flag and no TTY
+to prompt on writes nothing and prints usage — there's no safe default harness, every choice
+writes a different file. `--jev` only ever flips `judge.enabled`/`judge.baseURL` in
+`sabi.config.json`; it never reads, prints, or writes your `TYPESAFE_API_KEY` — export that
+yourself, same as always. Kilo and Prime Agent aren't automated — `--harness=kilo`/`prime-agent`
+just points at [the manual recipes](harnesses.md).
 
 ## Requirements
 
