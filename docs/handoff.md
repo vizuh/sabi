@@ -22,6 +22,10 @@ usable by others — clone + `cmd mods add` installs the class-A mod; research b
 
 ## Docs-only review — 2026-09-18
 
+- [Multi-harness plan](research/multi-harness-plan.md): proposal for Hermes, OpenCode,
+  Kilo CLI/VS Code and Prime Agent, with [version/source evidence](research/harness-support-evidence.md).
+  Proxy-first compatibility, shared contract tests and later native hooks. Awaiting approval;
+  no new adapter installed, configured or live-tested by this planning session.
 - [Router learnings](research/router-learnings.md): completed bounded source review of
   four pinned routers. Covers actual selection, fallbacks, learning/evaluation limits,
   and small acceptance fixtures. No copied runtime, benchmark reproduction or new code.

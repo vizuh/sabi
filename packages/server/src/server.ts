@@ -27,6 +27,22 @@ import { buildUpstreamBody, callUpstream, readErrorText, usageFromJson } from '.
 const BODY_LIMIT = 32 * 1024 * 1024
 const RECENT_LIMIT = 200
 
+function randomId(): string {
+  return `${Date.now().toString(16)}-${cryptoRandomHex(6)}`
+}
+
+function cryptoRandomHex(bytes: number): string {
+  const buf = new Uint8Array(bytes)
+  crypto.getRandomValues(buf)
+  return [...buf].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+function headerOrUndefined(req: IncomingMessage, name: string): string | undefined {
+  const raw = req.headers[name.toLowerCase()] ?? req.headers[name]
+  const value = Array.isArray(raw) ? raw[0] : raw
+  return value && value.trim() ? String(value).slice(0, 200) : undefined
+}
+
 export interface SabiServerOptions {
   config: SabiConfig
   logFile?: string
@@ -179,6 +195,13 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
   const started = Date.now()
   const { config } = state.options
 
+  // Opaque per-request attribution. Never merge sessions by these ids; they are correlation
+  // keys only, and client-supplied values are recorded without becoming the session identity.
+  const requestId = randomId()
+  const clientRequestId = headerOrUndefined(req, 'x-request-id')
+  const clientSessionId = headerOrUndefined(req, 'x-session-id')
+  res.setHeader('x-sabi-request-id', requestId)
+
   let body: ChatRequestBody
   try {
     const raw = await readBody(req)
@@ -232,6 +255,9 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     state: decision.state,
     judge: judgeRecord,
     outcome: 'ok',
+    requestId,
+    clientRequestId,
+    clientSessionId,
   }
 
   const finish = (patch: Partial<DecisionRecord>): void => {
@@ -272,7 +298,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
 
   let upstreamResponse: Response
   try {
-    const call = await callUpstream(config, decision, upstreamBody, controller.signal)
+    const call = await callUpstream(config, decision, upstreamBody, controller.signal, { requestId })
     upstreamResponse = call.response
   } catch (error) {
     const message = (error as Error).name === 'AbortError' ? 'client aborted' : (error as Error).message

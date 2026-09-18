@@ -113,3 +113,19 @@ First honest finding: on the current task set the deterministic policy over-esca
 **Retry-vs-escalation (router-learnings #7 + "a 429 is not classified as a reasoning failure").** Added `transport` as a distinct `FailureLevel` with `rate-limited`/`quota-exceeded`/`timeout` evidence codes. `state.ts` detects transport signals before soft patterns; `trajectoryFromRound` downgrades a tool-reported error to `transport` when the text is purely transport; `policy.ts` gains a `transport` rule (default `mid`) that retries on the same tier instead of escalating to strong; the server records upstream 429/5xx as `outcome: 'transport'` with the status; `report.ts` counts transports separately from task errors. The mod's `isError` path routes a rate-limited tool result to the transport tier (`mid`), never `strong`.
 
 90 tests pass (was 83; +7 from evals and transport), typecheck clean. Not yet committed or pushed.
+
+## [2026-09-18] research | Multi-harness compatibility plan
+
+Added `docs/research/multi-harness-plan.md` and `docs/research/harness-support-evidence.md`; linked them from the handoff. Covers Nous Research Hermes Agent, OpenCode, Kilo CLI/VS Code and Prime Agent. Proposed sequence: shared protocol/capability/attribution fixtures, an OpenCode reference pilot, other clients through the same local proxy, then optional native adapters after hook validation. No second policy engine, host loop, credential migration or new runtime framework proposed.
+
+Read current Sabi at local `1485cdedff1d0daf5778d6009c3d0f24e55b46cc`, installed OpenCode 1.18.30/local plugin 1.18.4, and Prime Agent 0.9.5 shipped documentation. Pinned Hermes and Kilo upstream evidence is in the companion note. Hermes has documented per-request middleware; provider rebinding and capability refresh remain unproven. Prime documents model setters, but active-parent-round timing remains unverified. Kilo's CLI/extension need independent tests. Proxy support uses a separately authorized upstream key, not host subscription entitlements.
+
+Validation: source spans and installed-file hashes checked, local Markdown links/whitespace checked, and docs-vs-current-source drift recorded. Version/help only ran for OpenCode; no project tests/builds/evals, client installs/config changes, services, live inference, commits, pushes or publication. The plan awaits approval; it is not a compatibility certification.
+
+## [2026-09-18] change | Opaque request attribution on the proxy (multi-harness plan step 1)
+
+From the multi-harness plan's non-negotiable check #3: "Add explicit opaque host/session/round/request attribution where supported; strip routing metadata before upstream forwarding."
+
+The proxy now generates an opaque `X-Sabi-Request-Id` per chat request (echoed on the response and recorded on the decision), accepts optional client-supplied `X-Request-Id`/`X-Session-Id` headers and records them as `clientRequestId`/`clientSessionId` on the decision — without ever merging sessions by them. The upstream call receives Sabi's own correlation id via `x-sabi-request-id` and never any client-supplied identity headers, which are stripped. `callUpstream` gained an `UpstreamCallOptions.requestId`.
+
+This addresses the evidence note's `log.ts` session-hash attribution gap for multi-harness clients. 91 tests pass (1 new proxy test), typecheck clean. Not yet pushed.

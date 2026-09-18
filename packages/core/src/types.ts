@@ -215,4 +215,9 @@ export interface DecisionRecord {
   error?: string
   /** HTTP status of a transport/rate-limit failure from the upstream, when it was recorded that way. */
   transport?: number
+  /** Opaque Sabi-generated id for this request; set on the response and on the decision. */
+  requestId: string
+  /** Opaque client-supplied identifiers, when the harness forwards them. Never used to merge sessions. */
+  clientRequestId?: string
+  clientSessionId?: string
 }

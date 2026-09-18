@@ -13,6 +13,7 @@ let sabi: SabiServer
 let sabiPort = 0
 let logFile = ''
 let mockBodies: Array<Record<string, unknown>> = []
+let mockHeaders: Array<Record<string, string>> = []
 let mock429 = false
 
 const defaultJudge: JudgeOutcome = { realProblem: 0.9, difficulty: 'standard', difficultyConfidence: 0.9 }
@@ -46,6 +47,9 @@ function startMockUpstream(): Promise<{ server: Server; port: number }> {
     req.on('end', () => {
       const body = JSON.parse(raw) as Record<string, unknown>
       mockBodies.push(body)
+      const headers: Record<string, string> = {}
+      for (const name of Object.keys(req.headers)) headers[name] = String(req.headers[name])
+      mockHeaders.push(headers)
       if (mock429) {
         res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '1' })
         res.end(JSON.stringify({ error: { message: 'rate limit exceeded' } }))
@@ -356,4 +360,32 @@ test('an upstream 429 is recorded as a transport outcome, distinct from a task e
   assert.equal(record.outcome, 'transport')
   assert.equal(record.transport, 429)
   mock429 = false
+})
+
+test('opaque request attribution round-trips and never leaks to the upstream', async () => {
+  const response = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-request-id': 'client-req-123',
+      'x-session-id': 'client-sess-456',
+    },
+    body: JSON.stringify({ model: 'sabi-code', stream: false, messages: [system, user] }),
+  })
+  assert.equal(response.status, 200)
+  const echoed = response.headers.get('x-sabi-request-id')
+  assert.ok(echoed && echoed.length > 0)
+
+  const rows = await readDecisions()
+  const record = rows[rows.length - 1]
+  assert.equal(record.requestId, echoed)
+  assert.equal(record.clientRequestId, 'client-req-123')
+  assert.equal(record.clientSessionId, 'client-sess-456')
+  // Sabi's own request id is forwarded for correlation, but nothing client-supplied.
+  assert.ok(record.requestId !== 'client-req-123')
+  // The upstream must receive Sabi's correlation id and none of the client's identity headers.
+  const upstreamHeaders = mockHeaders[mockHeaders.length - 1] ?? {}
+  assert.equal(upstreamHeaders['x-request-id'], undefined)
+  assert.equal(upstreamHeaders['x-session-id'], undefined)
+  assert.ok(upstreamHeaders['x-sabi-request-id'])
 })

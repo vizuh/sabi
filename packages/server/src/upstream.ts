@@ -27,20 +27,32 @@ export function buildUpstreamBody(
   return next
 }
 
+export interface UpstreamCallOptions {
+  /** Opaque correlation id echoed to the upstream (and provider) for debugging/attribution. */
+  requestId?: string
+}
+
 export async function callUpstream(
   config: SabiConfig,
   decision: RouteDecision,
   body: Record<string, unknown>,
   signal: AbortSignal,
+  options: UpstreamCallOptions = {},
 ): Promise<UpstreamCall> {
   const upstream = config.upstreams[decision.upstream]
   if (!upstream) throw new Error(`unknown upstream '${decision.upstream}'`)
   const url = joinUrl(upstream.baseURL, 'chat/completions')
+  // Sabi's own wiring takes precedence over anything a client could smuggle; client-supplied
+  // routing/identity headers never reach the upstream (they convey identity, not permissions).
+  const base = { ...(upstream.headers ?? {}) }
+  delete base['x-sabi-request-id']
+  delete base['x-sabi-session-id']
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     accept: body.stream === true ? 'text/event-stream' : 'application/json',
-    ...(upstream.headers ?? {}),
+    ...base,
   }
+  if (options.requestId) headers['x-sabi-request-id'] = options.requestId
   const key = resolveKey(upstream.apiKey)
   if (key) headers.authorization = `Bearer ${key}`
   const response = await fetch(url, {
