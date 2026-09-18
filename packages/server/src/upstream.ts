@@ -1,4 +1,4 @@
-import { resolveKey, type SabiConfig, type RouteDecision, type UsageTotals } from '@sabi/core'
+import { buildEffectiveRequestEnvelope, resolveKey, type SabiConfig, type RouteDecision, type UsageTotals } from '@sabi/core'
 
 export function joinUrl(baseURL: string, suffix: string): string {
   return `${baseURL.replace(/\/+$/, '')}/${suffix.replace(/^\/+/, '')}`
@@ -10,22 +10,7 @@ export interface UpstreamCall {
   body: Record<string, unknown>
 }
 
-export function buildUpstreamBody(
-  config: SabiConfig,
-  decision: RouteDecision,
-  body: Record<string, unknown>,
-): Record<string, unknown> {
-  const upstream = config.upstreams[decision.upstream]
-  if (!upstream) throw new Error(`unknown upstream '${decision.upstream}'`)
-  const next: Record<string, unknown> = { ...body, model: decision.upstreamModel }
-  if (body.stream === true && upstream.streamUsage === true) {
-    const streamOptions = (body.stream_options as Record<string, unknown> | undefined) ?? {}
-    if (streamOptions.include_usage !== true) {
-      next.stream_options = { ...streamOptions, include_usage: true }
-    }
-  }
-  return next
-}
+export const buildUpstreamBody = buildEffectiveRequestEnvelope
 
 export async function callUpstream(
   config: SabiConfig,

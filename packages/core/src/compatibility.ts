@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer'
+import { buildEffectiveRequestEnvelope } from './request.ts'
 import type { ChatRequestBody, ModelModality, RouteDecision, SabiConfig } from './types.ts'
 
 export class SabiRouteError extends Error {
@@ -25,8 +26,8 @@ function positiveInteger(value: unknown): value is number {
 }
 
 /**
- * Validate the selected route without changing the body, route or policy. Call this again
- * after a judge override. Strict mode fails on unknown metadata; legacy mode permits
+ * Validate the selected route and its effective forwarded envelope without changing the
+ * input body, route or policy. Call this again after a judge override. Strict mode fails on unknown metadata; legacy mode permits
  * omissions but never overrides an explicit negative capability or silently drops a field.
  * Native Command Code planRound() has its own host catalog and does not call this function.
  */
@@ -49,6 +50,13 @@ export function ensureRouteCompatible(body: ChatRequestBody, config: SabiConfig,
   }
   // The checks above narrow the backend at runtime as well as guarding judge mutations.
   if (!model) return
+  if (body.stream_options !== undefined && !object(body.stream_options)) fail('stream_options must be an object')
+  if (body.stream_options?.include_usage !== undefined && typeof body.stream_options.include_usage !== 'boolean') {
+    fail('stream_options.include_usage must be a boolean')
+  }
+  // Keep pin validation above on the original alias. Validate the exact forwarded
+  // parameter set and account for backend-id/usage-option bytes below.
+  const forwarded = buildEffectiveRequestEnvelope(config, decision, body)
   const strict = config.compatibility?.mode === 'strict'
   const caps = model.capabilities
   const parameters = caps?.supportedParameters
@@ -67,8 +75,8 @@ export function ensureRouteCompatible(body: ChatRequestBody, config: SabiConfig,
       fail(`parameter '${parameter}' is not declared supported`)
     }
   }
-  for (const key of Object.keys(body)) {
-    if (body[key] !== undefined && !BASE_PARAMETERS.has(key)) extension(key)
+  for (const key of Object.keys(forwarded)) {
+    if (forwarded[key] !== undefined && !BASE_PARAMETERS.has(key)) extension(key)
   }
   if (body.stream !== undefined && typeof body.stream !== 'boolean') fail('stream must be a boolean')
   if (body.messages !== undefined && !Array.isArray(body.messages)) fail('messages must be an array')
@@ -249,8 +257,9 @@ export function ensureRouteCompatible(body: ChatRequestBody, config: SabiConfig,
   }
   let serialized: string
   try {
-    // Includes system text, tool schemas, call arguments, results and all extension fields.
-    serialized = JSON.stringify(body)
+    // Includes system text, tool schemas, history, backend model id, injected usage
+    // options and all extensions. These bytes match the shared dispatch builder.
+    serialized = JSON.stringify(forwarded)
   } catch {
     fail('request is not JSON serializable')
   }

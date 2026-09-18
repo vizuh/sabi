@@ -1,0 +1,51 @@
+# Template only. Replace REPLACE_WITH_VERIFIED_CONTEXT_TOKENS with a positive
+# integer no larger than the smallest verified context across Sabi's eligible
+# backends. Reserve output capacity in Sabi; do not use Hermes' unknown defaults.
+# Use a NEW isolated HERMES_HOME, not an existing personal profile.
+model:
+  provider: custom:sabi
+  default: sabi-code
+  base_url: http://127.0.0.1:8787/v1
+  api_mode: chat_completions
+  context_length: &context REPLACE_WITH_VERIFIED_CONTEXT_TOKENS
+
+providers:
+  sabi:
+    api: http://127.0.0.1:8787/v1  # endpoint URL, NOT a protocol name
+    api_key: sabi-local-placeholder  # not an upstream credential
+    transport: chat_completions
+    discover_models: false  # picker discovery only; see compatibility note
+    capabilities:
+      openai_native_compaction: false  # Sabi does not expose Responses
+    models:
+      sabi-code:
+        context_length: *context
+        prompt_caching: false
+
+model_overrides:
+  custom:sabi:
+    sabi-code:
+      context_window: *context
+      # Conservative until the operator verifies EVERY eligible backend.
+      # Enable tools only after confirming Sabi's tool-capable candidate set.
+      supports_tools: false
+      supports_vision: false
+      supports_reasoning: false
+
+plugins:
+  enabled: [sabi-metadata]
+
+# No path around Sabi on failure. These are native Hermes settings.
+fallback_providers: []
+fallback_model: null
+
+# Auxiliary/title/compaction/subagent calls are not certified by this recipe.
+# Suppress the optional title model upgrade in the isolated pilot.
+auxiliary:
+  title_generation:
+    model_upgrade_enabled: false
+
+telemetry:
+  shared_metrics:
+    enabled: false
+    send: false

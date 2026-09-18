@@ -138,6 +138,10 @@ function modelSummary(config: SabiConfig) {
   const reachable = new Set(
     Object.values(config.policy).filter((tier) => tier !== 'off' && config.models[tier]),
   )
+  const fallback = config.policy.unclassified
+  if ((!fallback || fallback === 'off' || !Object.hasOwn(config.models, fallback)) && Object.hasOwn(config.models, 'cheap')) {
+    reachable.add('cheap')
+  }
   if (config.judge?.enabled) {
     for (const tier of ['cheap', 'mid', 'strong']) {
       if (Object.hasOwn(config.models, tier)) reachable.add(tier)
@@ -266,7 +270,8 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     if (record.usage && decision) {
       const served = record.servedModel && Object.values(config.models).find((model) =>
         model.upstream === decision?.upstream && model.model === record?.servedModel)
-      record.cost = estimateCost(record.usage, served ? served.cost : config.models[decision.model]?.cost)
+      // A requested backend is not evidence of which model actually served the tokens.
+      record.cost = served ? estimateCost(record.usage, served.cost) : undefined
     }
     appendDecision(record, state.logFile)
     state.recent.push(record)

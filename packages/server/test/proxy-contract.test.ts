@@ -389,3 +389,29 @@ test('adaptive window includes Jev targets even when the policy never names them
   assert.equal(payload.data.find((model) => model.id === 'sabi-code')?.context_window, 2000)
   assert.equal(payload.data.find((model) => model.id === 'sabi-cheap')?.context_window, 10000)
 })
+
+
+test('unknown served models never inherit the requested model price', async (t) => {
+  const { post, sabi } = await fixture(t, (_seen, res) => reply(res, 'mock-not-catalogued'), {}, (config) => {
+    config.models.cheap.cost = { input: 1, output: 1 }
+  })
+  const response = await post()
+  assert.equal(response.status, 200)
+  await response.json()
+  assert.equal(sabi.recent[0].servedModel, undefined)
+  assert.equal(sabi.recent[0].usage?.totalTokens, 12)
+  assert.equal(sabi.recent[0].cost, undefined)
+})
+
+test('adaptive model summary includes the implicit cheap fallback', async (t) => {
+  const { url } = await fixture(t, undefined, {}, (config) => {
+    config.policy = { 'first-turn': 'mid', unclassified: 'off' }
+    config.models.cheap.contextWindow = 100
+    config.models.mid.contextWindow = 10_000
+    config.models.strong.contextWindow = 20_000
+  })
+  const response = await fetch(url.replace('/chat/completions', '/models'))
+  assert.equal(response.status, 200)
+  const payload = await response.json() as { data: Array<{ id: string; context_window?: number }> }
+  assert.equal(payload.data.find((model) => model.id === 'sabi-code')?.context_window, 100)
+})

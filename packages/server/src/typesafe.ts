@@ -56,18 +56,17 @@ export function validateAnswers(payload: unknown, questions: JudgeQuestions, req
     }
   }
 
-  const usage = (record.usage ?? {}) as Record<string, unknown>
-  const inputTokens = Number(usage.input_tokens ?? 0)
-  const outputTokens = Number(usage.output_tokens ?? 0)
+  const usage = record.usage && typeof record.usage === 'object' && !Array.isArray(record.usage)
+    ? record.usage as Record<string, unknown> : undefined
+  const inputTokens = usage?.input_tokens
+  const outputTokens = usage?.output_tokens
+  const validTokens = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
   return {
     realProblem: noul,
     difficulty: choice,
     difficultyConfidence: confidence,
     model: typeof record.model === 'string' && record.model ? record.model : requestedModel,
-    usage: {
-      inputTokens: Number.isFinite(inputTokens) ? Math.max(0, Math.trunc(inputTokens)) : 0,
-      outputTokens: Number.isFinite(outputTokens) ? Math.max(0, Math.trunc(outputTokens)) : 0,
-    },
+    usage: validTokens(inputTokens) && validTokens(outputTokens) ? { inputTokens, outputTokens } : undefined,
   }
 }
 

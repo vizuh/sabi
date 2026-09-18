@@ -39,7 +39,7 @@ test('one-byte UTF-8 fragments preserve parallel argument deltas, metadata, fina
 
 test('multi-line SSE data is parsed as a single event', () => {
   const tap = createSseTap('sabi-code', () => {})
-  const output = tap.push(encoder.encode('data: {"model":"upstream",\ndata: "choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n'))
+  const output = tap.push(encoder.encode('data: {"model":"upstream",\ndata: "choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'))
   tap.flush()
   assert.match(new TextDecoder().decode(output), /"model":"sabi-code"/)
 })
@@ -54,12 +54,27 @@ test('malformed and truncated streams fail without a successful finish callback'
   }
 })
 
-test('empty or malformed usage stays unknown', () => {
+test('empty or malformed usage stays unknown after a terminal choice', () => {
+  const terminal = { model: 'mock-cheap', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }
   for (const usage of [{}, { prompt_tokens: 1 }, { prompt_tokens: -1, completion_tokens: 2 }]) {
     let result: SseTapResult | undefined
     const tap = createSseTap('sabi-code', (value) => { result = value })
-    tap.push(encoder.encode(`data: ${JSON.stringify({ choices: [], usage })}\n\ndata: [DONE]\n\n`))
+    tap.push(encoder.encode(`data: ${JSON.stringify(terminal)}\n\ndata: ${JSON.stringify({ choices: [], usage })}\n\ndata: [DONE]\n\n`))
     tap.flush()
     assert.equal(result?.usage, undefined)
+  }
+})
+
+test('usage-only and unfinished streams reject before forwarding DONE', () => {
+  const usageOnly = { choices: [], usage: { prompt_tokens: 1, completion_tokens: 1 } }
+  const unfinished = { choices: [{ index: 0, delta: {
+    tool_calls: [{ index: 0, function: { arguments: '{\"path\":\"' } }],
+  } }] }
+  for (const event of [usageOnly, unfinished]) {
+    const wire = `data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`
+    let calls = 0
+    const tap = createSseTap('sabi-code', () => { calls += 1 })
+    assert.throws(() => tap.push(encoder.encode(wire)), /terminal choice/)
+    assert.equal(calls, 0)
   }
 })

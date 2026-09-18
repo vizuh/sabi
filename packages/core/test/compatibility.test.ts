@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
-import { ensureRouteCompatible, route, SabiRouteError } from '../src/index.ts'
+import { buildEffectiveRequestEnvelope, ensureRouteCompatible, route, SabiRouteError } from '../src/index.ts'
 import { validateConfig } from '../src/config.ts'
 import type { ChatRequestBody, ModelEntry, SabiConfig } from '../src/types.ts'
 
@@ -255,4 +255,84 @@ test('explicit legacy mode keeps unknown metadata but enforces declared output l
   settings.models.cheap = { upstream: 'mock', model: 'legacy', maxOutputTokens: 50 }
   rejected(body(), settings, /output token limit exceeds/)
   assert.doesNotThrow(() => route(body({ max_tokens: 50, unknown_extension: true }), settings))
+})
+
+
+test('strict compatibility validates injected stream usage options before forwarding', () => {
+  const settings = config()
+  settings.upstreams.mock!.streamUsage = true
+  settings.models.cheap!.capabilities!.supportedParameters = []
+  const request = body({ stream: true, max_tokens: undefined })
+  const before = structuredClone(request)
+  rejected(request, settings, /stream_options.*not declared supported/)
+  assert.deepEqual(request, before)
+  settings.models.cheap!.capabilities!.supportedParameters.push('stream_options')
+  const decision = route(request, settings)
+  const forwarded = buildEffectiveRequestEnvelope(settings, decision, request)
+  assert.deepEqual(forwarded.stream_options, { include_usage: true })
+  assert.equal(forwarded.model, decision.upstreamModel)
+  assert.deepEqual(request, before)
+})
+
+test('exact context boundary uses the backend id and generated fields, not the input alias', () => {
+  const request = body({ model: 'sabi-fixed', stream: true, stream_options: { include_usage: false, fixture: 'kept' } })
+  const original = structuredClone(request)
+  const settings = config({ model: `synthetic-${'long-backend-id-'.repeat(20)}` })
+  settings.upstreams.mock!.streamUsage = true
+  const decision = route(request, settings)
+  const forwarded = buildEffectiveRequestEnvelope(settings, decision, request)
+  const framingAndOutput = 8 + 4 + 100
+  const required = Buffer.byteLength(JSON.stringify(forwarded), 'utf8') + framingAndOutput
+  const inboundBound = Buffer.byteLength(JSON.stringify(request), 'utf8') + framingAndOutput
+  assert.ok(required > inboundBound)
+  settings.models.cheap!.contextWindow = required
+  settings.models.cheap!.maxOutputTokens = 100
+  assert.doesNotThrow(() => ensureRouteCompatible(request, settings, decision))
+  assert.doesNotThrow(() => route(request, settings))
+  settings.models.cheap!.contextWindow = required - 1
+  rejected(request, settings, /context plus output reserve exceeds/)
+  settings.models.cheap!.contextWindow = inboundBound
+  rejected(request, settings, /context plus output reserve exceeds/)
+  assert.equal(decision.mode, 'fixed')
+  assert.equal(decision.alias, 'sabi-fixed')
+  assert.deepEqual(request, original)
+  assert.deepEqual(forwarded.stream_options, { include_usage: true, fixture: 'kept' })
+})
+
+test('injected stream_options bytes alone can exceed the exact context boundary', () => {
+  const settings = config({ model: 'sabi-code', maxOutputTokens: 100 })
+  settings.upstreams.mock!.streamUsage = true
+  const request = body({ stream: true })
+  const decision = route(request, settings)
+  const forwarded = buildEffectiveRequestEnvelope(settings, decision, request)
+  const required = Buffer.byteLength(JSON.stringify(forwarded), 'utf8') + 8 + 4 + 100
+  settings.models.cheap!.contextWindow = required
+  assert.doesNotThrow(() => route(request, settings))
+  settings.models.cheap!.contextWindow = required - 1
+  rejected(request, settings, /context plus output reserve exceeds/)
+  assert.equal(request.stream_options, undefined)
+})
+
+test('server and compatibility use the same pure envelope builder', async () => {
+  const server = await import('../../server/src/upstream.ts')
+  assert.equal(server.buildUpstreamBody, buildEffectiveRequestEnvelope)
+  const settings = config()
+  settings.upstreams.mock!.streamUsage = true
+  const request = body({ stream: true, stream_options: { include_usage: false } })
+  Object.freeze(request.stream_options)
+  Object.freeze(request)
+  const decision = route(request, settings)
+  const forwarded = server.buildUpstreamBody(settings, decision, request)
+  assert.notEqual(forwarded, request)
+  assert.notEqual(forwarded.stream_options, request.stream_options)
+  assert.deepEqual(request.stream_options, { include_usage: false })
+  assert.deepEqual(forwarded.stream_options, { include_usage: true })
+})
+
+test('malformed stream options cannot be normalized into a valid envelope', () => {
+  const settings = config()
+  settings.upstreams.mock!.streamUsage = true
+  for (const stream_options of [null, [], 'invalid', 1, { include_usage: 'yes' }]) {
+    rejected(body({ stream: true, stream_options }), settings, /stream_options/)
+  }
 })
