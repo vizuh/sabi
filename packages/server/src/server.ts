@@ -11,6 +11,7 @@ import {
   hashIdentity,
   JUDGE_QUESTIONS,
   judgeTriggers,
+  loadRecovery,
   measuredContextTokens,
   route,
   SabiRouteError,
@@ -21,6 +22,7 @@ import {
   type ChatRequestBody,
   type DecisionRecord,
   type JudgeRecord,
+  type RecoveryProfile,
   type RouteContext,
   type RouteDecision,
   type SabiConfig,
@@ -55,6 +57,8 @@ interface ServerState {
   judge: JudgeClient
   telemetry: ReturnType<typeof telemetryPolicy>
   sessions: Map<string, SessionMemory>
+  /** Loaded once at startup (never inside a request); undefined if the load failed. */
+  recoveryProfile?: RecoveryProfile
 }
 
 interface SessionMemory {
@@ -234,13 +238,26 @@ export function createSabiServer(options: SabiServerOptions): SabiServer {
   if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs <= 0 || requestTimeoutMs > 2_147_483_647) {
     throw new Error('requestTimeoutMs must be a positive bounded integer')
   }
+  const logFile = options.logFile ?? defaultLogPath()
   const state: ServerState = {
     options,
-    logFile: options.logFile ?? defaultLogPath(),
+    logFile,
     recent: [],
     judge: options.judgeClient ?? createTypesafeClient(),
     telemetry: telemetryPolicy(options.config.telemetry),
     sessions: new Map(),
+    // Loaded once at startup, not lazily inside a request: a sync read/parse of the whole
+    // decision log must never block a live request, and a read failure here (rotated file,
+    // permissions) must never be mistaken for a judge outage. Degrades to no tie-breaker, not a
+    // crash — the deterministic policy and Jev's existing thresholds still work unchanged.
+    recoveryProfile: (() => {
+      try {
+        return loadRecovery(logFile)
+      } catch (error) {
+        console.warn(`Sabi: could not load the local recovery profile from ${logFile}: ${(error as Error).message}`)
+        return undefined
+      }
+    })(),
   }
 
   const server = createServer((req, res) => {
@@ -398,7 +415,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       const judgeStarted = Date.now()
       try {
         const result = await abortable(state.judge.ask(judgeState, JUDGE_QUESTIONS, config.judge, signal), signal)
-        const applied = applyJudge(decision, config, result.outcome)
+        const applied = applyJudge(decision, config, result.outcome, state.recoveryProfile)
         decision = applied.decision
         judgeRecord = {
           ...applied.record,

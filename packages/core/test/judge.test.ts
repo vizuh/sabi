@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { applyJudge, buildJudgeState, JUDGE_QUESTIONS, judgeTriggers } from '../src/judge.ts'
 import { route } from '../src/router.ts'
-import type { SabiConfig } from '../src/types.ts'
+import type { RecoveryProfile } from '../src/recovery.ts'
+import type { RouteDecision, SabiConfig } from '../src/types.ts'
 
 const base: SabiConfig = {
   upstreams: { mock: { baseURL: 'http://127.0.0.1:1/v1' } },
@@ -127,6 +128,124 @@ test('an ambiguous probability keeps the deterministic escalation', () => {
   assert.equal(next.tier, 'strong')
   assert.match(String(record.note), /ambiguous/)
   assert.equal(record.overridden, false)
+})
+
+// A decisive profile: 'mid' (the deterministic fallback for this failingBody) recovers far more
+// often, with high confidence, than 'strong' (the incumbent) does.
+const decisiveProfile: RecoveryProfile = new Map([
+  ['strong::m-strong', { recoveries: 5, nonRecoveries: 25 }],  // pHat = 0.167, n = 30
+  ['mid::m-mid', { recoveries: 29, nonRecoveries: 1 }],         // pHat = 0.967, n = 30, wilsonLower well above 0.167
+])
+const indecisiveProfile: RecoveryProfile = new Map([
+  ['strong::m-strong', { recoveries: 5, nonRecoveries: 10 }],  // n = 15, below the n=30 gate
+  ['mid::m-mid', { recoveries: 14, nonRecoveries: 1 }],         // n = 15, below the n=30 gate
+])
+
+test('ambiguous + a decisive local recovery profile declines the escalation', () => {
+  const { decision: next, record } = applyJudge(
+    route(failingBody(), base),
+    base,
+    { realProblem: 0.45, difficulty: 'standard', difficultyConfidence: 0.9 },
+    decisiveProfile,
+  )
+  assert.equal(next.tier, 'mid')
+  assert.equal(record.overridden, true)
+  assert.equal(record.direction, 'down')
+  assert.match(String(record.note), /declined via local recovery rate/)
+})
+
+test('ambiguous + a profile below the minimum sample size behaves exactly like no profile at all', () => {
+  const withProfile = applyJudge(
+    route(failingBody(), base),
+    base,
+    { realProblem: 0.45, difficulty: 'standard', difficultyConfidence: 0.9 },
+    indecisiveProfile,
+  )
+  const without = applyJudge(route(failingBody(), base), base, {
+    realProblem: 0.45,
+    difficulty: 'standard',
+    difficultyConfidence: 0.9,
+  })
+  assert.equal(withProfile.decision.tier, without.decision.tier)
+  assert.equal(withProfile.decision.tier, 'strong')
+  assert.equal(withProfile.record.note, without.record.note)
+})
+
+test('a decisive profile never overrides a confident veto or a confident confirm', () => {
+  const veto = applyJudge(
+    route(failingBody(), base),
+    base,
+    { realProblem: 0.05, difficulty: 'standard', difficultyConfidence: 0.9 },
+    decisiveProfile,
+  )
+  assert.equal(veto.decision.tier, 'mid') // vetoed to the deterministic fallback, same as without a profile
+  assert.match(veto.decision.reason, /jev vetoed escalation/)
+  assert.doesNotMatch(String(veto.record.note), /local recovery rate/)
+
+  const confirm = applyJudge(
+    route(failingBody(), base),
+    base,
+    { realProblem: 0.93, difficulty: 'demanding', difficultyConfidence: 0.9 },
+    decisiveProfile,
+  )
+  assert.equal(confirm.decision.tier, 'strong')
+  assert.equal(confirm.record.overridden, false)
+})
+
+test('a decisive profile never fires on an unclassified/difficulty round', () => {
+  const { decision: next, record } = applyJudge(
+    route(unclassifiedBody(), base),
+    base,
+    { realProblem: 0.5, difficulty: 'demanding', difficultyConfidence: 0.91 },
+    decisiveProfile,
+  )
+  assert.equal(next.tier, 'strong') // difficulty override to strong, unaffected by the profile
+  assert.doesNotMatch(String(record.note), /local recovery rate/)
+})
+
+test('a decline whose fallback rule is "unclassified" is not re-processed by the difficulty block', () => {
+  // decideTier(state, policy, {exclude:['failure']}) falls through to the 'unclassified' catch-all
+  // whenever roundKind is 'unclassified' and no other condition matches — a real, reachable case
+  // (an unrecognized tool name with hard-failure evidence), not a contrived one.
+  const decision: RouteDecision = {
+    alias: 'sabi-code',
+    mode: 'auto',
+    rule: 'failure',
+    tier: 'strong',
+    reason: 'failure evidence: fail-marker',
+    model: 'strong',
+    upstream: 'mock',
+    upstreamModel: 'm-strong',
+    state: {
+      messageCount: 4,
+      assistantTurns: 2,
+      toolMessages: 1,
+      lastRole: 'tool',
+      contextChars: 100,
+      estimatedTokens: 100,
+      hasTools: true,
+      toolNames: ['custom_tool'],
+      lastToolNames: ['custom_tool'],
+      roundKind: 'unclassified',
+      failure: 'hard',
+      failureEvidence: ['fail-marker'],
+    },
+  }
+  const profile: RecoveryProfile = new Map([
+    ['strong::m-strong', { recoveries: 5, nonRecoveries: 25 }], // pHat 0.167, n=30
+    ['cheap::m-cheap', { recoveries: 29, nonRecoveries: 1 }], // pHat 0.967, n=30 — decisive vs strong
+  ])
+  const { decision: next, record } = applyJudge(
+    decision,
+    base,
+    { realProblem: 0.45, difficulty: 'demanding', difficultyConfidence: 0.95 }, // would push to 'strong' if the guard failed
+    profile,
+  )
+  assert.equal(next.rule, 'unclassified', 'the fallback rule really is unclassified in this case')
+  assert.equal(next.tier, 'cheap', 'the recovery decline must stand, not get overwritten by the difficulty block')
+  assert.equal(record.overridden, true)
+  assert.equal(record.direction, 'down')
+  assert.match(String(record.note), /declined via local recovery rate/)
 })
 
 test('difficulty judgments retier unclassified rounds when confident', () => {

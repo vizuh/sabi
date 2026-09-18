@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from 'node:fs'
-import { defaultLogPath, estimateCost, loadConfig, type DecisionRecord } from '@sabi/core'
+import { existsSync } from 'node:fs'
+import { defaultLogPath, estimateCost, loadConfig, readDecisions } from '@sabi/core'
 
 const config = loadConfig()
 const logFile = defaultLogPath()
@@ -11,15 +11,7 @@ if (!existsSync(logFile)) {
   process.exit(1)
 }
 
-const rows: DecisionRecord[] = []
-for (const line of readFileSync(logFile, 'utf8').split('\n')) {
-  if (!line.trim()) continue
-  try {
-    rows.push(JSON.parse(line) as DecisionRecord)
-  } catch {
-    // skip malformed line
-  }
-}
+const rows = readDecisions(logFile)
 
 const strong = config.models.strong ?? Object.values(config.models)[0]
 // Shadow reporting only: how often the judge called the last tool result redundant. Nothing is
