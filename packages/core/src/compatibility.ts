@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { buildEffectiveRequestEnvelope } from './request.ts'
-import type { ChatRequestBody, ModelModality, RouteDecision, SabiConfig } from './types.ts'
+import type { ChatRequestBody, ModelModality, RouteDecision, SabiConfig, UpstreamEntry } from './types.ts'
 
 export class SabiRouteError extends Error {
   status: number
@@ -46,6 +46,11 @@ export function firstServingTier<T>(
   return undefined
 }
 
+/** Single definition of the kill-switch predicate: omitted or true means usable. */
+export function isEnabledUpstream(upstream: UpstreamEntry | undefined): boolean {
+  return upstream !== undefined && upstream.enabled !== false
+}
+
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
@@ -79,6 +84,9 @@ export function ensureRouteCompatible(body: ChatRequestBody, config: SabiConfig,
   }
   // The checks above narrow the backend at runtime as well as guarding judge mutations.
   if (!model) return
+  if (!isEnabledUpstream(config.upstreams[model.upstream])) {
+    fail(`upstream '${model.upstream}' is disabled`)
+  }
   if (body.stream_options !== undefined && !object(body.stream_options)) fail('stream_options must be an object')
   if (body.stream_options?.include_usage !== undefined && typeof body.stream_options.include_usage !== 'boolean') {
     fail('stream_options.include_usage must be a boolean')

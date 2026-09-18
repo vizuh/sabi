@@ -170,6 +170,19 @@ test('unknown price stays absent and invalid numeric rates never become free', (
   assert.doesNotThrow(() => validateConfig({ ...minimal, models: { cheap: { ...minimal.models.cheap, cost: { input: 0, output: 0 } } } }))
 })
 
+test('upstream.enabled is an optional boolean kill switch that never blocks config validation', () => {
+  assert.doesNotThrow(() => validateConfig({ ...minimal, upstreams: { mock: { ...minimal.upstreams.mock, enabled: true } } }))
+  const disabled = validateConfig({ ...minimal, upstreams: { mock: { ...minimal.upstreams.mock, enabled: false } } })
+  assert.equal(disabled.upstreams.mock!.enabled, false)
+  assert.equal(disabled.models.cheap!.upstream, 'mock', 'a model/alias targeting a disabled upstream still loads')
+  for (const enabled of ['no', 1, null, []]) {
+    assert.throws(
+      () => validateConfig({ ...minimal, upstreams: { mock: { ...minimal.upstreams.mock, enabled } } }),
+      /enabled/,
+    )
+  }
+})
+
 test('model and policy dictionaries cannot resolve inherited properties', () => {
   assert.throws(() => validateConfig({ ...minimal, aliases: { bad: 'toString' } }), /unknown tier/)
   assert.throws(() => validateConfig({ ...minimal, policy: { unclassified: 'constructor' } }), /unknown tier/)

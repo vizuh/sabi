@@ -386,3 +386,35 @@ test('malformed stream options cannot be normalized into a valid envelope', () =
     rejected(body({ stream: true, stream_options }), settings, /stream_options/)
   }
 })
+
+test('a disabled upstream is rejected before dispatch, independent of compatibility mode', () => {
+  for (const mode of ['strict', 'legacy'] as const) {
+    const settings = config()
+    settings.compatibility = { mode }
+    settings.upstreams.mock!.enabled = false
+    rejected(body(), settings, /upstream 'mock' is disabled/)
+  }
+})
+
+test('an adaptive round whose policy tier sits behind a disabled upstream reroutes to another enabled tier', () => {
+  const settings = validateConfig({
+    upstreams: {
+      down: { baseURL: 'http://127.0.0.1:1/v1', apiKey: false, enabled: false },
+      up: { baseURL: 'http://127.0.0.1:2/v1', apiKey: false },
+    },
+    models: {
+      cheap: catalog({ upstream: 'down', model: 'blocked' }),
+      other: catalog({ upstream: 'up', model: 'synthetic-other' }),
+    },
+    aliases: { 'sabi-code': 'auto', 'sabi-fixed': 'cheap' },
+    policy: { unclassified: 'cheap' },
+    compatibility: { mode: 'strict' },
+  })
+  const decision = route(body(), settings)
+  assert.equal(decision.tier, 'other')
+  assert.equal(decision.rule, 'availability')
+  assert.match(decision.reason, /upstream for 'cheap'.*is disabled.*'other' can serve/)
+
+  // A fixed alias never upgrades — it names its backend explicitly and refuses instead.
+  rejected(body({ model: 'sabi-fixed' }), settings, /upstream 'down' is disabled/)
+})

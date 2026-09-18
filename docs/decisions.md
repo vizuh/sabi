@@ -261,3 +261,26 @@ Verified from the proxy's own decision log (2026-09-18): 8 of 12 recorded errors
 
 ### Revisit later?
 Per-harness media shapes (Prime Agent, OpenCode, Hermes) should reuse `tallyMedia` once their transcript formats are verified; consider logging refused routes for operator visibility; refresh `inputModalities` from the upstream API whenever model ids are refreshed.
+
+---
+
+## [2026-09-18] Consent gate for the proxy path: per-upstream kill switch plus a paid/free question at wiring time
+
+### Decision
+`upstreams.<name>.enabled` joins the schema (`UpstreamEntry.enabled?: boolean`, omitted or `true` means usable). It is enforced twice: `connect.ts` will not register a Command Code alias whose only reachable tiers sit behind a disabled upstream, and `ensureRouteCompatible` refuses to dispatch to a disabled upstream at request time regardless of what registered it. `connect.ts` also gained an explicit paid/free question before it registers anything paid-backed: `--paid`/`--free` decide it outright, otherwise it prompts on a real TTY and defaults to **free** when non-interactive (never blocks a CI/agent-driven run on stdin). The kill switch overrides consent — a disabled upstream stays absent even with `--paid`.
+
+### Why
+Class B (the proxy) registered every paid-backed alias in `~/.commandcode/providers.json` unconditionally, with no consent step and no way to turn an upstream off short of hand-editing `sabi.config.json` and restarting. A session pointed at `sabi/sabi-code` this way spent real OpenRouter credit with no warning. Class A (the mod) was and remains unaffected — it never reads `upstreams`/`models` at all — but nothing stopped Class B from being the thing that got wired in by default, and once wired, disabling it required editing JSON with no immediate effect on a request already in flight against the running proxy.
+
+### Alternatives considered
+- A separate `setup.ts` wizard — rejected; the consent question is one yes/no in front of the existing writer, not a new entry point, new npm script or new doc section to maintain.
+- Normalizing `enabled` to a filled default at config-validation time — rejected; every consumer already needs only a two-way `!== false` check, and a normalization pass earns its keep only once a second consumer needs a definite boolean, which none does yet.
+- Shipping `sabi.config.json`'s `openrouter` upstream `enabled: false` by default — rejected; it would silently break the documented Path B walkthrough (`docs/install.md`) and `npm run eval`'s dependency on the real shipped config, for no gain over the actual fix (the consent step plus the dispatch guard already stop the unattended spend).
+- Enforcing the kill switch only at `connect.ts` registration time — rejected; a stale registration, a direct request, or another harness's config pointed at the same running proxy would still reach a disabled upstream. `ensureRouteCompatible` is the one choke point every dispatch path goes through (fixed alias, adaptive, and the post-judge revalidation in `server.ts`), so the guard lives there too.
+
+### Tradeoffs
+- A non-interactive `connect:command-code` run now needs `--paid` to reproduce the old unconditional registration — a deliberate, documented behavior change (`docs/install.md`, `docs/install.pt-BR.md`).
+- The consent question and the kill switch are Command Code (Class B) concerns only in this change; Hermes/OpenCode/Kilo still rely on manually following `docs/harnesses.md`, and a self-service "add a model" flow does not exist yet.
+
+### Revisit later?
+Each of Hermes/OpenCode/Kilo needs its own consent branch before Sabi is wired into them by anything beyond `docs/harnesses.md`'s manual recipes. A self-service "add a model" flow needs a real fetch against the provider's live models endpoint (never hand-typed pricing/context, per the no-invented-facts rule) plus a plan-verification step equivalent to what `harness.tiers` already gets right for Class A — neither is built here; `enabled` and the paid/free split are shaped so that work extends them rather than replacing them.

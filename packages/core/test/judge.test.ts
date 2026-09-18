@@ -159,6 +159,65 @@ test('low confidence difficulty does not override the deterministic tier', () =>
   assert.match(String(record.note), /below threshold/)
 })
 
+test('a vetoed escalation reroutes around a disabled upstream instead of hard-failing later', () => {
+  const config: SabiConfig = {
+    upstreams: {
+      mock: { baseURL: 'http://127.0.0.1:1/v1' },
+      down: { baseURL: 'http://127.0.0.1:2/v1', enabled: false },
+    },
+    models: {
+      cheap: { upstream: 'mock', model: 'm-cheap' },
+      mid: { upstream: 'down', model: 'm-mid' },
+      strong: { upstream: 'mock', model: 'm-strong' },
+    },
+    aliases: { 'sabi-code': 'auto' },
+    policy: base.policy,
+    judge: base.judge,
+  }
+  const decision = route(failingBody(), config)
+  assert.equal(decision.tier, 'strong')
+  // Veto fallback would normally land on 'mid' (verification), but its upstream is disabled.
+  const { decision: next, record } = applyJudge(decision, config, {
+    realProblem: 0.05,
+    difficulty: 'standard',
+    difficultyConfidence: 0.9,
+  })
+  assert.equal(next.tier, 'cheap')
+  assert.equal(next.rule, 'availability')
+  assert.match(next.reason, /cannot serve this round/)
+  assert.equal(record.overridden, true)
+})
+
+test('a difficulty override reroutes around a disabled upstream instead of hard-failing later', () => {
+  const config: SabiConfig = {
+    upstreams: {
+      mock: { baseURL: 'http://127.0.0.1:1/v1' },
+      down: { baseURL: 'http://127.0.0.1:2/v1', enabled: false },
+    },
+    models: {
+      mid: { upstream: 'mock', model: 'm-mid' },
+      cheap: { upstream: 'mock', model: 'm-cheap' },
+      strong: { upstream: 'down', model: 'm-strong' },
+    },
+    aliases: { 'sabi-code': 'auto' },
+    policy: base.policy,
+    judge: base.judge,
+  }
+  const decision = route(unclassifiedBody(), config)
+  assert.equal(decision.tier, 'cheap')
+  // Difficulty=demanding would normally escalate to 'strong', but its upstream is disabled;
+  // 'mid' is declared before 'cheap' and is the first enabled/capable alternate.
+  const { decision: next, record } = applyJudge(decision, config, {
+    realProblem: 0.5,
+    difficulty: 'demanding',
+    difficultyConfidence: 0.91,
+  })
+  assert.equal(next.tier, 'mid')
+  assert.equal(next.rule, 'availability')
+  assert.match(next.reason, /cannot serve this round/)
+  assert.equal(record.overridden, true)
+})
+
 test('the question set asks one noul and one choice question', () => {
   assert.equal(JUDGE_QUESTIONS.real_problem.type, 'noul')
   assert.equal(JUDGE_QUESTIONS.difficulty.type, 'choice')

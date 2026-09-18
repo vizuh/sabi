@@ -71,6 +71,14 @@ PR #3 merged to `main` as `7d57ff4` from `feat/multi-harness-support`. A follow-
 - Live evidence against the real upstream: exploration round with an image → served by `openai/gpt-5.6-luna`, `rule: capability`, HTTP 200; the same request on `sabi-cheap` → HTTP 400 `input modality 'image' is not supported`. 175 Node tests, typecheck clean.
 - Not covered here: per-harness media shapes for Prime/OpenCode/Hermes (they should reuse `tallyMedia` once their transcript formats are verified), and refused routes are not written to the decision log — the 400 happens before a record exists.
 
+## Consent gate — 2026-09-18
+
+- Incident: Command Code was wired to `sabi/sabi-code` and spent real OpenRouter credit with no consent step and no runtime way to turn an upstream off. Fixed on `feat/consent-gate-upstreams` (branched fresh off `main` at `078e9b8` — this note's branch predates that fetch, so treat the PR numbers above as stale; `gh pr list` is the source of truth for merge state).
+- `UpstreamEntry.enabled?: boolean` (omitted/`true` = usable), enforced at dispatch in `ensureRouteCompatible` (the one choke point every route passes through) and at Command Code registration in `connect.ts`. `connect.ts` also gained a paid/free consent question — `--paid`/`--free` flags or a bounded (30s), non-hanging TTY prompt, defaulting to free when non-interactive.
+- Review caught and fixed before merge: disabling an upstream now falls back to another enabled+capable tier in `route()` instead of hard-failing every round a policy rule happened to map to it (same mechanism the existing modality fallback used, `rule: 'availability'` when that's why); `isEnabledUpstream` unified to one definition in `packages/core/src/compatibility.ts` instead of a second copy in `connect.ts`; the ESM main-module guard now resolves paths instead of a raw string compare (broke on install paths with spaces).
+- Full test/typecheck/eval details: `docs/decisions.md`'s dated entry and `log.md`.
+- Not done: this file's older PR-merge references above (PR #3/#4 language, 164-test count) predate several since-merged PRs (`fix/media-routing-constraint`, `fix/doc-accuracy`, `i18n-pt-br-docs`, `proxy-request-attribution`) and are stale independent of this change — worth a dedicated pass, not folded into this one.
+
 ## What still needs to happen
 
 1. Run a real session with the mod active and validate escalation precision, judge precision and savings on real work, not toy rounds. The mod logs one decision per round into the session; the proxy writes `.sabi/decisions.jsonl` + `npm run report`.

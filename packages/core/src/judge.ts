@@ -1,3 +1,4 @@
+import { isEnabledUpstream, servesInputModalities } from './compatibility.ts'
 import { decideTier } from './policy.ts'
 import { textOf } from './state.ts'
 import type { ChatRequestBody, JudgeConfig, JudgeRecord, SabiConfig, RouteDecision } from './types.ts'
@@ -120,15 +121,36 @@ export function applyJudge(
     usage: outcome.usage,
   }
 
-  const retier = (tier: string, rule: string, reason: string): boolean => {
+  const required = decision.state.inputModalities ?? []
+  const servesRound = (tier: string): boolean => {
     const model = config.models[tier]
-    if (!model) return false
-    const changed = tier !== next.tier
-    next = { ...next, tier, rule, reason, model: tier, upstream: model.upstream, upstreamModel: model.model }
-    record.finalTier = tier
+    return Boolean(model) && isEnabledUpstream(config.upstreams[model!.upstream]) && servesInputModalities(model!.capabilities?.inputModalities, required)
+  }
+
+  // A judge verdict is a tier name, not a route: it can still land on a disabled upstream or a
+  // tier that cannot serve this round's modality, same as the initial policy decision could. Fall
+  // back the same way route() does rather than let a judge override hard-fail at post-judge
+  // ensureRouteCompatible revalidation when another tier could actually serve it.
+  const retier = (tier: string, rule: string, reason: string): boolean => {
+    if (!config.models[tier]) return false
+    let resolvedTier = tier
+    let resolvedRule = rule
+    let resolvedReason = reason
+    if (!servesRound(tier)) {
+      const alternate = Object.keys(config.models).find(servesRound)
+      if (alternate) {
+        resolvedTier = alternate
+        resolvedRule = 'availability'
+        resolvedReason = `${reason} — but '${tier}' cannot serve this round; '${alternate}' can`
+      }
+    }
+    const model = config.models[resolvedTier]!
+    const changed = resolvedTier !== next.tier
+    next = { ...next, tier: resolvedTier, rule: resolvedRule, reason: resolvedReason, model: resolvedTier, upstream: model.upstream, upstreamModel: model.model }
+    record.finalTier = resolvedTier
     if (changed) {
       record.overridden = true
-      record.direction = (TIER_ORDER[tier] ?? 0) < (TIER_ORDER[decision.tier] ?? 0) ? 'down' : 'up'
+      record.direction = (TIER_ORDER[resolvedTier] ?? 0) < (TIER_ORDER[decision.tier] ?? 0) ? 'down' : 'up'
     }
     return changed
   }
