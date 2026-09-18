@@ -4,40 +4,51 @@ Adaptive inference scheduling for AI agents.
 
 Sabi sits between a coding harness and its model providers. The harness keeps its normal agent loop; Sabi decides which model, reasoning effort, and provider serves each inference round — continuously, across the whole trajectory, not just the first prompt.
 
-## Why
+Working today: Sabi runs as a local, keyless OpenAI-compatible endpoint that Command Code connects to as a BYOK provider. Each round is classified from the request itself — round position, tool calls and their results, failure evidence, context size — and routed per policy:
 
-A coding task is not one request. It is many rounds: search, read, trace, edit, test, retry, synthesize. Paying the frontier model for every round wastes money; paying the cheapest model for every round breaks the hard steps (failing tests, architecture, security).
+| Round | Rule | Tier | Default model |
+|---|---|---|---|
+| failing tool result | `failure` | strong | `anthropic/claude-sonnet-5` |
+| new instruction / first turn | `first-turn` | mid | `openai/gpt-5.6-luna` |
+| tests / build / lint round | `verification` | mid | `openai/gpt-5.6-luna` |
+| edit round | `implementation` | mid | `openai/gpt-5.6-luna` |
+| read / search / bookkeeping | `exploration` | cheap | `deepseek/deepseek-v4-flash-0731` |
+| anything else | `unclassified` | cheap | `deepseek/deepseek-v4-flash-0731` |
 
-Existing routers classify a single prompt, apply static rules, or delegate phases to subagents. Sabi's unit of decision is the state of an agent trajectory.
+Every routed round is recorded in `.sabi/decisions.jsonl` (metadata, usage and estimated cost — never prompt content) and summarized by `npm run report`.
 
-Planned inputs per round:
+## Run
 
-- **trajectory state** — round position, tool results, test pass/fail, diffs, context growth, uncertainty
-- **model profiles** — historical outcomes by repo, task and round kind
-- **live economics** — quota, rate limits, latency, cost
+    npm install                      # .npmrc forces dev deps: this host's npm config omits them
+    export OPENROUTER_API_KEY=...    # upstream credentials stay in the environment, never in the repo
+    npm start                        # http://127.0.0.1:8787/v1
 
-Output: model × effort × provider for the next round, escalating or downgrading as the trajectory evolves.
+Enable it in Command Code:
 
-From the harness's point of view nothing changes:
+    npm run connect:command-code     # writes/updates the "sabi" provider in ~/.commandcode/providers.json
+    cmd --list-models | grep sabi    # verify the four models are visible
 
-    /model
-      └── Sabi
-          └── sabi-code     # one synthetic model; Sabi decides what serves it
+Then pick `sabi/sabi-code` in `/model` (or `--model sabi/sabi-code`). Fixed baseline aliases for comparison: `sabi-cheap`, `sabi-mid`, `sabi-strong`. `sabi-local` targets Ollama and is not exposed by default — its 32k window is too small for harness prompts.
 
-## Status
+## Verify
 
-Bootstrap (2026-09-18). Docs, decisions and prior-art research only — no runtime code yet.
+    npm test        # state extraction, policy, proxy e2e against a mock upstream (23 tests)
+    npm run typecheck
+    npm run report  # decisions, tokens, cost, savings vs an all-strong counterfactual
 
-## Planned layout
+## Configure
 
-    packages/
-      core/          trajectory state, routing policy, model profiles, economics, learning
-      judges/jev/    semantic judgments (Jev)
-      evals/         benchmarks, baselines, evaluation harness
-      adapters/
-        command-code/
-        prime-agent/
-        opencode/
+`sabi.config.json` holds upstreams (keys as `$ENV_VAR` references), model tiers with prices, aliases, and the policy map (rule → tier; `off` disables a rule). Model ids, context windows and prices were verified against the OpenRouter API on 2026-09-18 — re-check before trusting cost math. The `local` tier is an Ollama upstream (`qwen2.5-coder:7b`).
+
+## Layout
+
+    packages/core                    trajectory state, policy, router, config, decision log
+    packages/server                  OpenAI-compatible proxy (SSE passthrough + tap), /v1/models, report
+    packages/adapters/command-code   writes the BYOK provider entry into ~/.commandcode/providers.json
+
+The proxy adds `stream_options.include_usage` for upstreams that support it, rewrites the response `model` field back to the synthetic alias, taps the SSE stream for usage, and never logs prompt content.
+
+Planned: `judges/jev` (semantic judgments), `evals`, `prime-agent` and `opencode` adapters, learned model profiles, quota awareness.
 
 ## Prior art
 

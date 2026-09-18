@@ -58,3 +58,64 @@ No component contract exists yet; empty package scaffolding would be speculative
 
 ### Revisit later?
 At the first implementation task: scaffold `packages/core` with the routing-contract types, then the first adapter.
+
+---
+
+## [2026-09-18] Integration path: local OpenAI-compatible endpoint as a Command Code BYOK provider
+
+### Decision
+Sabi exposes a keyless, local OpenAI-compatible API (`http://127.0.0.1:8787/v1`); Command Code adds it via `~/.commandcode/providers.json` as provider `sabi`. The synthetic model id is `sabi-code`, plus fixed baseline aliases (`sabi-cheap`, `sabi-mid`, `sabi-strong`).
+
+### Why
+Command Code's documented BYOK surface accepts OpenAI-compatible or Anthropic-wire endpoints with `apiKey: false` for local servers, so no harness fork is needed. A proxy sees the full conversation on every round — exactly the trajectory state the scheduler needs.
+
+### Alternatives considered
+- Anthropic-wire proxy (`anthropic-messages`) — supported by CC and kept as an option if the wire proves limiting.
+- Patching harness internals — rejected; violates the "keep the harness loop native" constraint.
+
+### Tradeoffs
+- The chat-completions format is the only signal channel (no richer harness event stream).
+- Streaming must be tapped and rewritten rather than regenerated.
+- The local endpoint must be running for the provider to serve anything.
+
+### Revisit later?
+When a harness exposes a richer extension surface (Prime Agent), or when a second wire is genuinely needed.
+
+---
+
+## [2026-09-18] Policy v0 is deterministic and heuristic; no learned routing yet
+
+### Decision
+Route by ordered conditions — `failure` (hard evidence) > `first-turn` > `verification` > `implementation` > `exploration` > `unclassified` — mapped to cheap/mid/strong tiers in `sabi.config.json`.
+
+### Why
+An auditable, tunable baseline plus a decision log before adding semantic judgments or learning. False escalations are cheap next to false downgrades on failing rounds.
+
+### Alternatives considered
+- LLM judge on every round — adds latency/cost on every call with no validation data yet.
+- Learned model profiles now — no outcome data to learn from.
+
+### Tradeoffs
+- Heuristics misfire on unusual tool output; no per-repo profiles; no quota/rate-limit inputs yet.
+
+### Revisit later?
+Once the decision log has enough real rounds to measure escalation precision and savings; next steps in `docs/handoff.md`.
+
+---
+
+## [2026-09-18] Fixed baseline aliases alongside the adaptive model
+
+### Decision
+Expose `sabi-cheap`, `sabi-mid`, `sabi-strong` as fixed-tier aliases next to adaptive `sabi-code`.
+
+### Why
+Enables A/B comparison against fixed models on the same tasks, and isolates bugs to routing versus upstream behavior.
+
+### Alternatives considered
+- Adaptive-only — no clean baseline for the cost/quality claims.
+
+### Tradeoffs
+- More entries in `/model`; a fixed alias can be picked by accident.
+
+### Revisit later?
+After the first controlled cost/quality comparison run.

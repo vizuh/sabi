@@ -14,6 +14,13 @@ coverage/
 # Logs
 *.log
 
+# Sabi runtime data (decision log)
+.sabi/
+
+# Local agent state (taste learning, sessions)
+.commandcode/
+.claude/
+
 # Environment and secrets
 .env
 .env.*

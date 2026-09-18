@@ -1,0 +1,12 @@
+{
+  "name": "@sabi/server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/server.ts"
+  },
+  "dependencies": {
+    "@sabi/core": "*"
+  }
+}

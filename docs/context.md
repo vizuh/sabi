@@ -36,18 +36,19 @@ Hypotheses to validate before committing:
 
 ## Current state
 
-Bootstrap (2026-09-18): folder, private repo, index registration, prior-art survey. No runtime code, no adapters, no benchmarks.
+MVP (2026-09-18): Sabi runs as a local OpenAI-compatible proxy (`packages/server`) with a deterministic policy (`packages/core`) and is connected to Command Code as a keyless BYOK provider (`sabi/sabi-code`). Verified end-to-end: 23 tests green, typecheck clean, and live Command Code headless sessions routing first-turn rounds to mid, tool rounds to cheap, and failing-test rounds to strong, with usage and estimated cost recorded. No learned profiles, quota awareness, or Jev judgments yet — routing conditions are heuristic.
 
 ## Key flows
 
-Planned, not implemented:
+Implemented (v0, Command Code):
 
-1. Harness (Command Code / Prime Agent / OpenCode) sends an inference round — the harness believes it is talking to one synthetic model (`sabi-code`).
-2. Sabi assembles trajectory state from the request plus accumulated session history.
-3. Judgment layer (Jev) and deterministic policy classify the round.
-4. Sabi selects model × effort × provider (profiles + economics constrain the choice).
-5. The chosen provider serves the round; the observed outcome is recorded.
-6. Outcomes feed model profiles and the eval loop; the next round repeats from step 1.
+1. The harness posts a chat completion to the local Sabi endpoint, addressed to the synthetic model `sabi-code`.
+2. Sabi classifies the round from the request: position, last tool calls, tool results, failure evidence, context size.
+3. The policy maps the round to a tier (cheap/mid/strong); `sabi.config.json` maps tiers to real upstream models.
+4. Sabi rewrites the model, forwards to the OpenAI-compatible upstream (OpenRouter today), and streams the response back with the model field rewritten to `sabi-code`.
+5. Usage is captured from the stream, cost estimated from configured rates, and the decision appended to `.sabi/decisions.jsonl`; `npm run report` aggregates.
+
+Planned: Jev judgments, learned model profiles, quota/economics inputs, evaluation loop.
 
 ## Constraints
 

@@ -1,0 +1,61 @@
+{
+  "provenance": "Model ids, context windows and prices verified live from https://openrouter.ai/api/v1/models on 2026-09-18. Prices are USD per 1M tokens.",
+  "server": { "host": "127.0.0.1", "port": 8787 },
+  "upstreams": {
+    "openrouter": {
+      "baseURL": "https://openrouter.ai/api/v1",
+      "apiKey": "$OPENROUTER_API_KEY",
+      "streamUsage": true,
+      "headers": {
+        "HTTP-Referer": "https://github.com/vizuh/sabi",
+        "X-Title": "Sabi"
+      }
+    },
+    "ollama": {
+      "baseURL": "http://127.0.0.1:11434/v1",
+      "apiKey": false,
+      "streamUsage": false
+    }
+  },
+  "models": {
+    "cheap": {
+      "upstream": "openrouter",
+      "model": "deepseek/deepseek-v4-flash-0731",
+      "contextWindow": 1310720,
+      "cost": { "input": 0.06, "output": 0.12, "cacheRead": 0.012 }
+    },
+    "mid": {
+      "upstream": "openrouter",
+      "model": "openai/gpt-5.6-luna",
+      "contextWindow": 1050000,
+      "cost": { "input": 0.2, "output": 1.2, "cacheRead": 0.02 }
+    },
+    "strong": {
+      "upstream": "openrouter",
+      "model": "anthropic/claude-sonnet-5",
+      "contextWindow": 1000000,
+      "cost": { "input": 2, "output": 10, "cacheRead": 0.2 }
+    },
+    "local": {
+      "upstream": "ollama",
+      "model": "qwen2.5-coder:7b",
+      "contextWindow": 32768,
+      "cost": { "input": 0, "output": 0 }
+    }
+  },
+  "aliases": {
+    "sabi-code": "auto",
+    "sabi-cheap": "cheap",
+    "sabi-mid": "mid",
+    "sabi-strong": "strong",
+    "sabi-local": "local"
+  },
+  "policy": {
+    "failure": "strong",
+    "first-turn": "mid",
+    "verification": "mid",
+    "implementation": "mid",
+    "exploration": "cheap",
+    "unclassified": "cheap"
+  }
+}
