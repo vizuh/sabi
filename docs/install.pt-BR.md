@@ -1,0 +1,224 @@
+# Instalar o Sabi
+
+Para colocar o Sabi numa máquina que não é esta. O Sabi é software privado: você precisa de acesso a
+`https://github.com/vizuh/sabi` e de uma conta no Command Code para o caminho de classe A.
+
+São dois caminhos, e são alternativas entre si, não etapas:
+
+- **A — o mod** (recomendado se você usa Command Code): o Sabi roda dentro do harness, roteia o
+  catálogo da assinatura e não precisa de proxy nem de chave de API.
+- **B — o proxy**: o Sabi roda como um endpoint local compatível com OpenAI. Use para harnesses que só
+  aceitam uma `baseURL`, ou para rotear seus próprios modelos via OpenRouter/Ollama.
+
+Dá para instalar os dois; eles não interferem (mecanismos diferentes, namespaces de modelo diferentes).
+
+## Requisitos
+
+| | |
+|---|---|
+| Node | 22.6 ou mais novo (type stripping; desenvolvido no 24) |
+| Harness | Command Code para o caminho A; qualquer coisa compatível com OpenAI para o caminho B |
+| Acesso | leitura no repositório privado |
+| Chaves | caminho A: nenhuma; caminho B: uma chave de upstream (ex.: OpenRouter) e opcionalmente uma chave TypeSafe para o Jev |
+| Plano | só caminho A: todo id em `harness.tiers` precisa estar coberto — veja [Cobertura de plano](#cobertura-de-plano) |
+
+## A — mod do Command Code
+
+```bash
+git clone https://github.com/vizuh/sabi && cd sabi
+npm install
+cmd mods add ./packages/adapters/command-code
+```
+
+`cmd mods add` registra o pacote como fonte de mod para o **projeto** (grava
+`.commandcode/settings.json` ao lado do seu checkout, que está no gitignore). Ele não copia nada: o
+pacote é referenciado no lugar, e é por isso que o clone precisa ficar onde está.
+
+O que foi adicionado:
+
+```json
+{ "mods": { "sources": ["/caminho/para/sabi/packages/adapters/command-code"] } }
+```
+
+O pacote declara o que entrega no próprio `package.json`:
+
+```json
+{ "commandcode": { "mods": ["./mod/sabi.ts"] } }
+```
+
+### Confirmar que carregou
+
+```bash
+cmd mods list
+```
+
+Esperado — uma linha, sem avisos:
+
+```
+Mods (1)
+  sabi · project · from local:/caminho/para/sabi/packages/adapters/command-code
+```
+
+Se aparecer `Mods (0)`: o projeto ainda não teve sessão, e fontes de escopo de projeto não são
+listadas antes disso. Abra o `cmd` uma vez no checkout (ou confie no workspace) e liste de novo.
+
+### Confirmar que está roteando
+
+```bash
+cmd -p "Read package.json and reply with only the value of its name field." \
+  --mod ./packages/adapters/command-code/mod/sabi.ts -t --output-format json
+```
+
+No fluxo de eventos, a rodada 1 usa o modelo da sessão e a rodada 2 usa o nível que o Sabi planejou.
+Uma rodada de leitura é `exploration` → cheap, então a rodada 2 mostra o id cheap de `harness.tiers`:
+
+```
+turn_start           1
+model_request_start  <modelo da sua sessão>
+tool_completed       read_file
+turn_end             1
+turn_start           2
+model_request_start  deepseek/deepseek-v4-flash      ← planejado pelo Sabi
+turn_end             2
+```
+
+Sobre execuções headless: uma execução `-p` **não** carrega mods de escopo de projeto (mods de projeto
+passam por confiança, e o modo print nunca pergunta), e é por isso que a verificação acima passa
+`--mod` explicitamente. Mods soltos em `~/.commandcode/mods` e fontes de escopo de usuário carregam
+headless normalmente.
+
+O mod também grava sua decisão por rodada na sessão, como entrada customizada, legível no transcript:
+
+```json
+{"turn":2,"planned":{"tier":"cheap","model":"deepseek/deepseek-v4-flash","rule":"exploration","roundKind":"exploration"},
+ "servedBy":"deepseek/deepseek-v4-flash","usage":{"inputTokens":26613,"outputTokens":6}}
+```
+
+### Remover
+
+```bash
+cmd mods remove sabi          # ou: cmd mods remove ./packages/adapters/command-code
+```
+
+## B — proxy local
+
+```bash
+npm install
+export OPENROUTER_API_KEY=...      # exigido pela config que acompanha o repositório
+export TYPESAFE_API_KEY=...        # opcional: Jev. Sem ela, use judge.enabled false
+npm start                          # http://127.0.0.1:8787/v1
+```
+
+### Confirmar que subiu
+
+```bash
+curl -s http://127.0.0.1:8787/healthz
+# {"ok":true,"models":["sabi-code","sabi-cheap",...],"upstreams":["openrouter","ollama"],"log":".../decisions.jsonl"}
+
+curl -s http://127.0.0.1:8787/v1/chat/completions -H 'content-type: application/json' \
+  -d '{"model":"sabi-code","max_tokens":16,"messages":[{"role":"user","content":"say ok"}]}'
+```
+
+O campo `model` da resposta é reescrito de volta para o alias que você pediu, nunca o id real do upstream.
+
+### Apontar o Command Code para ele
+
+```bash
+npm run connect:command-code     # grava/atualiza o provider "sabi" em ~/.commandcode/providers.json
+cmd --list-models | grep sabi
+```
+
+Depois escolha `sabi/sabi-code` em `/model`, ou passe `--model sabi/sabi-code`. Os aliases fixos
+(`sabi-cheap`, `sabi-mid`, `sabi-strong`) ignoram a política e existem como baselines de comparação.
+`--include-local` também expõe `sabi-local` (Ollama); ele fica de fora por padrão porque uma janela de
+32k é pequena demais para prompts de harness.
+
+Leia o resultado com:
+
+```bash
+npm run report          # decisões, níveis, tokens, custo, economia vs. contrafactual all-strong, juiz
+npm run report -- --json
+```
+
+### Parar
+
+O Sabi é um processo em primeiro plano. `Ctrl-C`, ou `kill <pid>`. Não é um serviço e nada o reinicia:
+se estiver fora do ar, toda requisição `sabi/*` falha dentro do harness com
+`ECONNREFUSED 127.0.0.1:8787`.
+
+## Configuração
+
+`sabi.config.json` é procurado nesta ordem — o primeiro que existir vence:
+
+1. `$SABI_CONFIG` (quando definido, é o único caminho lido)
+2. `<cwd>/sabi.config.json`
+3. `~/.config/sabi/sabi.config.json` (respeita `$XDG_CONFIG_HOME`)
+4. o `sabi.config.json` mais próximo acima do pacote instalado
+
+O caso 4 é o que faz um clone novo funcionar: rodando do checkout, a config que veio com ele é
+encontrada. Para uma configuração pessoal que sobrevive a mover o clone, copie o arquivo para
+`~/.config/sabi/`. Para trabalhar em um projeto só, coloque uma config nesse projeto.
+
+As decisões vão para `<cwd>/.sabi/decisions.jsonl`; sobrescreva com `$SABI_LOG`.
+O Sabi grava só metadados — nível, regra, id do modelo, contagem de tokens, custo, resultado do juiz.
+Conteúdo de prompt nunca é gravado, nem no log nem na sessão.
+
+## Cobertura de plano
+
+`cmd --list-models` lista o **catálogo inteiro, não o seu plano**. Um modelo fora do seu plano continua
+listado e falha na hora da requisição:
+
+```
+Error: 403 MODEL_NOT_IN_PLAN: Claude Sonnet 5 available in Pro and above plans or extra on demand usage
+```
+
+Como o mod troca de modelo no meio da sessão, um nível fora do plano derruba a rodada para a qual ele
+roteia. Ajuste `harness.tiers` para ids que seu plano cobre. Padrões que acompanham o repositório,
+verificados ao vivo em 2026-09-18:
+
+| Nível | Go e acima (padrão) | Pro e acima | Max |
+|---|---|---|---|
+| cheap | `deepseek/deepseek-v4-flash` | mesmo | mesmo |
+| mid | `gpt-5.6-luna` | `claude-sonnet-5` | `claude-sonnet-5` |
+| strong | `zai-org/glm-5.3` | `claude-sonnet-5` | `claude-opus-5` |
+
+Outras escolhas Go-e-acima para `strong`: `moonshotai/kimi-k3`, `qwen/qwen3.8-max`,
+`deepseek/deepseek-v4-pro`. O `minPlan` na config é uma nota para humanos, não uma checagem em tempo
+de execução — o Sabi não consegue ler o seu plano.
+
+## Problemas comuns
+
+| Sintoma | Causa e solução |
+|---|---|
+| `ECONNREFUSED 127.0.0.1:8787` no harness | O caminho B está selecionado (modelo `sabi/*`) mas o proxy não está rodando. `npm start`, ou volte o modelo da sessão ao anterior. |
+| `403 MODEL_NOT_IN_PLAN` | Algum nível em `harness.tiers` está acima do seu plano. Veja [Cobertura de plano](#cobertura-de-plano). |
+| `Sabi disabled: Sabi config not found at …` | Nenhuma config nos quatro locais. A mensagem lista todos os caminhos procurados; defina `SABI_CONFIG` ou crie uma. |
+| `cmd mods list` mostra `Mods (0)` | Fontes de escopo de projeto só aparecem depois que o projeto teve sessão. Abra o `cmd` no checkout uma vez. |
+| O mod carrega interativo mas não em `-p` | Esperado: `-p` não carrega mods de escopo de projeto. Passe `--mod ./packages/adapters/command-code/mod/sabi.ts`. |
+| `WARN: missing upstream credentials` na subida | A config referencia uma variável de ambiente não definida. Exporte, ou ponha `apiKey: false` nesse upstream. |
+| A rodada 1 ignora o Sabi | Por desenho: `prepareNextTurn` só dispara da segunda rodada, então a primeira roda no modelo da sessão. |
+
+## Segurança
+
+- **O mod é código arbitrário** — roda em processo, sem sandbox, como qualquer mod do Command Code.
+  Instale pacotes em que você confia; este é curto e legível (`mod/sabi.ts`, mais `packages/core`).
+- **Nenhum segredo no git.** As chaves vêm do ambiente; a config guarda só referências `$ENV_VAR`.
+  Não commite uma config com chave literal.
+- **Nada sai da máquina além das próprias chamadas de modelo.** O caminho A não adiciona nenhum salto
+  de rede próprio. O caminho B encaminha para os upstreams que você configurou, e o juiz Jev envia um
+  trecho limitado (≤6k caracteres: última instrução, último trecho de ferramenta, metadados da rodada)
+  para a TypeSafe.
+- **O log de decisões é só metadado** — sem conteúdo de prompt, sem conteúdo de arquivo, sem saída de
+  ferramenta.
+- Em máquina compartilhada: `~/.config/sabi/sabi.config.json` é por usuário; prefira chaves no
+  ambiente, não num arquivo legível por todos.
+
+## Atualizar
+
+```bash
+cd /caminho/para/sabi && git pull && npm install
+```
+
+Nada mais a fazer no caminho A (o mod é referenciado no lugar). No caminho B, reinicie o proxy.
+Se algum id de modelo ou preço mudou, reconfira no upstream antes de confiar no relatório de custo —
+veja as notas de procedência em `sabi.config.json`.
