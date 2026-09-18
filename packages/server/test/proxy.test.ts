@@ -15,6 +15,7 @@ let logFile = ''
 let mockBodies: Array<Record<string, unknown>> = []
 let mockHeaders: Array<Record<string, string>> = []
 let mock429 = false
+let mockStreamError: string | undefined
 
 const defaultJudge: JudgeOutcome = { realProblem: 0.9, difficulty: 'standard', difficultyConfidence: 0.9 }
 let judgeOutcome: JudgeOutcome = defaultJudge
@@ -61,6 +62,15 @@ function startMockUpstream(): Promise<{ server: Server; port: number }> {
         res.write(
           `data: ${JSON.stringify({ id: 'c1', model, choices: [{ index: 0, delta: { role: 'assistant' } }] })}\n\n`,
         )
+        if (mockStreamError) {
+          // A provider failure delivered after content has already streamed, the way OpenRouter
+          // reports 402s: the client keeps its 200 and the round still has to be recorded.
+          setTimeout(() => {
+            res.write(`data: ${JSON.stringify({ error: { message: mockStreamError, code: 402 } })}\n\n`)
+            res.end()
+          }, 15)
+          return
+        }
         res.write(
           `data: ${JSON.stringify({ id: 'c1', model, choices: [{ index: 0, delta: { content: 'hi' } }] })}\n\n`,
         )
@@ -448,4 +458,25 @@ test('configured upstream headers that look like routing metadata are stripped c
   assert.equal(upstreamHeaders['x-sabi-session-id'], undefined, 'X-Sabi-Session-Id must be stripped')
   assert.equal(upstreamHeaders['x-sabi-request-id'], undefined, 'X-Sabi-Request-Id must be stripped')
   assert.equal(upstreamHeaders['x-title'], 'sabi-test')
+})
+
+test('a provider error inside a 200 stream is recorded with the provider message', async () => {
+  const before = (await readDecisions()).length
+  mockStreamError = 'This request requires more credits, or fewer max_tokens'
+  const response = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'sabi-code', stream: true, messages: [system, user] }),
+  })
+  // The upstream already opened with 200, so the status cannot be corrected; the server resets the
+  // stream, and the log is where the provider's explanation has to survive.
+  assert.equal(response.status, 200)
+  await response.text().catch(() => '')
+  const rows = await waitForDecision(before + 1)
+  mockStreamError = undefined
+
+  const record = rows[rows.length - 1]!
+  assert.equal(record.outcome, 'error')
+  assert.equal(record.stream, true)
+  assert.match(String(record.error), /requires more credits/)
 })

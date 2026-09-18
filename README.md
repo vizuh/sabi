@@ -85,9 +85,11 @@ npm start                        # http://127.0.0.1:8787/v1
 
 npm run connect:command-code     # writes/updates the "sabi" provider in ~/.commandcode/providers.json
 cmd --list-models | grep sabi    # verify the four models are visible
+
+npm run connect:opencode         # OpenCode: merges the "sabi" provider into ~/.config/opencode/opencode.json
 ```
 
-Then pick `sabi/sabi-code` in `/model` (or `--model sabi/sabi-code`). Fixed baseline aliases for comparison: `sabi-cheap`, `sabi-mid`, `sabi-strong`. `sabi-local` targets Ollama and is not exposed by default — its 32k window is too small for harness prompts.
+Then pick `sabi/sabi-code` in `/model` (or `--model sabi/sabi-code`). Fixed baseline aliases for comparison: `sabi-cheap`, `sabi-mid`, `sabi-strong`. `sabi-local` targets Ollama and is not exposed by default — its 32k window is too small for harness prompts. Other clients — OpenCode and Hermes, with what they do and do not get — are covered in [docs/install.md](docs/install.md#clients-other-than-command-code).
 
 Sabi is a foreground process, not a service: if it is not running, every `sabi/*` request fails with `ECONNREFUSED 127.0.0.1:8787` inside the harness. On this machine both keys come from the workspace secrets file:
 
@@ -162,6 +164,7 @@ npm run report  # decisions, tokens, cost, savings vs an all-strong counterfactu
 packages/core                    trajectory state, policy, judge application, router, config discovery, decision log
 packages/server                  OpenAI-compatible proxy (SSE passthrough + tap), TypeSafe client, /v1/models, report
 packages/adapters/command-code   the in-process mod (mod/sabi.ts) + the BYOK provider writer (src/connect.ts)
+packages/adapters/opencode       OpenCode config writer (npm run connect:opencode)
 packages/adapters/hermes         opt-in metadata bridge and isolated compatibility probe
 packages/adapters/prime-agent   private isolated proxy/timing probe; no native adapter
 ```

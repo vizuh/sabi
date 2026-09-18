@@ -44,6 +44,21 @@ test('multi-line SSE data is parsed as a single event', () => {
   assert.match(new TextDecoder().decode(output), /"model":"sabi-code"/)
 })
 
+test('a provider error inside a 200 stream carries its own message out', () => {
+  const tap = createSseTap('sabi-code', () => {})
+  tap.push(encoder.encode('data: {"model":"mock-cheap","choices":[{"index":0,"delta":{"content":"ok"}}]}\n\n'))
+  assert.throws(
+    () => tap.push(encoder.encode('data: {"error":{"message":"This request requires more credits","code":402}}\n\n')),
+    /upstream stream error: This request requires more credits/,
+  )
+
+  // A string error, and one with no usable message, still fail — with a truthful text either way.
+  const second = createSseTap('sabi-code', () => {})
+  assert.throws(() => second.push(encoder.encode('data: {"error":"context length exceeded"}\n\n')), /context length exceeded/)
+  const third = createSseTap('sabi-code', () => {})
+  assert.throws(() => third.push(encoder.encode('data: {"error":{}}\n\n')), /without a message/)
+})
+
 test('malformed and truncated streams fail without a successful finish callback', () => {
   for (const wire of ['data: nope\n\n', 'data: null\n\n', 'data: []\n\n', 'data: {"error":"bad"}\n\n',
     'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n']) {

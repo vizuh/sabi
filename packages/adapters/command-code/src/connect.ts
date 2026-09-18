@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { loadConfig, type SabiConfig } from '@sabi/core'
+import { loadConfig, minContextWindowFor } from '@sabi/core'
 
 const providersPath =
   process.env.SABI_CC_PROVIDERS ?? path.join(os.homedir(), '.commandcode', 'providers.json')
@@ -15,16 +15,6 @@ const displayNames: Record<string, string> = {
   'sabi-mid': 'Sabi Mid (baseline)',
   'sabi-strong': 'Sabi Strong (baseline)',
   'sabi-local': 'Sabi Local (ollama)',
-}
-
-function minContextWindow(config: SabiConfig, target: string): number | undefined {
-  if (target !== 'auto') return config.models[target]?.contextWindow
-  const policyTiers = Object.values(config.policy).filter((tier) => tier !== 'off' && config.models[tier])
-  const candidates = policyTiers.length ? [...new Set(policyTiers)] : Object.keys(config.models)
-  const windows = candidates
-    .map((tier) => config.models[tier]?.contextWindow)
-    .filter((value): value is number => typeof value === 'number' && value > 0)
-  return windows.length ? Math.min(...windows) : undefined
 }
 
 function readProviders(): Record<string, unknown> {
@@ -52,7 +42,7 @@ const models: Record<string, { name: string; contextWindow?: number }> = {}
 for (const [alias, target] of Object.entries(config.aliases)) {
   if (config.models[target]?.upstream === 'ollama' && !includeLocal) continue
   const entry: { name: string; contextWindow?: number } = { name: displayNames[alias] ?? alias }
-  const contextWindow = minContextWindow(config, target)
+  const contextWindow = minContextWindowFor(config, target)
   if (contextWindow) entry.contextWindow = contextWindow
   models[alias] = entry
 }

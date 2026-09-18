@@ -6,6 +6,8 @@ export interface SseTapResult {
   usage?: UsageTotals
   finishReason?: string
   dataEvents: number
+  /** A failure the provider reported inside an HTTP 200 stream (e.g. OpenRouter credit/context 402s). */
+  upstreamError?: string
 }
 
 export interface SseTap {
@@ -16,6 +18,25 @@ export interface SseTap {
 
 const EVENT_LIMIT = 4 * 1024 * 1024
 const TERMINAL_REASONS = new Set(['stop', 'length', 'tool_calls', 'content_filter', 'function_call'])
+
+function providerErrorMessage(value: unknown): string {
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (isObject(value) && typeof value.message === 'string' && value.message.trim()) return value.message.trim()
+  return 'provider reported an error without a message'
+}
+
+/**
+ * A failure the provider reported about itself, distinct from a protocol violation we detected:
+ * only this class carries text worth persisting (credits, context length, rate limit).
+ */
+export class UpstreamStreamError extends UpstreamProtocolError {
+  readonly providerMessage: string
+  constructor(providerMessage: string) {
+    super(`upstream stream error: ${providerMessage}`)
+    this.name = 'UpstreamStreamError'
+    this.providerMessage = providerMessage
+  }
+}
 
 /** Inspect complete events only. Tool deltas remain opaque, including argument fragments. */
 export function createSseTap(alias: string, onFinish: (result: SseTapResult) => void): SseTap {
@@ -48,7 +69,14 @@ export function createSseTap(alias: string, onFinish: (result: SseTapResult) => 
     } catch {
       throw new UpstreamProtocolError('invalid upstream stream data')
     }
-    if (!isObject(parsed) || !Array.isArray(parsed.choices) || parsed.error !== undefined) {
+    if (isObject(parsed) && parsed.error !== undefined) {
+      // The provider itself is reporting the failure — credits, context length, rate limit — inside a
+      // stream it opened with HTTP 200. Carry its explanation out (sanitized by the caller) instead of
+      // degrading it into an opaque protocol violation, which is what made this class undiagnosable.
+      result.upstreamError = providerErrorMessage(parsed.error)
+      throw new UpstreamStreamError(result.upstreamError)
+    }
+    if (!isObject(parsed) || !Array.isArray(parsed.choices)) {
       throw new UpstreamProtocolError('invalid upstream stream data')
     }
     for (const [position, choice] of parsed.choices.entries()) {

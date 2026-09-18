@@ -298,6 +298,32 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
   return { ...config, upstreams, models, aliases, policy }
 }
 
+/** Tiers that could serve `target` (`auto` = every tier the policy can pick, in declaration order). */
+export function tiersFor(config: SabiConfig, target: string): string[] {
+  if (target !== 'auto') return [target]
+  const policyTiers = Object.values(config.policy).filter((tier) => tier !== 'off' && config.models[tier])
+  return policyTiers.length ? [...new Set(policyTiers)] : Object.keys(config.models)
+}
+
+const positive = (value: number | undefined): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0
+
+/**
+ * Smallest declared context window across the tiers that could serve `target`. A client should
+ * advertise a window Sabi can always honour, not the largest one. Undefined when no tier declares
+ * one — the caller omits the limit rather than guessing.
+ */
+export function minContextWindowFor(config: SabiConfig, target: string): number | undefined {
+  const windows = tiersFor(config, target).map((tier) => config.models[tier]?.contextWindow).filter(positive)
+  return windows.length ? Math.min(...windows) : undefined
+}
+
+/** Smallest declared `maxOutputTokens` across those tiers, when an operator has declared any. */
+export function minOutputTokensFor(config: SabiConfig, target: string): number | undefined {
+  const limits = tiersFor(config, target).map((tier) => config.models[tier]?.maxOutputTokens).filter(positive)
+  return limits.length ? Math.min(...limits) : undefined
+}
+
 export function resolveKey(reference: string | false | undefined): string | undefined {
   if (reference === false || reference === undefined) return undefined
   const trimmed = String(reference).trim()

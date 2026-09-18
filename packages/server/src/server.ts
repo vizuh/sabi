@@ -13,6 +13,7 @@ import {
   judgeTriggers,
   route,
   SabiRouteError,
+  sanitizeError,
   sanitizeReason,
   sessionIdFor,
   telemetryPolicy,
@@ -22,7 +23,7 @@ import {
   type RouteDecision,
   type SabiConfig,
 } from '@sabi/core'
-import { createSseTap, type SseTapResult } from './sse.ts'
+import { createSseTap, UpstreamStreamError, type SseTapResult } from './sse.ts'
 import { createTypesafeClient, type JudgeClient } from './typesafe.ts'
 import { buildUpstreamBody, callUpstream, chatResponseFromJson, isObject, readErrorText, readResponseText, UpstreamProtocolError, usageFromJson } from './upstream.ts'
 
@@ -438,7 +439,10 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     }
     finish({ outcome: deadline ? 'transport' : aborted ? 'aborted' : 'error',
       error: deadline ? 'request deadline exceeded' : aborted ? 'client aborted' :
-        stage === 'upstream' ? 'upstream response failed' : 'route rejected',
+        // The client-facing message stays generic; the log keeps the provider's own explanation
+        // (sanitized, first line, ≤200 chars) so a mid-stream 402 is diagnosable from the report.
+        stage !== 'upstream' ? 'route rejected' :
+          error instanceof UpstreamStreamError ? sanitizeError(error.providerMessage) : 'upstream response failed',
       ...(deadline ? { transport: 504 } : {}),
     })
     if (!signal.aborted) controller.abort()
