@@ -39,6 +39,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: GitHub Release — notes and the packed tarball
         run: |
+          mkdir -p dist # npm pack --pack-destination does not create it
           npm pack ./packages/adapters/command-code/pkg --pack-destination dist
           gh release create "$GITHUB_REF_NAME" dist/*.tgz --generate-notes --title "$GITHUB_REF_NAME"
         env:
