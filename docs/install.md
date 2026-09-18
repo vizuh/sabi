@@ -161,7 +161,9 @@ one project only, drop a config in that project.
 
 Decisions go to `<cwd>/.sabi/decisions.jsonl`; override with `$SABI_LOG`.
 Sabi writes metadata only — tier, rule, model id, token counts, cost, judge outcome. Prompt content
-is never written, to the log or to the session.
+is never written, to the log or to the session, with one exception: a failed upstream call records the
+first 200 characters of the provider's error response (credential patterns redacted), so a provider
+that echoes request content in its error line puts that line in the log.
 
 ## Plan coverage
 
@@ -238,8 +240,12 @@ router does the rest:
   references. Do not commit a config with literal keys.
 - **Nothing leaves the machine except the model calls themselves.** The class-A path adds no network
   hop of its own. The class-B path forwards to the upstreams you configured, and the Jev judge sends
-  a bounded excerpt (≤6k chars: last instruction, last tool excerpt, round metadata) to TypeSafe.
-- **The decision log is metadata only** — no prompt content, no file contents, no tool output.
+  excerpts of the last instruction and tool result plus round metadata — a 6k-character target, not a
+  strict serialized-size guarantee for every field.
+- **The decision log is metadata only, with one exception.** Nothing from the conversation is written
+  — no prompt content, no file contents, no tool output — but a failed upstream call records the first
+  200 characters of the provider's error response (credential patterns redacted). A provider that
+  echoes request content in its error line puts that line in the log.
 - Working on a shared machine: `~/.config/sabi/sabi.config.json` is per-user; keep keys in the
   environment rather than in a world-readable config.
 

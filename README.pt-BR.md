@@ -16,7 +16,7 @@ O Sabi fica entre um harness de código e seus provedores de modelo. O harness m
 | Sinal de falha | o `isError` do próprio harness (verdade de fato) | inferido do texto da saída da ferramenta |
 | Use para | Command Code | qualquer harness que só aceite uma `baseURL` |
 
-Os dois compartilham `packages/core`: estado da trajetória, política, juiz (Jev) e log de decisões. As decisões de roteamento abaixo são idênticas entre as classes — muda só o vocabulário de modelos (`harness.tiers` é um conjunto de ids do catálogo do Command Code; `models` é um conjunto de ids de upstream).
+Os dois reutilizam as regras de roteamento de `packages/core`, mas seus sinais e comportamentos diferem. O mod usa sinais explícitos de erro de ferramenta e planeja as rodadas seguintes; o proxy infere falhas a partir de texto e pode chamar o Jev. `harness.tiers` contém ids do catálogo do Command Code; `models` contém ids de upstream. Compare os adaptadores separadamente.
 
 ## Política
 
@@ -31,7 +31,27 @@ Cada rodada é classificada a partir do estado da trajetória — posição da r
 | leitura / busca / burocracia | `exploration` | cheap |
 | qualquer outra | `unclassified` | cheap |
 
-O proxy registra cada rodada roteada em `.sabi/decisions.jsonl` (metadados, uso e custo estimado — nunca o conteúdo do prompt) e resume com `npm run report`. O mod registra uma decisão por rodada na própria sessão.
+O proxy registra as rodadas roteadas em `.sabi/decisions.jsonl` e as resume com `npm run report`. O mod registra as decisões como entradas da própria sessão do host, que esse relatório não lê. **Privacidade:** por padrão, a telemetria guarda evidências de uma lista permitida e identidades opacas com hash; trechos de diagnóstico são opt-in. Mantenha os logs locais e revise as configurações de `telemetry` antes de habilitar a captura.
+
+## Mídia e visão
+
+Mídia é uma restrição de roteamento, não uma preferência decidida depois do fato. Cada nível pode declarar as modalidades de entrada que seu modelo aceita (`capabilities.inputModalities` no proxy, `inputModalities` em `harness.tiers`). Uma rodada que carrega uma imagem nunca é enviada a um nível que declara só texto — ela é atendida pelo primeiro nível, na ordem de configuração, que declara a modalidade, e a decisão registra `rule: capability`. O que não é declarado continua desconhecido: um nível que não declara nada nunca é bloqueado.
+
+| Nível | Proxy (`models`) | Mod (`harness.tiers`) |
+|---|---|---|
+| cheap | `deepseek/deepseek-v4-flash-0731` — só texto | `deepseek/deepseek-v4-flash` — só texto |
+| mid | `openai/gpt-5.6-luna` — texto, imagem, arquivo | `gpt-5.6-luna` — texto, imagem |
+| strong | `anthropic/claude-sonnet-5` — texto, imagem, arquivo | `zai-org/glm-5.3` — só texto |
+
+O que acontece quando nada consegue atender a rodada:
+
+- **Alias adaptativo (`sabi-code`)** — a rodada vai para um nível que consegue lê-la. Verificado ao vivo: uma rodada de exploração carregando uma imagem, planejada para o nível cheap (só texto), foi atendida por `openai/gpt-5.6-luna` (`rule: capability`), em vez de falhar no upstream com `404 No endpoints found that support image input`.
+- **Alias fixo (`sabi-cheap`)** — recusada, com `400 incompatible route 'cheap': input modality 'image' is not supported`. Um alias de baseline é uma escolha explícita de modelo e não sobe de nível em silêncio.
+- **Nenhum nível** — recusada no proxy; no caminho do mod, a rodada fica no modelo da sessão, porque o host remove imagens para um modelo só-texto e rotear para lá responderia às cegas.
+
+A mídia também é cobrada na estimativa de contexto: cada imagem custa 1500 tokens (o limite do próprio host, não o tamanho em base64, que não diz nada sobre tokens de imagem) e as outras mídias são cobradas pelo tamanho do payload, então uma rodada com captura de tela não parece mais minúscula para a regra de pressão de contexto. `contextChars` continua só texto; `state.inputModalities` e `state.mediaCounts` são gravados em cada decisão.
+
+As modalidades declaradas precisam ser verificadas por id de modelo, não inferidas pela família: na OpenRouter, `deepseek/deepseek-v4-flash-0731` é só texto enquanto `deepseek/deepseek-v4-flash-vision-exp` aceita imagens; no catálogo do Command Code, `gpt-5.6-luna` aceita imagens enquanto `zai-org/GLM-5.3` não.
 
 ## Instalar — mod do Command Code (recomendado)
 
@@ -120,12 +140,12 @@ Ids de modelo, janelas de contexto e preços foram verificados na API da OpenRou
 
 ## Julgamentos do Jev
 
-Antes de uma rodada ser atendida, o Jev (modelo System One da TypeSafe) é consultado **só onde as heurísticas são cegas**:
+**Só o proxy** consulta o Jev (modelo System One da TypeSafe) nas regras configuradas. O mod do Command Code não chama o Jev hoje:
 
 - rodadas `failure` — "isto é um problema real ou um resultado esperado?" Uma probabilidade baixa de problema real veta a escalada (por exemplo: um comando que o usuário pediu explicitamente que falhasse).
 - rodadas `unclassified` — "quão exigente é o próximo passo?" (`trivial` / `standard` / `demanding` → cheap / mid / strong) quando a confiança passa do limite.
 
-Uma única requisição em lote para a TypeSafe cobre as duas perguntas, com estado limitado (≤6k caracteres: última instrução, último trecho de ferramenta, metadados da rodada — nunca a conversa inteira). Os julgamentos são cacheados, custam cerca de $0.00003 cada, e são **fail-open**: qualquer erro ou timeout volta à política determinística. Desligue com `judge.enabled: false`.
+Uma única requisição em lote para a TypeSafe cobre as duas perguntas usando trechos da última instrução e do último resultado de ferramenta mais metadados da rodada, não a conversa inteira. O alvo atual de 6k caracteres do estado não é uma garantia estrita de tamanho serializado para todos os campos. Os julgamentos são cacheados, custam cerca de $0.00003 cada, e são **fail-open**: qualquer erro ou timeout volta à política determinística. Desligue com `judge.enabled: false`.
 
 ## Verificar
 
@@ -141,9 +161,11 @@ npm run report  # decisões, tokens, custo, economia vs. contrafactual all-stron
 packages/core                    estado da trajetória, política, aplicação do juiz, roteador, descoberta de config, log de decisões
 packages/server                  proxy compatível com OpenAI (passthrough + tap de SSE), cliente TypeSafe, /v1/models, report
 packages/adapters/command-code   o mod em processo (mod/sabi.ts) + o escritor do provider BYOK (src/connect.ts)
+packages/adapters/hermes         ponte de metadados opt-in e sonda de compatibilidade isolada
+packages/adapters/prime-agent   sonda privada e isolada de proxy/timing; sem adaptador nativo
 ```
 
-`npm run mod` carrega o mod a partir de um checkout. O proxy adiciona `stream_options.include_usage` para upstreams que suportam, reescreve o campo `model` da resposta de volta para o alias sintético, captura o uso no stream SSE e nunca registra o conteúdo do prompt. As chamadas ao Jev acontecem antes do encaminhamento e ficam registradas na decisão (`judge.status`, probabilidades, direção do override, latência, custo em tokens).
+`npm run mod` carrega o mod a partir de um checkout. O proxy usa uma verificação única de envelope efetivo antes de adicionar `stream_options.include_usage` para upstreams elegíveis, reescreve o campo `model` da resposta de volta para o alias sintético, captura o uso no stream SSE e grava registros de decisão com os limites de privacidade descritos acima. As chamadas ao Jev acontecem antes do encaminhamento e ficam registradas na decisão (`judge.status`, probabilidades, direção do override, latência, custo em tokens).
 
 Planejado: `evals`, adaptadores `prime-agent` e `opencode`, perfis de modelo aprendidos, consciência de cota.
 
@@ -157,6 +179,9 @@ Nome do produto: **Sabi**. Os handles `sabi`, `uasabi` e `sabido` no GitHub já 
 
 ## Documentação
 
+- [Command Code roadmap](docs/research/command-code-roadmap.md) — roteamento de contexto/ferramentas proposto e critérios de aceite (em inglês)
+- [Folder review](docs/research/folder-review.md) — achados no código e comentários prontos para issue (em inglês)
+- [Prime Agent reuse](docs/research/prime-agent-reuse.md) — evidência do runtime instalado e padrões que valem reaproveitar (em inglês)
 - [docs/install.pt-BR.md](docs/install.pt-BR.md) — instalação passo a passo na máquina de outra pessoa
 - [docs/context.md](docs/context.md) — contexto, restrições, riscos (em inglês)
 - [docs/decisions.md](docs/decisions.md) — decisões correntes (em inglês)

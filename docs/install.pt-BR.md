@@ -161,7 +161,9 @@ encontrada. Para uma configuração pessoal que sobrevive a mover o clone, copie
 
 As decisões vão para `<cwd>/.sabi/decisions.jsonl`; sobrescreva com `$SABI_LOG`.
 O Sabi grava só metadados — nível, regra, id do modelo, contagem de tokens, custo, resultado do juiz.
-Conteúdo de prompt nunca é gravado, nem no log nem na sessão.
+Conteúdo de prompt nunca é gravado, nem no log nem na sessão, com uma exceção: uma chamada de upstream
+que falha registra os primeiros 200 caracteres da resposta de erro do provedor (padrões de credencial
+redigidos), então um provedor que ecoa conteúdo da requisição na linha de erro coloca essa linha no log.
 
 ## Cobertura de plano
 
@@ -186,17 +188,38 @@ Outras escolhas Go-e-acima para `strong`: `moonshotai/kimi-k3`, `qwen/qwen3.8-ma
 `deepseek/deepseek-v4-pro`. O `minPlan` na config é uma nota para humanos, não uma checagem em tempo
 de execução — o Sabi não consegue ler o seu plano.
 
+## Imagens e outros tipos de mídia
+
+O Sabi se recusa a enviar mídia para um modelo que não consegue lê-la. Declare o que cada nível aceita e o roteador faz o resto:
+
+```json
+"mid": {
+  "upstream": "openrouter",
+  "model": "openai/gpt-5.6-luna",
+  "capabilities": { "inputModalities": ["text", "image", "file"] }
+}
+```
+
+- Uma rodada adaptativa (`sabi-code`) que carrega uma imagem é atendida pelo primeiro nível, na ordem de configuração, que declara `image` — a ordem dos níveis é a ordem de preferência, então liste cheap antes de strong. A decisão registra `rule: capability` com um motivo que nomeia os dois níveis.
+- Um alias fixo (`sabi-cheap`) é recusado com `400 incompatible route 'cheap': input modality 'image' is not supported`, porque um alias de baseline é uma escolha explícita. Use `sabi-code` quando a sessão puder conter capturas de tela.
+- Nada declarado significa desconhecido, e o Sabi encaminha como antes — declarar modalidades é o que liga a restrição. Verifique por id de modelo no upstream: na OpenRouter, `deepseek/deepseek-v4-flash-0731` é só texto enquanto `deepseek/deepseek-v4-flash-vision-exp` aceita imagens.
+- O caminho do mod lê a mesma ideia de `harness.tiers[].inputModalities` e varre o transcript em busca de mídia. Ele não consegue corrigir um modelo que o host já escolheu: se nenhum nível consegue ler a imagem, a rodada fica no modelo da sessão em vez de ser roteada para um nível só-texto que teria a imagem removida em silêncio.
+- A mídia é cobrada na estimativa de contexto — 1500 tokens por imagem, o limite do próprio host — então uma captura de tela não parece uma rodada pequena para a regra de pressão de contexto.
+
 ## Problemas comuns
 
 | Sintoma | Causa e solução |
 |---|---|
 | `ECONNREFUSED 127.0.0.1:8787` no harness | O caminho B está selecionado (modelo `sabi/*`) mas o proxy não está rodando. `npm start`, ou volte o modelo da sessão ao anterior. |
 | `403 MODEL_NOT_IN_PLAN` | Algum nível em `harness.tiers` está acima do seu plano. Veja [Cobertura de plano](#cobertura-de-plano). |
+| `No endpoints found that support image input` (404 do upstream) | Um modelo de upstream que não aceita imagens e nenhum `capabilities.inputModalities` declarado. Veja [Imagens e outros tipos de mídia](#imagens-e-outros-tipos-de-mídia). |
+| `400 input modality 'image' is not supported` | Funcionando como pretendido: a rodada carrega mídia que o nível selecionado não aceita. Use o alias adaptativo, ou declare um nível que aceite. |
 | `Sabi disabled: Sabi config not found at …` | Nenhuma config nos quatro locais. A mensagem lista todos os caminhos procurados; defina `SABI_CONFIG` ou crie uma. |
 | `cmd mods list` mostra `Mods (0)` | Fontes de escopo de projeto só aparecem depois que o projeto teve sessão. Abra o `cmd` no checkout uma vez. |
 | O mod carrega interativo mas não em `-p` | Esperado: `-p` não carrega mods de escopo de projeto. Passe `--mod ./packages/adapters/command-code/mod/sabi.ts`. |
 | `WARN: missing upstream credentials` na subida | A config referencia uma variável de ambiente não definida. Exporte, ou ponha `apiKey: false` nesse upstream. |
 | A rodada 1 ignora o Sabi | Por desenho: `prepareNextTurn` só dispara da segunda rodada, então a primeira roda no modelo da sessão. |
+| Uma rodada com imagem parece maior que o texto dela | Esperado: a mídia é cobrada a 1500 tokens por imagem em `state.estimatedTokens`, e `state.mediaCounts` registra a contagem. |
 
 ## Segurança
 
@@ -205,11 +228,13 @@ de execução — o Sabi não consegue ler o seu plano.
 - **Nenhum segredo no git.** As chaves vêm do ambiente; a config guarda só referências `$ENV_VAR`.
   Não commite uma config com chave literal.
 - **Nada sai da máquina além das próprias chamadas de modelo.** O caminho A não adiciona nenhum salto
-  de rede próprio. O caminho B encaminha para os upstreams que você configurou, e o juiz Jev envia um
-  trecho limitado (≤6k caracteres: última instrução, último trecho de ferramenta, metadados da rodada)
-  para a TypeSafe.
-- **O log de decisões é só metadado** — sem conteúdo de prompt, sem conteúdo de arquivo, sem saída de
-  ferramenta.
+  de rede próprio. O caminho B encaminha para os upstreams que você configurou, e o juiz Jev envia
+  trechos da última instrução e do último resultado de ferramenta mais metadados da rodada — um alvo de
+  6k caracteres, não uma garantia estrita de tamanho serializado para todos os campos.
+- **O log de decisões é só metadado, com uma exceção.** Nada da conversa é gravado — sem conteúdo de
+  prompt, sem conteúdo de arquivo, sem saída de ferramenta — mas uma chamada de upstream que falha
+  registra os primeiros 200 caracteres da resposta de erro do provedor (padrões de credencial
+  redigidos). Um provedor que ecoa conteúdo da requisição na linha de erro coloca essa linha no log.
 - Em máquina compartilhada: `~/.config/sabi/sabi.config.json` é por usuário; prefira chaves no
   ambiente, não num arquivo legível por todos.
 
