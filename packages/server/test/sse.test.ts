@@ -78,3 +78,17 @@ test('usage-only and unfinished streams reject before forwarding DONE', () => {
     assert.equal(calls, 0)
   }
 })
+
+test('post-terminal choice deltas reject before DONE', () => {
+  const events = [
+    { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+    { choices: [{ index: 0, delta: {
+      tool_calls: [{ index: 0, function: { arguments: '{\"late\":true}' } }],
+    } }] },
+  ]
+  const wire = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n'
+  let calls = 0
+  const tap = createSseTap('sabi-code', () => { calls += 1 })
+  assert.throws(() => tap.push(encoder.encode(wire)), /continued after terminal/)
+  assert.equal(calls, 0)
+})
