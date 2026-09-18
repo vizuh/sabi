@@ -38,6 +38,15 @@ test('valid answers map to a judge outcome', () => {
   assert.deepEqual(outcome.usage, { inputTokens: 300, outputTokens: 40 })
 })
 
+test('missing or malformed usage stays unknown instead of becoming free', () => {
+  for (const usage of [undefined, {}, { input_tokens: 1 }, { output_tokens: 2 },
+    { input_tokens: -1, output_tokens: 2 }, { input_tokens: 1.5, output_tokens: 2 }]) {
+    const payload = { ...goodPayload, usage }
+    const outcome = validateAnswers(payload, JUDGE_QUESTIONS, 'jev-latest')
+    assert.equal(outcome.usage, undefined)
+  }
+})
+
 test('malformed answers are rejected', () => {
   const badChoice = structuredClone(goodPayload)
   badChoice.answers.difficulty.choice = 'impossible'

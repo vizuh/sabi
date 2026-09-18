@@ -4,7 +4,7 @@ import { createServer, type Server } from 'node:http'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { validateConfig, type DecisionRecord, type JudgeOutcome } from '@sabi/core'
+import { hashIdentity, validateConfig, type DecisionRecord, type JudgeOutcome } from '@sabi/core'
 import { createSabiServer, type SabiServer } from '../src/server.ts'
 import type { JudgeClient } from '../src/typesafe.ts'
 
@@ -119,7 +119,14 @@ before(async () => {
   const mockPort = started.port
   const config = validateConfig({
     upstreams: {
-      mock: { baseURL: `http://127.0.0.1:${mockPort}/v1`, apiKey: false, streamUsage: true },
+      mock: {
+        baseURL: `http://127.0.0.1:${mockPort}/v1`,
+        apiKey: false,
+        streamUsage: true,
+        // Configured routing metadata, in normal HTTP casing: it must never reach the provider.
+        // `x-title` is the control — ordinary vendor headers still pass through.
+        headers: { 'X-Sabi-Session-Id': 'configured-session-1', 'X-Sabi-Request-Id': 'configured-request-1', 'x-title': 'sabi-test' },
+      },
     },
     models: {
       cheap: { upstream: 'mock', model: 'mock-cheap', cost: { input: 1, output: 2 } },
@@ -353,8 +360,11 @@ test('decision records never embed secret-like markers (canary)', async () => {
 
 test('an upstream 429 is recorded as a transport outcome, distinct from a task error', async () => {
   mock429 = true
+  const callsBefore = mockBodies.length
   const response = await postChat({ model: 'sabi-code', stream: false, messages: [system, user] })
   assert.equal(response.status, 429)
+  assert.equal(response.headers.get('retry-after'), '1')
+  assert.equal(mockBodies.length, callsBefore + 1)
   const rows = await readDecisions()
   const record = rows[rows.length - 1]
   assert.equal(record.outcome, 'transport')
@@ -362,11 +372,14 @@ test('an upstream 429 is recorded as a transport outcome, distinct from a task e
   mock429 = false
 })
 
-test('opaque request attribution round-trips and never leaks to the upstream', async () => {
+test('client-supplied identity headers are ignored and never persisted raw', async () => {
+  const before = (await readDecisions()).length
   const response = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
+      // An earlier attribution scheme accepted these; they are correlation keys at best and may
+      // carry anything the client likes, so they are not identity and must not be recorded.
       'x-request-id': 'client-req-123',
       'x-session-id': 'client-sess-456',
     },
@@ -377,15 +390,62 @@ test('opaque request attribution round-trips and never leaks to the upstream', a
   assert.ok(echoed && echoed.length > 0)
 
   const rows = await readDecisions()
-  const record = rows[rows.length - 1]
+  assert.equal(rows.length, before + 1)
+  const record = rows[rows.length - 1]!
   assert.equal(record.requestId, echoed)
-  assert.equal(record.clientRequestId, 'client-req-123')
-  assert.equal(record.clientSessionId, 'client-sess-456')
-  // Sabi's own request id is forwarded for correlation, but nothing client-supplied.
-  assert.ok(record.requestId !== 'client-req-123')
-  // The upstream must receive Sabi's correlation id and none of the client's identity headers.
+  assert.notEqual(record.requestId, 'client-req-123')
+  assert.equal(record.client, 'unknown')
+  const persisted = JSON.stringify(record)
+  assert.ok(!persisted.includes('client-req-123'), 'client request id must not be persisted')
+  assert.ok(!persisted.includes('client-sess-456'), 'client session id must not be persisted')
+
   const upstreamHeaders = mockHeaders[mockHeaders.length - 1] ?? {}
   assert.equal(upstreamHeaders['x-request-id'], undefined)
   assert.equal(upstreamHeaders['x-session-id'], undefined)
-  assert.ok(upstreamHeaders['x-sabi-request-id'])
+})
+
+test('an accepted session identity is persisted hashed, never verbatim', async () => {
+  const response = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-sabi-client': 'opencode',
+      'x-sabi-session': 'opaque-session-1',
+      'x-sabi-turn': 'turn-1',
+    },
+    body: JSON.stringify({ model: 'sabi-code', stream: false, messages: [system, user] }),
+  })
+  assert.equal(response.status, 200)
+
+  const record = (await readDecisions()).at(-1)!
+  assert.equal(record.client, 'opencode')
+  assert.equal(record.sessionKnown, true)
+  const hashed = hashIdentity('session', 'opencode', 'opaque-session-1')
+  assert.equal(record.sessionId, hashed)
+  assert.equal(record.turnId, hashIdentity('turn', 'opencode', hashed, 'turn-1'))
+  assert.ok(!JSON.stringify(record).includes('opaque-session-1'), 'the raw session id must not survive')
+})
+
+test('a non-opaque identity header is refused before anything is written', async () => {
+  const before = (await readDecisions()).length
+  const response = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-sabi-session': 'not opaque; secret=abc' },
+    body: JSON.stringify({ model: 'sabi-code', stream: false, messages: [system, user] }),
+  })
+  assert.equal(response.status, 400)
+  assert.equal((await readDecisions()).length, before)
+})
+
+test('configured upstream headers that look like routing metadata are stripped case-insensitively', async () => {
+  const response = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'sabi-code', stream: false, messages: [system, user] }),
+  })
+  assert.equal(response.status, 200)
+  const upstreamHeaders = mockHeaders[mockHeaders.length - 1] ?? {}
+  assert.equal(upstreamHeaders['x-sabi-session-id'], undefined, 'X-Sabi-Session-Id must be stripped')
+  assert.equal(upstreamHeaders['x-sabi-request-id'], undefined, 'X-Sabi-Request-Id must be stripped')
+  assert.equal(upstreamHeaders['x-title'], 'sabi-test')
 })

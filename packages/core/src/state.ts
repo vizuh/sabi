@@ -1,6 +1,10 @@
 import type { ChatMessage, ChatRequestBody, EvidenceCode, FailureLevel, RoundKind, TrajectoryState } from './types.ts'
 
+// Exact built-in names only: never strip MCP/server prefixes to guess a capability.
 const EXPLORE_TOOLS = new Set([
+  'read', // OpenCode/Kilo
+  'webfetch',
+  'websearch',
   'read_file',
   'read_directory',
   'glob',
@@ -25,9 +29,9 @@ const EXPLORE_TOOLS = new Set([
   'activate_skill',
 ])
 
-const EDIT_TOOLS = new Set(['edit_file', 'write_file'])
+const EDIT_TOOLS = new Set(['edit_file', 'write_file', 'edit', 'write', 'apply_patch'])
 
-const SHELL_TOOL = 'shell_command'
+const SHELL_TOOLS = new Set(['shell_command', 'bash'])
 
 const VERIFY_COMMAND = /\b(test|tests|vitest|jest|pytest|build|tsc|typecheck|type-check|lint|eslint|check)\b/i
 
@@ -163,7 +167,7 @@ function shellKind(command: string | undefined): RoundKind {
 function callKind(name: string, args: string | undefined): RoundKind {
   if (EDIT_TOOLS.has(name)) return 'implementation'
   if (EXPLORE_TOOLS.has(name)) return 'exploration'
-  if (name === SHELL_TOOL) {
+  if (SHELL_TOOLS.has(name)) {
     let command: string | undefined
     if (args) {
       try {
@@ -183,6 +187,8 @@ export function classifyRound(calls: Array<{ name: string; args?: string }>): Ro
   let best: RoundKind = 'unclassified'
   for (const call of calls) {
     const kind = callKind(call.name, call.args)
+    // A known read mixed with an unknown action is not evidence of a read-only round.
+    if (kind === 'unclassified') return 'unclassified'
     if (KIND_RANK[kind] > KIND_RANK[best]) best = kind
   }
   return best

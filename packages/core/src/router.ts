@@ -1,16 +1,9 @@
+import { ensureRouteCompatible, SabiRouteError } from './compatibility.ts'
 import { decideTier } from './policy.ts'
 import { extractTrajectoryState } from './state.ts'
 import type { ChatRequestBody, RouteDecision, SabiConfig } from './types.ts'
 
-export class SabiRouteError extends Error {
-  status: number
-
-  constructor(message: string, status = 400) {
-    super(message)
-    this.name = 'SabiRouteError'
-    this.status = status
-  }
-}
+export { ensureRouteCompatible, SabiRouteError } from './compatibility.ts'
 
 export function normalizeAlias(model: unknown): string {
   const raw = String(model ?? '').trim()
@@ -18,8 +11,11 @@ export function normalizeAlias(model: unknown): string {
 }
 
 export function route(body: ChatRequestBody, config: SabiConfig): RouteDecision {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new SabiRouteError('request must be a JSON object')
+  }
   const alias = normalizeAlias(body.model)
-  const target = alias ? config.aliases[alias] : undefined
+  const target = alias && Object.hasOwn(config.aliases, alias) ? config.aliases[alias] : undefined
   if (!target) {
     throw new SabiRouteError(
       `unknown model '${String(body.model ?? '')}' — Sabi serves: ${Object.keys(config.aliases).join(', ')}`,
@@ -28,9 +24,9 @@ export function route(body: ChatRequestBody, config: SabiConfig): RouteDecision 
   }
   const state = extractTrajectoryState(body)
   if (target !== 'auto') {
-    const model = config.models[target]
+    const model = Object.hasOwn(config.models, target) ? config.models[target] : undefined
     if (!model) throw new SabiRouteError(`alias '${alias}' targets unknown tier '${target}'`, 500)
-    return {
+    const decision: RouteDecision = {
       alias,
       mode: 'fixed',
       rule: 'alias',
@@ -41,11 +37,13 @@ export function route(body: ChatRequestBody, config: SabiConfig): RouteDecision 
       upstreamModel: model.model,
       state,
     }
+    ensureRouteCompatible(body, config, decision)
+    return decision
   }
   const { rule, tier, reason } = decideTier(state, config.policy)
-  const model = config.models[tier]
+  const model = Object.hasOwn(config.models, tier) ? config.models[tier] : undefined
   if (!model) throw new SabiRouteError(`policy rule '${rule}' maps to unknown tier '${tier}'`, 500)
-  return {
+  const decision: RouteDecision = {
     alias,
     mode: 'auto',
     rule,
@@ -56,4 +54,6 @@ export function route(body: ChatRequestBody, config: SabiConfig): RouteDecision 
     upstreamModel: model.model,
     state,
   }
+  ensureRouteCompatible(body, config, decision)
+  return decision
 }

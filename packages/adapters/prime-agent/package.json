@@ -1,0 +1,14 @@
+{
+  "name": "@sabi/prime-agent-probe",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"test/*.test.ts\"",
+    "probe": "node src/probe.mjs"
+  },
+  "devDependencies": {
+    "@sabi/core": "*",
+    "@sabi/server": "*"
+  }
+}

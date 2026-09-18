@@ -1,4 +1,5 @@
 import { once } from 'node:events'
+import { randomUUID } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import {
   appendDecision,
@@ -6,11 +7,12 @@ import {
   buildJudgeState,
   defaultLogPath,
   estimateCost,
+  ensureRouteCompatible,
+  hashIdentity,
   JUDGE_QUESTIONS,
   judgeTriggers,
   route,
   SabiRouteError,
-  sanitizeError,
   sanitizeReason,
   sessionIdFor,
   telemetryPolicy,
@@ -20,34 +22,20 @@ import {
   type RouteDecision,
   type SabiConfig,
 } from '@sabi/core'
-import { createSseTap } from './sse.ts'
+import { createSseTap, type SseTapResult } from './sse.ts'
 import { createTypesafeClient, type JudgeClient } from './typesafe.ts'
-import { buildUpstreamBody, callUpstream, readErrorText, usageFromJson } from './upstream.ts'
+import { buildUpstreamBody, callUpstream, chatResponseFromJson, isObject, readErrorText, readResponseText, UpstreamProtocolError, usageFromJson } from './upstream.ts'
 
 const BODY_LIMIT = 32 * 1024 * 1024
 const RECENT_LIMIT = 200
-
-function randomId(): string {
-  return `${Date.now().toString(16)}-${cryptoRandomHex(6)}`
-}
-
-function cryptoRandomHex(bytes: number): string {
-  const buf = new Uint8Array(bytes)
-  crypto.getRandomValues(buf)
-  return [...buf].map((b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-function headerOrUndefined(req: IncomingMessage, name: string): string | undefined {
-  const raw = req.headers[name.toLowerCase()] ?? req.headers[name]
-  const value = Array.isArray(raw) ? raw[0] : raw
-  return value && value.trim() ? String(value).slice(0, 200) : undefined
-}
 
 export interface SabiServerOptions {
   config: SabiConfig
   logFile?: string
   verbose?: boolean
   judgeClient?: JudgeClient
+  /** Total wall-clock budget, including upload, judge and response stream. Default: 120 s. */
+  requestTimeoutMs?: number
 }
 
 export interface SabiServer {
@@ -75,37 +63,95 @@ function sendError(res: ServerResponse, status: number, message: string, type = 
   sendJson(res, status, { error: { message, type, code: status } })
 }
 
-function readBody(req: IncomingMessage): Promise<Buffer> {
+const CLIENTS = new Set<DecisionRecord['client']>(['hermes', 'opencode', 'kilo-cli', 'kilo-vscode', 'prime-agent', 'unknown'])
+const OPAQUE_ID = /^[A-Za-z0-9._:-]{1,128}$/
+
+function requestIdentity(req: IncomingMessage): Pick<DecisionRecord, 'client' | 'sessionId' | 'sessionKnown' | 'requestId' | 'turnId'> {
+  const header = (name: string): string | undefined => {
+    const value = req.headers[name]
+    // Node combines repeated non-special headers with commas; neither form is valid here.
+    if (value !== undefined && (typeof value !== 'string' || !OPAQUE_ID.test(value))) {
+      throw new SabiRouteError(`invalid ${name} header`)
+    }
+    return value
+  }
+  const rawClient = header('x-sabi-client') ?? 'unknown'
+  if (!CLIENTS.has(rawClient as DecisionRecord['client'])) throw new SabiRouteError('invalid x-sabi-client header')
+  const client = rawClient as NonNullable<DecisionRecord['client']>
+  const session = header('x-sabi-session')
+  const turn = header('x-sabi-turn')
+  const sessionId = sessionIdFor(session, client)
+  return {
+    client,
+    sessionId,
+    sessionKnown: session !== undefined,
+    requestId: randomUUID(),
+    turnId: turn === undefined ? undefined : hashIdentity('turn', client, sessionId, turn),
+  }
+}
+
+function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    void work.catch(() => {})
+    return Promise.reject(signal.reason)
+  }
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason)
+    signal.addEventListener('abort', abort, { once: true })
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
+  })
+}
+
+function readBody(req: IncomingMessage, signal: AbortSignal): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let size = 0
-    req.on('data', (chunk: Buffer) => {
+    const cleanup = () => {
+      req.off('data', data)
+      req.off('end', end)
+      req.off('error', error)
+      signal.removeEventListener('abort', abort)
+    }
+    const error = (reason: unknown) => { cleanup(); reject(reason) }
+    const abort = () => error(signal.reason)
+    const data = (chunk: Buffer) => {
       size += chunk.length
       if (size > BODY_LIMIT) {
-        reject(new SabiRouteError('request body too large', 413))
-        req.destroy()
+        error(new SabiRouteError('request body too large', 413))
+        req.resume()
         return
       }
       chunks.push(chunk)
-    })
-    req.on('end', () => resolve(Buffer.concat(chunks)))
-    req.on('error', reject)
+    }
+    const end = () => { cleanup(); resolve(Buffer.concat(chunks)) }
+    req.on('data', data)
+    req.on('end', end)
+    req.on('error', error)
+    signal.addEventListener('abort', abort, { once: true })
+    if (signal.aborted) abort()
   })
 }
 
 function modelSummary(config: SabiConfig) {
-  // Policy-reachable tiers: the tiers the auto alias can actually select. This is what a
-  // provider writer should advertise; using every configured model (including `local`) made
-  // the adaptive window differ from the reachable set.
+  // Advertise a conservative window for both policy and optional judge decisions.
+  // Unrelated configured models (for example `local`) do not constrain the auto alias.
   const reachable = new Set(
     Object.values(config.policy).filter((tier) => tier !== 'off' && config.models[tier]),
   )
+  const fallback = config.policy.unclassified
+  if ((!fallback || fallback === 'off' || !Object.hasOwn(config.models, fallback)) && Object.hasOwn(config.models, 'cheap')) {
+    reachable.add('cheap')
+  }
+  if (config.judge?.enabled) {
+    for (const tier of ['cheap', 'mid', 'strong']) {
+      if (Object.hasOwn(config.models, tier)) reachable.add(tier)
+    }
+  }
   const contextWindowFor = (target: string): number | undefined => {
     if (target !== 'auto') return config.models[target]?.contextWindow
-    const windows = [...reachable]
-      .map((tier) => config.models[tier]?.contextWindow)
-      .filter((value): value is number => typeof value === 'number' && value > 0)
-    return windows.length ? Math.min(...windows) : undefined
+    const windows = [...reachable].map((tier) => config.models[tier]?.contextWindow)
+    return windows.length && windows.every((value): value is number =>
+      typeof value === 'number' && Number.isFinite(value) && value > 0) ? Math.min(...windows) : undefined
   }
   return Object.entries(config.aliases).map(([id, target]) => ({
     id,
@@ -118,6 +164,10 @@ function modelSummary(config: SabiConfig) {
 }
 
 export function createSabiServer(options: SabiServerOptions): SabiServer {
+  const requestTimeoutMs = options.requestTimeoutMs ?? 120_000
+  if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs <= 0 || requestTimeoutMs > 2_147_483_647) {
+    throw new Error('requestTimeoutMs must be a positive bounded integer')
+  }
   const state: ServerState = {
     options,
     logFile: options.logFile ?? defaultLogPath(),
@@ -129,17 +179,17 @@ export function createSabiServer(options: SabiServerOptions): SabiServer {
   const server = createServer((req, res) => {
     handleRequest(state, req, res).catch((error: unknown) => {
       if (!res.headersSent) {
-        sendError(res, 500, `sabi internal error: ${(error as Error).message}`)
+        sendError(res, 500, 'sabi internal error')
       } else {
         res.end()
       }
     })
   })
 
-  server.requestTimeout = 0
-  server.timeout = 0
-  server.headersTimeout = 120_000
-  server.keepAliveTimeout = 120_000
+  server.requestTimeout = requestTimeoutMs
+  server.timeout = 0 // Active chat requests have a total deadline, not an idle timeout.
+  server.headersTimeout = Math.min(requestTimeoutMs, 60_000)
+  server.keepAliveTimeout = 5000
 
   return {
     server,
@@ -194,77 +244,34 @@ async function handleRequest(state: ServerState, req: IncomingMessage, res: Serv
 async function handleChat(state: ServerState, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const started = Date.now()
   const { config } = state.options
-
-  // Opaque per-request attribution. Never merge sessions by these ids; they are correlation
-  // keys only, and client-supplied values are recorded without becoming the session identity.
-  const requestId = randomId()
-  const clientRequestId = headerOrUndefined(req, 'x-request-id')
-  const clientSessionId = headerOrUndefined(req, 'x-session-id')
-  res.setHeader('x-sabi-request-id', requestId)
-
-  let body: ChatRequestBody
-  try {
-    const raw = await readBody(req)
-    body = JSON.parse(raw.toString('utf8')) as ChatRequestBody
-  } catch (error) {
-    const status = error instanceof SabiRouteError ? error.status : 400
-    sendError(res, status, `invalid request body: ${(error as Error).message}`)
-    return
+  const controller = new AbortController()
+  const { signal } = controller
+  const timeout = setTimeout(() => controller.abort(new DOMException('request deadline exceeded', 'TimeoutError')),
+    state.options.requestTimeoutMs ?? 120_000)
+  timeout.unref()
+  const disconnected = () => {
+    if (!res.writableFinished) controller.abort(new DOMException('client aborted', 'AbortError'))
   }
-
-  let decision: RouteDecision
-  try {
-    decision = route(body, config)
-  } catch (error) {
-    const status = error instanceof SabiRouteError ? error.status : 500
-    sendError(res, status, (error as Error).message)
-    return
-  }
-
-  let judgeRecord: JudgeRecord | undefined
-  if (config.judge && judgeTriggers(decision, config.judge)) {
-    const judgeState = buildJudgeState(body, decision, config.judge.maxStateChars)
-    const judgeStarted = Date.now()
-    try {
-      const result = await state.judge.ask(judgeState, JUDGE_QUESTIONS, config.judge)
-      const applied = applyJudge(decision, config, result.outcome)
-      decision = applied.decision
-      judgeRecord = { ...applied.record, latencyMs: result.latencyMs, cached: result.cached }
-    } catch (error) {
-      const name = (error as Error).name
-      judgeRecord = {
-        status: name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'error',
-        latencyMs: Date.now() - judgeStarted,
-        note: sanitizeError(String((error as Error).message ?? error)).slice(0, 200),
-      }
-    }
-  }
-
-  const streamRequested = body.stream === true
-  const record: DecisionRecord = {
-    ts: new Date().toISOString(),
-    sessionId: sessionIdFor(body),
-    alias: decision.alias,
-    mode: decision.mode,
-    rule: decision.rule,
-    tier: decision.tier,
-    reason: sanitizeReason(decision.reason, state.telemetry),
-    upstream: decision.upstream,
-    upstreamModel: decision.upstreamModel,
-    stream: streamRequested,
-    state: decision.state,
-    judge: judgeRecord,
-    outcome: 'ok',
-    requestId,
-    clientRequestId,
-    clientSessionId,
+  req.once('aborted', disconnected)
+  res.once('close', disconnected)
+  let record: DecisionRecord | undefined
+  let decision: RouteDecision | undefined
+  let finished = false
+  let stage: 'request' | 'route' | 'judge' | 'upstream' = 'request'
+  const responseFinished = async () => {
+    if (!res.writableFinished) await once(res, 'finish', { signal })
   }
 
   const finish = (patch: Partial<DecisionRecord>): void => {
+    if (!record || finished) return
+    finished = true
     record.latencyMs = Date.now() - started
     Object.assign(record, patch)
-    if (record.usage) {
-      record.cost = estimateCost(record.usage, config.models[decision.model]?.cost)
+    if (record.usage && decision) {
+      const served = record.servedModel && Object.values(config.models).find((model) =>
+        model.upstream === decision?.upstream && model.model === record?.servedModel)
+      // A requested backend is not evidence of which model actually served the tokens.
+      record.cost = served ? estimateCost(record.usage, served.cost) : undefined
     }
     appendDecision(record, state.logFile)
     state.recent.push(record)
@@ -272,130 +279,172 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     if (state.options.verbose !== false) {
       const cost = record.cost ? ` $${record.cost.total.toFixed(5)}` : ''
       const tokens = record.usage ? ` ${record.usage.promptTokens}in/${record.usage.completionTokens}out` : ''
-      const judge = record.judge
-        ? ` · jev ${record.judge.overridden ? `${record.judge.direction}->${record.judge.finalTier}` : record.judge.status}`
-        : ''
-      console.log(
-        `[sabi] ${record.alias} -> ${decision.tier} (${decision.rule}) -> ${decision.upstreamModel}` +
-          ` · ${record.latencyMs}ms${tokens}${cost}${judge}${record.outcome !== 'ok' ? ` · ${record.outcome}: ${record.error ?? ''}` : ''}`,
-      )
+      console.log(`[sabi] ${record.alias} -> ${record.tier} (${record.rule}) -> ${record.upstreamModel}` +
+        ` · ${record.latencyMs}ms${tokens}${cost} · ${record.outcome}`)
     }
   }
+  const observeModel = (model: unknown): string | undefined =>
+    typeof model === 'string' && Object.values(config.models).some((entry) =>
+      entry.upstream === decision?.upstream && entry.model === model) ? model : undefined
+  const saveDecision = (next: RouteDecision): void => {
+    if (!record) return
+    Object.assign(record, {
+      alias: next.alias, mode: next.mode, rule: next.rule, tier: next.tier,
+      reason: sanitizeReason(next.reason, state.telemetry), upstream: next.upstream, upstreamModel: next.upstreamModel,
+      state: {
+        ...next.state,
+        // Tool identities can contain arbitrary private text; classification still uses originals.
+        toolNames: next.state.toolNames.map((name) => hashIdentity('tool', name)),
+        lastToolNames: next.state.lastToolNames.map((name) => hashIdentity('tool', name)),
+        lastRole: ['system', 'developer', 'user', 'assistant', 'tool', 'function'].includes(next.state.lastRole)
+          ? next.state.lastRole : 'unknown',
+      },
+    })
+  }
 
-  const controller = new AbortController()
-  res.on('close', () => {
-    if (!res.writableEnded) controller.abort()
-  })
-
-  let upstreamBody: Record<string, unknown>
   try {
-    upstreamBody = buildUpstreamBody(config, decision, body)
-  } catch (error) {
-    sendError(res, 500, (error as Error).message)
-    finish({ outcome: 'error', error: sanitizeError((error as Error).message) })
-    return
-  }
-
-  let upstreamResponse: Response
-  try {
-    const call = await callUpstream(config, decision, upstreamBody, controller.signal, { requestId })
-    upstreamResponse = call.response
-  } catch (error) {
-    const message = (error as Error).name === 'AbortError' ? 'client aborted' : (error as Error).message
-    const outcome = (error as Error).name === 'AbortError' ? 'aborted' : 'error'
-    if (!res.headersSent) sendError(res, 502, `upstream ${decision.upstream} failed: ${message}`)
-    finish({ outcome, error: message })
-    return
-  }
-
-  if (!upstreamResponse.ok) {
-    const text = await readErrorText(upstreamResponse)
-    if (!res.headersSent) {
-      res.writeHead(upstreamResponse.status, { 'content-type': 'application/json; charset=utf-8' })
-      res.end(text || JSON.stringify({ error: { message: `upstream error ${upstreamResponse.status}` } }))
-    }
-    // A 429/5xx from the provider is a transport error (rate limit / overload), not proof the
-    // task is hard. Record it distinctly so reports can separate transport from task failure.
-    const status = upstreamResponse.status
-    const transport = status === 429 || (status >= 500 && status < 600)
-    finish({ outcome: transport ? 'transport' : 'error', error: sanitizeError(text), transport: status })
-    return
-  }
-
-  const contentType = upstreamResponse.headers.get('content-type') ?? ''
-  const streaming = streamRequested && contentType.includes('text/event-stream')
-
-  if (!streaming) {
-    const text = await upstreamResponse.text()
+    const identity = requestIdentity(req)
+    res.setHeader('x-sabi-request-id', identity.requestId!)
+    const raw = await readBody(req, signal)
     let parsed: unknown
-    try {
-      parsed = JSON.parse(text)
-    } catch {
-      if (!res.headersSent) {
-        res.writeHead(200, { 'content-type': contentType || 'application/json' })
-        res.end(text)
+    try { parsed = JSON.parse(raw.toString('utf8')) } catch { throw new SabiRouteError('invalid request body') }
+    if (!isObject(parsed) || !Array.isArray(parsed.messages) || !parsed.messages.length ||
+      parsed.messages.some((message) => !isObject(message) || typeof message.role !== 'string')) {
+      throw new SabiRouteError('invalid request body')
+    }
+    const body = parsed as ChatRequestBody
+    stage = 'route'
+    decision = route(body, config)
+    record = {
+      ts: new Date().toISOString(), ...identity,
+      alias: decision.alias, mode: decision.mode, rule: decision.rule, tier: decision.tier,
+      reason: '', upstream: decision.upstream, upstreamModel: decision.upstreamModel,
+      stream: body.stream === true, state: decision.state, outcome: 'ok',
+    }
+    saveDecision(decision)
+
+    let judgeRecord: JudgeRecord | undefined
+    stage = 'judge'
+    if (decision.mode === 'auto' && config.judge && judgeTriggers(decision, config.judge)) {
+      const judgeState = buildJudgeState(body, decision, config.judge.maxStateChars)
+      const judgeStarted = Date.now()
+      try {
+        const result = await abortable(state.judge.ask(judgeState, JUDGE_QUESTIONS, config.judge, signal), signal)
+        const applied = applyJudge(decision, config, result.outcome)
+        decision = applied.decision
+        judgeRecord = {
+          ...applied.record,
+          // The judge's arbitrary response model is not a trusted telemetry identifier.
+          model: config.judge.model ?? 'jev-latest',
+          latencyMs: result.latencyMs, cached: result.cached,
+        }
+      } catch (error) {
+        if (signal.aborted) throw signal.reason
+        const name = (error as Error).name
+        judgeRecord = {
+          status: name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'error',
+          latencyMs: Date.now() - judgeStarted,
+          note: 'typesafe unavailable',
+        }
       }
-      finish({ outcome: 'ok' })
+    }
+    record.judge = judgeRecord
+    saveDecision(decision)
+    stage = 'route'
+    // Jev may change the selected tier. It must not bypass the shared compatibility gate.
+    ensureRouteCompatible(body, config, decision)
+    signal.throwIfAborted()
+    stage = 'upstream'
+    const upstreamBody = buildUpstreamBody(config, decision, body)
+    const { response: upstreamResponse } = await callUpstream(config, decision, upstreamBody, signal)
+
+    if (!upstreamResponse.ok) {
+      const text = await readErrorText(upstreamResponse)
+      const status = upstreamResponse.status
+      const headers: Record<string, string> = { 'content-type': upstreamResponse.headers.get('content-type') ?? 'application/json; charset=utf-8' }
+      const retryAfter = upstreamResponse.headers.get('retry-after')
+      if (retryAfter !== null) headers['retry-after'] = retryAfter
+      res.writeHead(status, headers)
+      res.end(text || JSON.stringify({ error: { message: `upstream error ${status}` } }))
+      await responseFinished()
+      finish({ outcome: status === 429 || status >= 500 ? 'transport' : 'error',
+        error: `upstream HTTP ${status}`, transport: status })
       return
     }
-    if (parsed && typeof parsed === 'object') {
-      const object = parsed as Record<string, unknown>
+
+    const streaming = (upstreamResponse.headers.get('content-type') ?? '').toLowerCase().includes('text/event-stream')
+    if (streaming !== (body.stream === true)) {
+      await upstreamResponse.body?.cancel()
+      throw new UpstreamProtocolError('upstream response mode mismatch')
+    }
+    if (!streaming) {
+      const text = await readResponseText(upstreamResponse)
+      let value: unknown
+      try { value = JSON.parse(text) } catch { throw new UpstreamProtocolError() }
+      const object = chatResponseFromJson(value)
+      const servedModel = observeModel(object.model)
       object.model = decision.alias
-      const usage = usageFromJson(object)
-      if (!res.headersSent) {
-        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-        res.end(JSON.stringify(object))
-      }
-      finish(usage ? { usage } : {})
+      sendJson(res, 200, object)
+      await responseFinished()
+      finish({ usage: usageFromJson(object), servedModel })
       return
     }
-    if (!res.headersSent) {
-      res.writeHead(200, { 'content-type': contentType || 'application/json' })
-      res.end(text)
+
+    if (!upstreamResponse.body) throw new UpstreamProtocolError('upstream returned no body')
+    const streamHeaders = {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no',
     }
-    finish({ outcome: 'ok' })
-    return
-  }
-
-  res.writeHead(200, {
-    'content-type': 'text/event-stream; charset=utf-8',
-    'cache-control': 'no-cache, no-transform',
-    connection: 'keep-alive',
-    'x-accel-buffering': 'no',
-  })
-
-  const bodyStream = upstreamResponse.body
-  if (!bodyStream) {
+    let ttftMs: number | undefined
+    let streamResult: SseTapResult | undefined
+    const tap = createSseTap(decision.alias, (result) => { streamResult = result })
+    const reader = upstreamResponse.body.getReader()
+    const write = async (output: Uint8Array) => {
+      if (!output.length) return
+      signal.throwIfAborted()
+      if (!res.headersSent) res.writeHead(200, streamHeaders)
+      if (!res.write(output)) await once(res, 'drain', { signal })
+    }
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (ttftMs === undefined) ttftMs = Date.now() - started
+        await write(tap.push(value))
+        // [DONE] ends this attempt even if the provider keeps its socket open.
+        if (tap.done) break
+      }
+      await write(tap.flush())
+    } finally {
+      await reader.cancel().catch(() => {})
+      reader.releaseLock()
+    }
     res.end()
-    finish({ outcome: 'error', error: 'upstream returned no body' })
-    return
-  }
-
-  let ttftMs: number | undefined
-  const tap = createSseTap(decision.alias, (result) => {
-    finish(result.usage ? { usage: result.usage, ttftMs } : { ttftMs })
-  })
-
-  const reader = bodyStream.getReader()
-  let aborted = false
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      if (!value) continue
-      if (ttftMs === undefined) ttftMs = Date.now() - started
-      const output = tap.push(value)
-      if (output.length) {
-        if (!res.write(output)) await once(res, 'drain')
+    await responseFinished()
+    finish({ usage: streamResult?.usage, servedModel: observeModel(streamResult?.model), ttftMs })
+  } catch (error) {
+    const deadline = signal.aborted && (signal.reason as Error)?.name === 'TimeoutError'
+    const aborted = signal.aborted && !deadline
+    const status = deadline ? 504 : error instanceof SabiRouteError ? error.status : stage === 'upstream' ? 502 : 500
+    const message = deadline ? 'request deadline exceeded' : aborted ? 'client aborted' :
+      error instanceof SabiRouteError ? error.message : stage === 'upstream' ? 'invalid or failed upstream response' : 'sabi internal error'
+    if (!res.destroyed && !res.writableFinished) {
+      if (res.headersSent || aborted) res.destroy()
+      else {
+        // An incomplete upload must not outlive its failed request budget.
+        if (!req.complete) res.setHeader('connection', 'close')
+        sendError(res, status, message)
       }
     }
-    const tail = tap.flush()
-    if (tail.length) res.write(tail)
-  } catch (error) {
-    aborted = (error as Error).name === 'AbortError' || controller.signal.aborted
-  }
-  if (!res.writableEnded) res.end()
-  if (aborted) {
-    finish({ outcome: 'aborted', error: 'client aborted' })
+    finish({ outcome: deadline ? 'transport' : aborted ? 'aborted' : 'error',
+      error: deadline ? 'request deadline exceeded' : aborted ? 'client aborted' :
+        stage === 'upstream' ? 'upstream response failed' : 'route rejected',
+      ...(deadline ? { transport: 504 } : {}),
+    })
+    if (!signal.aborted) controller.abort()
+  } finally {
+    clearTimeout(timeout)
+    req.off('aborted', disconnected)
+    res.off('close', disconnected)
   }
 }

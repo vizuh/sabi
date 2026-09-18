@@ -46,7 +46,7 @@ export interface ChatMessage {
 
 export interface ChatToolDef {
   type?: string
-  function?: { name?: string }
+  function?: { name?: string; description?: string; parameters?: Record<string, unknown>; strict?: boolean }
 }
 
 export interface ChatRequestBody {
@@ -89,11 +89,46 @@ export interface CostRates {
   cacheRead?: number
 }
 
+export type ModelModality = 'text' | 'image' | 'audio' | 'video' | 'file'
+
+/** Operator-verified capabilities for this exact upstream/model pair. Omission means unknown. */
+export interface ModelCapabilities {
+  tools?: boolean
+  parallelTools?: boolean
+  strictTools?: boolean
+  inputModalities?: ModelModality[]
+  outputModalities?: ModelModality[]
+  structuredOutput?: Array<'json_object' | 'json_schema'>
+  reasoningEfforts?: string[]
+  /** Accepted wire parameters beyond model/messages/stream. No parameters are silently removed. */
+  supportedParameters?: string[]
+}
+
+/**
+ * Operator-supplied upper-bound assumptions, not a tokenizer or measured usage. Strict
+ * mode requires these assumptions for the selected model's tokenizer/framing and each item. Media
+ * bounds must cover the full accepted size/detail/duration, not just the URL or base64 text.
+ */
+export interface ContextAccounting {
+  textTokensPerByte: number
+  requestOverheadTokens: number
+  perMessageOverheadTokens: number
+  mediaTokens?: Partial<Record<Exclude<ModelModality, 'text'>, number>>
+}
+
 export interface ModelEntry {
   upstream: string
   model: string
   contextWindow?: number
+  maxOutputTokens?: number
+  capabilities?: ModelCapabilities
+  contextAccounting?: ContextAccounting
   cost?: CostRates
+}
+
+export interface CompatibilityConfig {
+  /** Omitted mode preserves the existing Command Code proxy behavior, without a fit guarantee. */
+  mode: 'legacy' | 'strict'
 }
 
 export interface UpstreamEntry {
@@ -144,6 +179,7 @@ export interface SabiConfig {
   models: Record<string, ModelEntry>
   aliases: Record<string, string>
   policy: Record<string, string>
+  compatibility?: CompatibilityConfig
   judge?: JudgeConfig
   telemetry?: TelemetryConfig
   harness?: {
@@ -197,6 +233,15 @@ export interface JudgeRecord {
 export interface DecisionRecord {
   ts: string
   sessionId: string
+  /** True only when an explicit client session was provided; absent means legacy/unknown. */
+  sessionKnown?: boolean
+  /** Server-generated request identity, independent of session grouping. */
+  requestId?: string
+  client?: 'hermes' | 'opencode' | 'kilo-cli' | 'kilo-vscode' | 'prime-agent' | 'unknown'
+  /** Hashed client turn identity; never raw prompt text or credentials. */
+  turnId?: string
+  /** Observed upstream model only when it matches a configured model identifier. */
+  servedModel?: string
   alias: string
   mode: 'auto' | 'fixed'
   rule: string
@@ -215,9 +260,4 @@ export interface DecisionRecord {
   error?: string
   /** HTTP status of a transport/rate-limit failure from the upstream, when it was recorded that way. */
   transport?: number
-  /** Opaque Sabi-generated id for this request; set on the response and on the decision. */
-  requestId: string
-  /** Opaque client-supplied identifiers, when the harness forwards them. Never used to merge sessions. */
-  clientRequestId?: string
-  clientSessionId?: string
 }

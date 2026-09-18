@@ -75,6 +75,91 @@ export function loadConfig(configPath = defaultConfigPath()): SabiConfig {
   return validateConfig(parsed, configPath)
 }
 
+const MODALITIES = ['text', 'image', 'audio', 'video', 'file']
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function validateModelMetadata(value: unknown, label: string): void {
+  if (!isObject(value)) throw new Error(`${label} must be an object`)
+  const fail = (field: string, expected: string): never => {
+    throw new Error(`${label}.${field} ${expected}`)
+  }
+  const integer = (number: unknown, field: string, minimum = 1): void => {
+    if (typeof number !== 'number' || !Number.isSafeInteger(number) || number < minimum) {
+      fail(field, `must be a safe integer >= ${minimum}`)
+    }
+  }
+  for (const field of ['contextWindow', 'maxOutputTokens'] as const) {
+    if (value[field] !== undefined) integer(value[field], field)
+  }
+  if (typeof value.contextWindow === 'number' && typeof value.maxOutputTokens === 'number' &&
+      value.maxOutputTokens > value.contextWindow) {
+    fail('maxOutputTokens', 'cannot exceed contextWindow')
+  }
+  if (value.capabilities !== undefined) {
+    if (!isObject(value.capabilities)) fail('capabilities', 'must be an object')
+    const capabilities = value.capabilities as Record<string, unknown>
+    const fields = ['tools', 'parallelTools', 'strictTools', 'inputModalities', 'outputModalities',
+      'structuredOutput', 'reasoningEfforts', 'supportedParameters']
+    for (const field of Object.keys(capabilities)) {
+      if (!fields.includes(field)) fail(`capabilities.${field}`, 'is not a supported metadata field')
+    }
+    for (const field of ['tools', 'parallelTools', 'strictTools']) {
+      if (capabilities[field] !== undefined && typeof capabilities[field] !== 'boolean') {
+        fail(`capabilities.${field}`, 'must be a boolean')
+      }
+    }
+    if (capabilities.tools === false && (capabilities.parallelTools === true || capabilities.strictTools === true)) {
+      fail('capabilities.tools', 'cannot be false when parallelTools or strictTools is true')
+    }
+    for (const field of ['inputModalities', 'outputModalities', 'structuredOutput', 'reasoningEfforts', 'supportedParameters']) {
+      const items = capabilities[field]
+      if (items === undefined) continue
+      if (!Array.isArray(items) || items.some((item) => typeof item !== 'string' || !item.trim())) {
+        fail(`capabilities.${field}`, 'must be an array of nonempty strings')
+      }
+      const strings = items as string[]
+      if (new Set(strings).size !== strings.length) fail(`capabilities.${field}`, 'must not contain duplicates')
+      const allowed = field.endsWith('Modalities') ? MODALITIES : field === 'structuredOutput' ? ['json_object', 'json_schema'] : undefined
+      if (allowed && strings.some((item) => !allowed.includes(item))) {
+        fail(`capabilities.${field}`, `must contain only: ${allowed.join(', ')}`)
+      }
+    }
+  }
+  if (value.contextAccounting !== undefined) {
+    if (!isObject(value.contextAccounting)) fail('contextAccounting', 'must be an object')
+    const accounting = value.contextAccounting as Record<string, unknown>
+    for (const field of Object.keys(accounting)) {
+      if (!['textTokensPerByte', 'requestOverheadTokens', 'perMessageOverheadTokens', 'mediaTokens'].includes(field)) {
+        fail(`contextAccounting.${field}`, 'is not a supported metadata field')
+      }
+    }
+    if (typeof accounting.textTokensPerByte !== 'number' || !Number.isFinite(accounting.textTokensPerByte) || accounting.textTokensPerByte <= 0) {
+      fail('contextAccounting.textTokensPerByte', 'must be a positive finite number')
+    }
+    integer(accounting.requestOverheadTokens, 'contextAccounting.requestOverheadTokens', 0)
+    integer(accounting.perMessageOverheadTokens, 'contextAccounting.perMessageOverheadTokens', 0)
+    if (accounting.mediaTokens !== undefined) {
+      if (!isObject(accounting.mediaTokens)) fail('contextAccounting.mediaTokens', 'must be an object')
+      for (const [modality, tokens] of Object.entries(accounting.mediaTokens as Record<string, unknown>)) {
+        if (!MODALITIES.slice(1).includes(modality)) fail(`contextAccounting.mediaTokens.${modality}`, 'is not a supported modality')
+        integer(tokens, `contextAccounting.mediaTokens.${modality}`)
+      }
+    }
+  }
+  if (value.cost !== undefined) {
+    if (!isObject(value.cost)) fail('cost', 'must be an object')
+    const rates = value.cost as Record<string, unknown>
+    for (const field of ['input', 'output', ...(rates.cacheRead !== undefined ? ['cacheRead'] : [])]) {
+      if (typeof rates[field] !== 'number' || !Number.isFinite(rates[field]) || (rates[field] as number) < 0) {
+        fail(`cost.${field}`, 'must be a nonnegative finite number')
+      }
+    }
+  }
+}
+
 export function validateConfig(value: unknown, source = '<inline>'): SabiConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`Sabi config ${source}: expected a JSON object`)
@@ -84,6 +169,18 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
   const models = config.models ?? {}
   const aliases = config.aliases ?? {}
   const policy = config.policy ?? {}
+
+  for (const [name, entries] of Object.entries({ upstreams, models, aliases, policy })) {
+    if (!isObject(entries)) throw new Error(`Sabi config ${source}: ${name} must be an object`)
+  }
+  if (config.compatibility !== undefined) {
+    if (!isObject(config.compatibility) || !['legacy', 'strict'].includes(config.compatibility.mode)) {
+      throw new Error(`Sabi config ${source}: compatibility.mode must be 'legacy' or 'strict'`)
+    }
+    if (Object.keys(config.compatibility).some((field) => field !== 'mode')) {
+      throw new Error(`Sabi config ${source}: compatibility has an unknown field`)
+    }
+  }
 
   if (!Object.keys(upstreams).length) throw new Error(`Sabi config ${source}: no upstreams declared`)
   for (const [name, upstream] of Object.entries(upstreams)) {
@@ -99,23 +196,24 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
 
   if (!Object.keys(models).length) throw new Error(`Sabi config ${source}: no models declared`)
   for (const [name, model] of Object.entries(models)) {
+    validateModelMetadata(model, `Sabi config ${source}: model tier '${name}'`)
     if (!model || typeof model.model !== 'string' || !model.model) {
       throw new Error(`Sabi config ${source}: model tier '${name}' has no model id`)
     }
-    if (!model.upstream || !upstreams[model.upstream]) {
+    if (typeof model.upstream !== 'string' || !Object.hasOwn(upstreams, model.upstream)) {
       throw new Error(`Sabi config ${source}: model tier '${name}' references unknown upstream '${model.upstream}'`)
     }
   }
 
   if (!Object.keys(aliases).length) throw new Error(`Sabi config ${source}: no aliases declared`)
   for (const [alias, target] of Object.entries(aliases)) {
-    if (target !== 'auto' && !models[target]) {
+    if (typeof target !== 'string' || (target !== 'auto' && !Object.hasOwn(models, target))) {
       throw new Error(`Sabi config ${source}: alias '${alias}' targets unknown tier '${target}'`)
     }
   }
 
   for (const [condition, tier] of Object.entries(policy)) {
-    if (tier !== 'off' && !models[tier]) {
+    if (typeof tier !== 'string' || (tier !== 'off' && !Object.hasOwn(models, tier))) {
       throw new Error(`Sabi config ${source}: policy rule '${condition}' targets unknown tier '${tier}'`)
     }
   }
