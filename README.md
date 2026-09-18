@@ -4,7 +4,7 @@ Adaptive inference scheduling for AI agents.
 
 Sabi sits between a coding harness and its model providers. The harness keeps its normal agent loop; Sabi decides which model, reasoning effort, and provider serves each inference round — continuously, across the whole trajectory, not just the first prompt.
 
-**English** · [Português (BR)](README.pt-BR.md)
+**English** · [Português (BR)](README.pt-BR.md) · [中文](README.zh-CN.md)
 
 ## Two adapters, one core
 

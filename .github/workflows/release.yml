@@ -5,7 +5,10 @@ name: release
 # The tag is the version — pack.mjs stamps it into the published manifest (the `v` is stripped) —
 # so bump `packages/adapters/command-code/package.json` and merge before tagging. This job
 # typechecks, runs the suite, publishes @vizuh/sabi with provenance, and opens a GitHub Release
-# carrying generated notes and the packed tarball.
+# carrying generated notes and the exact tarball npm serves.
+#
+# A version that is already on the registry (a backfilled or re-pushed tag) skips the publish
+# instead of failing; its Release is still created, from the registry's own tarball.
 #
 # Repository secret: NPM_TOKEN — an npm automation token for an owner of the @vizuh scope.
 on:
@@ -34,13 +37,27 @@ jobs:
         env:
           SABI_VERSION: ${{ github.ref_name }}
       - name: Publish @vizuh/sabi
-        run: npm publish ./packages/adapters/command-code/pkg --provenance
+        id: publish
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "@vizuh/sabi@$version" version >/dev/null 2>&1; then
+            echo "state=already" >> "$GITHUB_OUTPUT"
+            echo "@vizuh/sabi@$version is already on the registry — skipping the publish."
+          else
+            npm publish ./packages/adapters/command-code/pkg --provenance
+            echo "state=fresh" >> "$GITHUB_OUTPUT"
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: GitHub Release — notes and the packed tarball
+      - name: GitHub Release — notes and the tarball npm serves
         run: |
           mkdir -p dist # npm pack --pack-destination does not create it
-          npm pack ./packages/adapters/command-code/pkg --pack-destination dist
-          gh release create "$GITHUB_REF_NAME" dist/*.tgz --generate-notes --title "$GITHUB_REF_NAME"
+          if [ "${{ steps.publish.outputs.state }}" = "fresh" ]; then
+            npm pack ./packages/adapters/command-code/pkg --pack-destination dist
+          else
+            npm pack "@vizuh/sabi@${GITHUB_REF_NAME#v}" --pack-destination dist
+          fi
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" dist/*.tgz --generate-notes --title "$GITHUB_REF_NAME"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

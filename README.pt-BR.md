@@ -4,7 +4,7 @@ Agendamento adaptativo de inferência para agentes de IA.
 
 O Sabi fica entre um harness de código e seus provedores de modelo. O harness mantém o loop de agente normal; o Sabi decide qual modelo, qual esforço de raciocínio e qual provedor atende cada rodada de inferência — continuamente, ao longo de toda a trajetória, não só no primeiro prompt.
 
-[English](README.md) · **Português (BR)**
+[English](README.md) · **Português (BR)** · [中文](README.zh-CN.md)
 
 ## Dois adaptadores, um núcleo
 
