@@ -1,18 +1,19 @@
 import type { AgentState, ModApi, ModContext, ModelRequestEvent, TurnUsage } from '@commandcode/harness'
 import {
   loadConfig,
+  measuredContextTokens,
   modalitiesOf,
   planRound,
   sanitizeReason,
-  tallyMedia,
   telemetryPolicy,
+  transcriptStats,
   trajectoryFromRound,
   type CatalogTier,
   type HarnessRound,
   type HarnessToolCall,
-  type MediaTally,
   type RoundPlan,
   type SabiConfig,
+  type TranscriptStats,
   type TrajectoryState,
 } from '@sabi/core'
 
@@ -21,25 +22,15 @@ const DECISION_TYPE = 'sabi/decision'
 
 type ConfigWithHarness = SabiConfig & { harness?: { tiers?: Record<string, CatalogTier> } }
 
-/**
- * Reads media out of the harness transcript. The host's own check looks for a user content part
- * with `type: 'image'`; this widens it to every role and to nested tool-result content, because a
- * tool can return a screenshot too. It reports positive evidence only — a transcript it cannot
- * read yields no modalities rather than an assumed text-only round.
- */
-function mediaIn(messages: readonly unknown[] | undefined): MediaTally {
-  const tally: MediaTally = { counts: {}, payloadChars: 0 }
-  for (const message of messages ?? []) {
-    tallyMedia((message as { content?: unknown } | null)?.content, tally)
-  }
-  return tally
-}
-
 interface Ledger {
   rounds: number
+  /** Transcript length seen at the end of the previous turn; a shrink is a host compaction. */
   messageCount: number
   contextChars: number
+  /** Provider-billed total of the last round, when usage arrived. Measured, never estimated. */
   contextTokens?: number
+  /** Host compactions observed for this session. */
+  generation?: number
   toolNames: string[]
   hasTools: boolean
   lastModel?: string
@@ -53,6 +44,7 @@ function readLedger(state: AgentState): Ledger {
     messageCount: typeof raw.messageCount === 'number' ? raw.messageCount : 0,
     contextChars: typeof raw.contextChars === 'number' ? raw.contextChars : 0,
     contextTokens: typeof raw.contextTokens === 'number' ? raw.contextTokens : undefined,
+    generation: typeof raw.generation === 'number' ? raw.generation : undefined,
     toolNames: Array.isArray(raw.toolNames) ? raw.toolNames : [],
     hasTools: raw.hasTools === true,
     lastModel: raw.lastModel,
@@ -62,6 +54,11 @@ function readLedger(state: AgentState): Ledger {
 
 function writeLedger(state: AgentState, ledger: Ledger): AgentState {
   return { ...state, modState: { ...state.modState, [MOD_ID]: ledger } }
+}
+
+/** A transcript that came back shorter than the last turn's is a host rewrite, not drift. */
+function compactedSince(ledger: Ledger, stats: TranscriptStats): boolean {
+  return ledger.messageCount > 0 && stats.messageCount > 0 && stats.messageCount < ledger.messageCount
 }
 
 export default function sabi(cmd: ModApi): void {
@@ -86,7 +83,6 @@ export default function sabi(cmd: ModApi): void {
   let servingPlan: RoundPlan | undefined
   let servedBy: string | undefined
   let previousFailure: { failure: TrajectoryState['failure']; failureEvidence: string[] } | undefined
-  let previousContextTokens: number | undefined
 
   cmd.on<ModelRequestEvent>('model_request_end', (event) => {
     if (typeof event.model === 'string') servedBy = event.model
@@ -115,42 +111,62 @@ export default function sabi(cmd: ModApi): void {
 
     prepareNextTurn: ({ state }) => {
       const ledger = readLedger(state)
-      const media = mediaIn(state.messages)
+      // Counts what the transcript actually carries — every role, nested tool-result content and
+      // media included; a screenshot a tool returned is media too. Positive evidence only.
+      const stats = transcriptStats(state.messages)
+      // The host owns compaction. When it rewrites the transcript, the attempt the model is
+      // continuing is not the one the previous streak measured: restart the streak and advance
+      // the generation, which also keeps a verdict formed before the rewrite out of cache.
+      if (compactedSince(ledger, stats)) {
+        previousFailure = undefined
+        ledger.generation = (ledger.generation ?? 0) + 1
+        ledger.contextTokens = undefined
+      }
       const round: HarnessRound = {
-        messageCount: ledger.messageCount + calls.length,
+        messageCount: stats.messageCount,
         assistantTurns: ledger.rounds,
         lastRole: calls.length > 0 ? 'tool' : 'assistant',
-        contextChars: ledger.contextChars,
+        contextChars: stats.contextChars,
         contextTokens: ledger.contextTokens,
         hasTools: ledger.hasTools,
         toolNames: ledger.toolNames,
         calls,
-        ...(Object.keys(media.counts).length
-          ? { inputModalities: modalitiesOf(media.counts), mediaCounts: media.counts }
+        ...(ledger.generation ? { contextGeneration: ledger.generation } : {}),
+        ...(Object.keys(stats.media.counts).length
+          ? { inputModalities: modalitiesOf(stats.media.counts), mediaCounts: stats.media.counts }
           : {}),
       }
       const trajectory = trajectoryFromRound(round, previousFailure)
       const plan = planRound(trajectory, policy, tiers, { contextWindow: config.harness?.contextWindow })
       if (!plan) return undefined
-      // Track the planned state for the repeated-failure and context-pressure heuristics.
-      previousContextTokens = plan.state.contextTokens
       nextPlan = plan
       return plan.effort ? { model: plan.model, effort: plan.effort } : { model: plan.model }
     },
 
     onTurnEnd: ({ state, turnNumber, usage }, ctx) => {
       const ledger = readLedger(state)
-      const outputChars = calls.reduce((total, call) => total + (call.output?.length ?? 0), 0)
+      const stats = transcriptStats(state.messages)
+      // Persist the boundary here as well as in prepareNextTurn: that hook returns a plan, not
+      // state, so this is where the generation and the streak restart become durable.
+      const compacted = compactedSince(ledger, stats)
       const usedThisTurn = usage !== undefined
+      const measured = usedThisTurn
+        ? measuredContextTokens({ promptTokens: usage.inputTokens, completionTokens: usage.outputTokens })
+        : undefined
+      const generation = (ledger.generation ?? 0) + (compacted ? 1 : 0)
       // `servingPlan` is the plan consumed by the round that just ended; on the first round
       // there is no plan yet (the host serves it), so the adopted plan is the served one.
       const adopted = servingPlan ?? nextPlan
       const next: Ledger = {
         ...ledger,
         rounds: turnNumber,
-        messageCount: ledger.messageCount + calls.length,
-        contextChars: ledger.contextChars + outputChars,
-        contextTokens: previousContextTokens,
+        messageCount: stats.messageCount,
+        contextChars: stats.contextChars,
+        // A billed total is measured, so it floors the next round. Without usage the previous
+        // floor stands — the transcript only grows — except across a rewrite, where the old
+        // size described a context the host has removed.
+        contextTokens: measured ?? (compacted ? undefined : ledger.contextTokens),
+        ...(generation > 0 ? { generation } : {}),
         // Only advance attribution when a fresh value actually arrived this turn. A missing
         // usage or model event stays unknown rather than re-serializing an old round's value.
         lastModel: servedBy,
@@ -172,6 +188,7 @@ export default function sabi(cmd: ModApi): void {
               repeatedFailure: servingPlan.state.repeatedFailure,
               failureStreak: servingPlan.state.failureStreak,
               contextTokens: servingPlan.state.contextTokens,
+              contextGeneration: servingPlan.state.contextGeneration,
               inputModalities: servingPlan.state.inputModalities,
             }
           : undefined,

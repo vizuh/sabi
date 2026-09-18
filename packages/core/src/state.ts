@@ -307,13 +307,23 @@ export function trailingToolTexts(messages: ChatMessage[], limit = 4, maxChars =
   return texts
 }
 
-export function extractTrajectoryState(body: ChatRequestBody): TrajectoryState {
-  const messages: ChatMessage[] = Array.isArray(body.messages) ? body.messages : []
+/** What a transcript actually carries, counted once for the proxy, the mod and the offline replay. */
+export interface TranscriptStats {
+  messageCount: number
+  assistantTurns: number
+  toolMessages: number
+  contextChars: number
+  media: MediaTally
+}
+
+export function transcriptStats(messages: readonly unknown[] | undefined): TranscriptStats {
   let assistantTurns = 0
   let toolMessages = 0
   let contextChars = 0
   const media: MediaTally = { counts: {}, payloadChars: 0 }
-  for (const message of messages) {
+  const list = messages ?? []
+  for (const raw of list) {
+    const message = raw as ChatMessage | null | undefined
     const role = String(message?.role ?? '')
     if (role === 'assistant') assistantTurns += 1
     if (role === 'tool') toolMessages += 1
@@ -321,28 +331,38 @@ export function extractTrajectoryState(body: ChatRequestBody): TrajectoryState {
     if (message?.tool_calls) contextChars += JSON.stringify(message.tool_calls).length
     tallyMedia(message?.content, media)
   }
-  const lastRole = messages.length > 0 ? String(messages[messages.length - 1]?.role ?? '') : ''
+  return { messageCount: list.length, assistantTurns, toolMessages, contextChars, media }
+}
+
+export function extractTrajectoryState(body: ChatRequestBody): TrajectoryState {
+  const messages: ChatMessage[] = Array.isArray(body.messages) ? body.messages : []
+  const stats = transcriptStats(messages)
+  const lastRole = stats.messageCount > 0 ? String(messages[stats.messageCount - 1]?.role ?? '') : ''
   const toolNames = Array.isArray(body.tools)
     ? body.tools.map((tool) => String(tool?.function?.name ?? '')).filter((name) => name.length > 0)
     : []
   const calls = lastToolCalls(messages)
   let roundKind: RoundKind
-  if (lastRole === 'user' || assistantTurns === 0) roundKind = 'first-turn'
+  if (lastRole === 'user' || stats.assistantTurns === 0) roundKind = 'first-turn'
   else if (lastRole === 'tool') roundKind = classifyRound(calls)
   else roundKind = 'unclassified'
   const failure = detectFailure(trailingToolTexts(messages))
-  const hasMedia = Object.keys(media.counts).length > 0
+  const hasMedia = Object.keys(stats.media.counts).length > 0
+  // Tool schemas are part of what the provider charges for; the system prompt arrives as a
+  // message and was counted with the transcript. Both belong in the estimate — never in
+  // `contextTokens`, which only billed usage may fill.
+  const contextChars = stats.contextChars + (Array.isArray(body.tools) ? JSON.stringify(body.tools).length : 0)
   return {
-    messageCount: messages.length,
-    assistantTurns,
-    toolMessages,
+    messageCount: stats.messageCount,
+    assistantTurns: stats.assistantTurns,
+    toolMessages: stats.toolMessages,
     lastRole,
     contextChars,
     // Media is not text, so it adds no chars — but it is context. Charging it here is what keeps
     // the context-pressure rule and the decision log from treating a screenshot round as tiny.
-    estimatedTokens: Math.ceil(contextChars / CHARS_PER_TOKEN) + mediaTokens(media),
-    // The proxy only counts transcript chars and tool calls; tool schemas and the system prompt
-    // are not measured, so an estimated model window is not a verified fit. Mark it unknown.
+    estimatedTokens: Math.ceil(contextChars / CHARS_PER_TOKEN) + mediaTokens(stats.media),
+    // A character estimate is not a measured size. `applyMeasuredContext` promotes it only when
+    // the provider billed a previous round of the same session.
     contextTokens: undefined,
     contextKnown: false,
     hasTools: toolNames.length > 0,
@@ -353,7 +373,46 @@ export function extractTrajectoryState(body: ChatRequestBody): TrajectoryState {
     failureEvidence: failure.evidence,
     repeatedFailure: false,
     failureStreak: 0,
-    inputModalities: modalitiesOf(media.counts),
-    ...(hasMedia ? { mediaCounts: media.counts } : {}),
+    inputModalities: modalitiesOf(stats.media.counts),
+    ...(hasMedia ? { mediaCounts: stats.media.counts } : {}),
   }
+}
+
+export interface MeasuredUsage {
+  promptTokens?: number
+  completionTokens?: number
+  totalTokens?: number
+}
+
+/**
+ * The context size the provider actually charged for the round that just finished. The next
+ * request repeats that prompt and adds to it, so a billed total is a measured floor — the
+ * character estimate stays a fallback, not the source of truth. Unknown stays unknown.
+ */
+export function measuredContextTokens(usage: MeasuredUsage | undefined): number | undefined {
+  if (!usage) return undefined
+  const total = usage.totalTokens ?? ((usage.promptTokens ?? 0) + (usage.completionTokens ?? 0))
+  return Number.isFinite(total) && total > 0 ? Math.floor(total) : undefined
+}
+
+/**
+ * Folds what the session actually observed into an estimated state: a billed total floors the
+ * estimate (`contextKnown` is set only then), and a host compaction advances the generation. The
+ * generation reaches the judge state, so a verdict formed before a transcript rewrite can never
+ * be served from cache after it.
+ */
+export function applyMeasuredContext(
+  state: TrajectoryState,
+  context: { measuredContextTokens?: number; contextGeneration?: number } = {},
+): TrajectoryState {
+  const measured = context.measuredContextTokens
+  if (typeof measured === 'number' && Number.isFinite(measured) && measured > 0) {
+    state.contextTokens = Math.max(Math.floor(measured), state.estimatedTokens)
+    state.contextKnown = true
+  }
+  const generation = context.contextGeneration
+  if (typeof generation === 'number' && Number.isSafeInteger(generation) && generation > 0) {
+    state.contextGeneration = generation
+  }
+  return state
 }

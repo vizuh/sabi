@@ -116,6 +116,23 @@ test('the client sends the documented request shape', async () => {
   const body = JSON.parse(String(seen?.init?.body)) as { model: string; questions: unknown; state: unknown }
   assert.equal(body.model, 'jev-latest')
   assert.deepEqual(body.state, { round: 1 })
-  assert.deepEqual(Object.keys(body.questions as object).sort(), ['difficulty', 'real_problem'])
+  assert.deepEqual(Object.keys(body.questions as object).sort(), ['difficulty', 'evidence_redundant', 'real_problem'])
   assert.equal((seen?.init?.headers as Record<string, string>)['content-type'], 'application/json')
+})
+
+test('the shadow evidence answer is read leniently and never fails the applied judgment', () => {
+  const withShadow = structuredClone(goodPayload)
+  ;(withShadow.answers as Record<string, unknown>).evidence_redundant = { type: 'noul', noul: 0.81 }
+  assert.equal(validateAnswers(withShadow, JUDGE_QUESTIONS, 'jev-latest').evidenceRedundant, 0.81)
+
+  // Missing entirely: the applied answers still validate and the shadow field stays absent.
+  assert.equal(validateAnswers(goodPayload, JUDGE_QUESTIONS, 'jev-latest').evidenceRedundant, undefined)
+
+  // Malformed or out of range: still no throw — a shadow question must not take the judge down.
+  const outOfRange = structuredClone(goodPayload)
+  ;(outOfRange.answers as Record<string, unknown>).evidence_redundant = { type: 'noul', noul: 2 }
+  assert.equal(validateAnswers(outOfRange, JUDGE_QUESTIONS, 'jev-latest').evidenceRedundant, undefined)
+  const wrongType = structuredClone(goodPayload)
+  ;(wrongType.answers as Record<string, unknown>).evidence_redundant = { type: 'choice', choice: 'x' }
+  assert.equal(validateAnswers(wrongType, JUDGE_QUESTIONS, 'jev-latest').evidenceRedundant, undefined)
 })

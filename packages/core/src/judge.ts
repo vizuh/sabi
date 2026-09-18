@@ -14,6 +14,11 @@ export interface JudgeQuestions {
     instructions: string
     criteria: Record<string, string>
   }
+  evidence_redundant: {
+    type: 'noul'
+    instructions: string
+    criteria: { true: string; false: string }
+  }
 }
 
 export const JUDGE_QUESTIONS: JudgeQuestions = {
@@ -38,6 +43,18 @@ export const JUDGE_QUESTIONS: JudgeQuestions = {
         'Hard reasoning — architecture, subtle debugging, security review, multi-step planning, or the agent is stuck after repeated failures',
     },
   },
+  // Shadow question: it rides the same batched request (no extra call) and is recorded on the
+  // decision, but no route, threshold or transcript depends on it yet. Treat it as unverified
+  // until it has been measured on real traffic.
+  evidence_redundant: {
+    type: 'noul',
+    instructions:
+      'For the next step, is the tool result excerpt in `last_tool.result_excerpt` redundant — already captured elsewhere in this conversation, or cheaply re-obtainable by re-running the tool — so that keeping it verbatim would add no required evidence?',
+    criteria: {
+      true: 'The facts it carries are already stated elsewhere, or the same call can be re-run at will; a shorter reference would lose nothing the next step needs',
+      false: 'It still carries needed evidence — an exact error, a result that changed state, or output that cannot be re-obtained — so the next step depends on it',
+    },
+  },
 }
 
 const DIFFICULTY_TIERS: Record<string, string> = {
@@ -52,6 +69,8 @@ export interface JudgeOutcome {
   realProblem?: number
   difficulty?: string
   difficultyConfidence?: number
+  /** Shadow question answer, when the service returned one. Never used to route. */
+  evidenceRedundant?: number
   model?: string
   usage?: { inputTokens: number; outputTokens: number }
 }
@@ -81,6 +100,9 @@ export function buildJudgeState(
       kind_heuristic: decision.state.roundKind,
       messages: decision.state.messageCount,
       context_tokens_estimate: decision.state.estimatedTokens,
+      // Reaching the request state is what keeps a cached verdict from crossing a rewrite: the
+      // cache key is a hash of this object, so a different generation always misses.
+      ...(decision.state.contextGeneration ? { context_generation: decision.state.contextGeneration } : {}),
     },
     last_instruction: trimmed(textOf(lastUser?.content), 1200),
     last_tool: {
@@ -115,6 +137,9 @@ export function applyJudge(
     realProblem: outcome.realProblem,
     difficulty: outcome.difficulty,
     difficultyConfidence: outcome.difficultyConfidence,
+    // Shadow only: recorded for measurement. A future context-selection step may consume it;
+    // today nothing changes a route, a threshold or the transcript based on this answer.
+    evidenceRedundant: outcome.evidenceRedundant,
     originalTier: decision.tier,
     finalTier: decision.tier,
     overridden: false,

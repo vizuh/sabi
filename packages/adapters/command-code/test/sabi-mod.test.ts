@@ -350,3 +350,103 @@ test('a transcript with no readable media plans no modality constraint', async (
   const next = await h.hooks.prepareNextTurn!({ state, turnNumber: 1 }, h.ctx)
   assert.deepEqual(next, { model: 'deepseek/deepseek-v4-flash', effort: 'high' })
 })
+
+test('the next round starts from the previous round\'s billed total, not from tool-output length', async () => {
+  const h = loadMod()
+  let state: AgentState = { modState: {}, messages: [{ role: 'user', content: 'read the file' }] }
+  state = await round(h, 1, state)
+  await h.hooks.afterToolCall!(
+    { toolCallId: 't1', toolName: 'read_file', input: {}, result: 'file body', isError: false, state },
+    h.ctx,
+  )
+  await h.hooks.prepareNextTurn!({ state, turnNumber: 1 }, h.ctx)
+  state = await h.hooks.onTurnEnd!(
+    { state, turnNumber: 1, hadToolCalls: true, usage: { inputTokens: 5000, outputTokens: 200 } },
+    h.ctx,
+  )
+
+  // Round 2 plans from the measured floor; that plan serves round 3, where it is recorded.
+  state = await round(h, 2, state)
+  await h.hooks.afterToolCall!(
+    { toolCallId: 't2', toolName: 'grep', input: {}, result: 'match', isError: false, state },
+    h.ctx,
+  )
+  await h.hooks.prepareNextTurn!({ state, turnNumber: 2 }, h.ctx)
+  state = await h.hooks.onTurnEnd!({ state, turnNumber: 2, hadToolCalls: true, usage: undefined }, h.ctx)
+
+  state = await round(h, 3, state)
+  await h.hooks.afterToolCall!(
+    { toolCallId: 't3', toolName: 'grep', input: {}, result: 'match', isError: false, state },
+    h.ctx,
+  )
+  await h.hooks.prepareNextTurn!({ state, turnNumber: 3 }, h.ctx)
+  await h.hooks.onTurnEnd!({ state, turnNumber: 3, hadToolCalls: true, usage: undefined }, h.ctx)
+
+  const planned = (h.decisions.at(-1)?.planned ?? {}) as Record<string, unknown>
+  assert.equal(planned.contextTokens, 5200)
+})
+
+test('a host compaction resets the repeated-failure streak and records its generation', async () => {
+  const h = loadMod()
+  const before = Array.from({ length: 10 }, (_, i) => ({ role: i === 0 ? 'user' : 'assistant', content: `m${i}` }))
+  let state: AgentState = { modState: {}, messages: before }
+  state = await round(h, 1, state)
+  await h.hooks.afterToolCall!(
+    {
+      toolCallId: 't1',
+      toolName: 'shell_command',
+      input: { command: 'npm test' },
+      result: 'Tests: 2 failed\nexit code: 1',
+      isError: true,
+      state,
+    },
+    h.ctx,
+  )
+  await h.hooks.prepareNextTurn!({ state, turnNumber: 1 }, h.ctx)
+  state = await h.hooks.onTurnEnd!(
+    { state, turnNumber: 1, hadToolCalls: true, usage: { inputTokens: 9000, outputTokens: 100 } },
+    h.ctx,
+  )
+
+  // The host rewrote the transcript down to a summary plus the live instruction.
+  const after = [
+    { role: 'system', content: 'summary of earlier work' },
+    { role: 'user', content: 'keep going' },
+    { role: 'assistant', content: 'ok' },
+  ]
+  state = await round(h, 2, { ...state, messages: after })
+  await h.hooks.afterToolCall!(
+    {
+      toolCallId: 't2',
+      toolName: 'shell_command',
+      input: { command: 'npm test' },
+      result: 'Tests: 2 failed\nexit code: 1',
+      isError: true,
+      state,
+    },
+    h.ctx,
+  )
+  const next = await h.hooks.prepareNextTurn!({ state, turnNumber: 2 }, h.ctx)
+  state = await h.hooks.onTurnEnd!(
+    { state, turnNumber: 2, hadToolCalls: true, usage: { inputTokens: 300, outputTokens: 20 } },
+    h.ctx,
+  )
+
+  // The post-compaction plan serves round 3, where its decision is recorded.
+  state = await round(h, 3, state)
+  await h.hooks.afterToolCall!(
+    { toolCallId: 't3', toolName: 'read_file', input: {}, result: 'file body', isError: false, state },
+    h.ctx,
+  )
+  await h.hooks.prepareNextTurn!({ state, turnNumber: 3 }, h.ctx)
+  await h.hooks.onTurnEnd!({ state, turnNumber: 3, hadToolCalls: true, usage: undefined }, h.ctx)
+
+  const planned = (h.decisions.at(-1)?.planned ?? {}) as Record<string, unknown>
+  // Without the boundary this would be stuck (streak 2); after the rewrite it is one fresh failure.
+  assert.equal(planned.rule, 'failure')
+  assert.equal(planned.contextGeneration, 1)
+  assert.notEqual(planned.repeatedFailure, true)
+  // The pre-compaction measured size is not carried across the boundary.
+  assert.notEqual(planned.contextTokens, 9100)
+  assert.deepEqual(next, { model: 'zai-org/glm-5.3', effort: 'high' })
+})

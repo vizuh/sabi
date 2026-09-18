@@ -56,6 +56,16 @@ export function validateAnswers(payload: unknown, questions: JudgeQuestions, req
     }
   }
 
+  // The evidence-redundancy question is shadow-only: it measures what a future context-selection
+  // step could drop. A missing or malformed shadow answer must never fail the applied judgment,
+  // so it is read leniently — absence stays absence, never an error.
+  let evidenceRedundant: number | undefined
+  const shadow = map.evidence_redundant as Record<string, unknown> | undefined
+  if (shadow && shadow.type === 'noul') {
+    const value = Number(shadow.noul)
+    if (Number.isFinite(value) && value >= 0 && value <= 1) evidenceRedundant = value
+  }
+
   const usage = record.usage && typeof record.usage === 'object' && !Array.isArray(record.usage)
     ? record.usage as Record<string, unknown> : undefined
   const inputTokens = usage?.input_tokens
@@ -65,6 +75,7 @@ export function validateAnswers(payload: unknown, questions: JudgeQuestions, req
     realProblem: noul,
     difficulty: choice,
     difficultyConfidence: confidence,
+    evidenceRedundant,
     model: typeof record.model === 'string' && record.model ? record.model : requestedModel,
     usage: validTokens(inputTokens) && validTokens(outputTokens) ? { inputTokens, outputTokens } : undefined,
   }

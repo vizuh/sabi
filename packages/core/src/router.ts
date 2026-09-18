@@ -1,6 +1,6 @@
 import { ensureRouteCompatible, isEnabledUpstream, SabiRouteError, servesInputModalities } from './compatibility.ts'
 import { decideTier } from './policy.ts'
-import { extractTrajectoryState } from './state.ts'
+import { applyMeasuredContext, extractTrajectoryState } from './state.ts'
 import type { ChatRequestBody, RouteDecision, SabiConfig } from './types.ts'
 
 export { ensureRouteCompatible, isEnabledUpstream, SabiRouteError } from './compatibility.ts'
@@ -10,7 +10,17 @@ export function normalizeAlias(model: unknown): string {
   return raw.includes('/') ? raw.slice(raw.lastIndexOf('/') + 1) : raw
 }
 
-export function route(body: ChatRequestBody, config: SabiConfig): RouteDecision {
+/**
+ * What a caller can add that the request body cannot show: a measured context from the previous
+ * round of this session, and how many transcript rewrites the host has performed. Both optional —
+ * an unknown stays unknown.
+ */
+export interface RouteContext {
+  measuredContextTokens?: number
+  contextGeneration?: number
+}
+
+export function route(body: ChatRequestBody, config: SabiConfig, context: RouteContext = {}): RouteDecision {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new SabiRouteError('request must be a JSON object')
   }
@@ -22,7 +32,7 @@ export function route(body: ChatRequestBody, config: SabiConfig): RouteDecision 
       404,
     )
   }
-  const state = extractTrajectoryState(body)
+  const state = applyMeasuredContext(extractTrajectoryState(body), context)
   if (target !== 'auto') {
     const model = Object.hasOwn(config.models, target) ? config.models[target] : undefined
     if (!model) throw new SabiRouteError(`alias '${alias}' targets unknown tier '${target}'`, 500)

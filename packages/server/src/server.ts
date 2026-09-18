@@ -11,6 +11,7 @@ import {
   hashIdentity,
   JUDGE_QUESTIONS,
   judgeTriggers,
+  measuredContextTokens,
   route,
   SabiRouteError,
   sanitizeError,
@@ -20,6 +21,7 @@ import {
   type ChatRequestBody,
   type DecisionRecord,
   type JudgeRecord,
+  type RouteContext,
   type RouteDecision,
   type SabiConfig,
 } from '@sabi/core'
@@ -52,6 +54,69 @@ interface ServerState {
   recent: DecisionRecord[]
   judge: JudgeClient
   telemetry: ReturnType<typeof telemetryPolicy>
+  sessions: Map<string, SessionMemory>
+}
+
+interface SessionMemory {
+  /** Host compactions observed for this session (a request that came back smaller). */
+  generation: number
+  /** Message count of the last request seen for this session. */
+  messages: number
+  /** Provider-billed total of the last completed round, when usage arrived. */
+  tokens?: number
+}
+
+const SESSION_MEMORY_LIMIT = 512
+/**
+ * A host compaction rewrites the transcript before the next request, so the first request after
+ * it is much smaller than the last one. Nothing else in a live session removes messages; half
+ * the count (with a floor, so a short chat cannot trip it) is the conservative detector.
+ */
+const COMPACTION_MIN_MESSAGES = 8
+const COMPACTION_SHRINK = 0.5
+
+/**
+ * What the previous rounds of this session measured. An unattributed request gets nothing:
+ * without a session there is no continuity to claim, and borrowing another conversation's size
+ * would be exactly the kind of guess the router refuses to make.
+ */
+function observeSession(
+  state: ServerState,
+  identity: Pick<DecisionRecord, 'sessionId' | 'sessionKnown'>,
+  body: ChatRequestBody,
+): RouteContext {
+  const messages = Array.isArray(body.messages) ? body.messages.length : 0
+  if (identity.sessionKnown !== true) return {}
+  const memory = state.sessions.get(identity.sessionId)
+  const compacted = memory !== undefined && memory.messages >= COMPACTION_MIN_MESSAGES &&
+    messages > 0 && messages < memory.messages * COMPACTION_SHRINK
+  const generation = (memory?.generation ?? 0) + (compacted ? 1 : 0)
+  // Re-insert so the map's insertion order keeps tracking recency for eviction.
+  state.sessions.delete(identity.sessionId)
+  state.sessions.set(identity.sessionId, {
+    generation,
+    messages,
+    // A compacted transcript invalidates the previous round's size — it described a context the
+    // host has since removed. The next billed round re-establishes a measured floor.
+    tokens: compacted ? undefined : memory?.tokens,
+  })
+  while (state.sessions.size > SESSION_MEMORY_LIMIT) {
+    const oldest = state.sessions.keys().next().value
+    if (oldest === undefined) break
+    state.sessions.delete(oldest)
+  }
+  return {
+    ...(compacted || memory?.tokens === undefined ? {} : { measuredContextTokens: memory.tokens }),
+    ...(generation > 0 ? { contextGeneration: generation } : {}),
+  }
+}
+
+function rememberUsage(state: ServerState, record: DecisionRecord): void {
+  if (record.sessionKnown !== true) return
+  const memory = state.sessions.get(record.sessionId)
+  if (!memory) return
+  const tokens = measuredContextTokens(record.usage)
+  if (tokens !== undefined) memory.tokens = tokens
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
@@ -175,6 +240,7 @@ export function createSabiServer(options: SabiServerOptions): SabiServer {
     recent: [],
     judge: options.judgeClient ?? createTypesafeClient(),
     telemetry: telemetryPolicy(options.config.telemetry),
+    sessions: new Map(),
   }
 
   const server = createServer((req, res) => {
@@ -274,6 +340,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       // A requested backend is not evidence of which model actually served the tokens.
       record.cost = served ? estimateCost(record.usage, served.cost) : undefined
     }
+    rememberUsage(state, record)
     appendDecision(record, state.logFile)
     state.recent.push(record)
     if (state.recent.length > RECENT_LIMIT) state.recent.splice(0, state.recent.length - RECENT_LIMIT)
@@ -315,7 +382,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     }
     const body = parsed as ChatRequestBody
     stage = 'route'
-    decision = route(body, config)
+    decision = route(body, config, observeSession(state, identity, body))
     record = {
       ts: new Date().toISOString(), ...identity,
       alias: decision.alias, mode: decision.mode, rule: decision.rule, tier: decision.tier,
