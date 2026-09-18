@@ -8,6 +8,12 @@ PR #3 merged to `main` as `7d57ff4` from `feat/multi-harness-support`. A follow-
 
 2026-09-18
 
+## Limit classification — 2026-09-18
+
+Same-day follow-up on a real plan wall. Subscription/session limit messages (`You've hit your session limit`, `Usage limit reached`, `uses your weekly limit`, `error type rate_limit`) carried no evidence at all, so such a round fell to `unclassified` — the one rule the proxy consults Jev on — and an `Error:`-prefixed limit became `hard`, escalating to strong. Measured before the change and re-measured after, with those exact strings.
+
+Named limits are now checked before the hard patterns (`TRANSPORT_LIMIT_PATTERNS` in `state.ts`); numeric signals (429, timeout) keep the old precedence, so a failing test that prints a 429 still escalates; and the Jev criteria/instructions name the limit class so a paraphrase cannot be read as difficulty. 222 package tests (2 new), typecheck clean, `npm run eval` unchanged. Unverified: the Jev wording change, until real limit traffic reaches it.
+
 ## Compaction awareness — 2026-09-18
 
 Branch `feat/compaction-awareness` off `main` at `79cc981`; closes the four gaps found by reviewing [picaye/jev-compaction](https://github.com/picaye/jev-compaction) against Sabi's context handling. That project was read (README only), not cloned or run; no paid inference happened here.

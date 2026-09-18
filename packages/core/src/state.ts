@@ -71,17 +71,30 @@ const SOFT_PATTERNS: Array<{ re: RegExp; label: EvidenceCode }> = [
 ]
 
 /**
- * Transport-level signals: a rate limit, quota or upstream timeout is not evidence that the
- * *task* is hard — the model/provider was too hot. These must never escalate a round to a
- * stronger tier (retry-vs-escalation), and the research explicitly says a 429 must not be
- * classified as a reasoning failure.
+ * Named transport conditions: a text that states a provider or subscription limit is describing
+ * the provider or the plan, not the task — so it is checked BEFORE the hard patterns, even when
+ * the same line also looks like an error ("Error: You've hit your session limit"). A plan wall is
+ * not a reasoning failure: escalating to a stronger tier hits the same wall and spends more for it,
+ * and a round whose only evidence is a limit must never reach the judge as "unclassified".
+ *
+ * Wording is what makes a signal strong. Status codes stay in TRANSPORT_PATTERNS below: a failing
+ * test that happens to print "429", or a test that timed out, is a genuine task failure, so those
+ * never outrank a hard pattern in the same text.
+ */
+const TRANSPORT_LIMIT_PATTERNS: Array<{ re: RegExp; label: EvidenceCode }> = [
+  { re: /rate[-_ ]?limit/i, label: 'rate-limited' },
+  { re: /too many requests/i, label: 'rate-limited' },
+  { re: /\b(?:session|usage|weekly|monthly|daily|hourly|subscription|plan)\s+limit\b/i, label: 'quota-exceeded' },
+  { re: /quota[- ]?exceeded/i, label: 'quota-exceeded' },
+  { re: /insufficient_quota|insufficient quota/i, label: 'quota-exceeded' },
+]
+
+/**
+ * Numeric/status transport signals. Ambiguous on their own — the same tokens appear as data in
+ * test output — so for a given text the hard patterns are checked first.
  */
 const TRANSPORT_PATTERNS: Array<{ re: RegExp; label: EvidenceCode }> = [
   { re: /\b429\b/, label: 'rate-limited' },
-  { re: /rate[- ]limit/i, label: 'rate-limited' },
-  { re: /too many requests/i, label: 'rate-limited' },
-  { re: /quota[- ]?exceeded/i, label: 'quota-exceeded' },
-  { re: /insufficient_quota|insufficient quota/i, label: 'quota-exceeded' },
   { re: /timed out|timeout/i, label: 'timeout' },
 ]
 
@@ -177,11 +190,22 @@ export function detectFailure(texts: string[]): { level: FailureLevel; evidence:
   let hard = 0
   let soft = 0
   let transport = 0
+  const note = (label: string): void => {
+    if (evidence.length < 4) evidence.push(label)
+  }
   for (const raw of texts) {
     const text = String(raw ?? '')
     if (!text.trim()) continue
     if (isHarnessDenial(text)) {
-      evidence.push('permission-denial')
+      note('permission-denial')
+      continue
+    }
+    // A named limit (rate limit, session/usage/quota limit) is a provider or plan condition, not
+    // task evidence — it outranks an error-looking line in the same text.
+    const namedLimit = TRANSPORT_LIMIT_PATTERNS.find((pattern) => pattern.re.test(text))
+    if (namedLimit) {
+      transport += 1
+      note(namedLimit.label)
       continue
     }
     let textHard = false
@@ -194,26 +218,22 @@ export function detectFailure(texts: string[]): { level: FailureLevel; evidence:
       }
       hard += 1
       textHard = true
-      if (evidence.length < 4) evidence.push(pattern.label)
+      note(pattern.label)
       break
     }
     if (textHard) continue
-    // Transport signals (429/rate-limit/quota/timeout) take precedence over soft patterns
-    // but never escalate like a hard failure.
-    let textTransport = false
-    for (const pattern of TRANSPORT_PATTERNS) {
-      if (pattern.re.test(text)) {
-        transport += 1
-        textTransport = true
-        if (evidence.length < 4) evidence.push(pattern.label)
-        break
-      }
+    // Numeric transport signals (429, timeout) rank above soft patterns but never outrank a hard
+    // failure in the same text: a test that prints a 429 or times out is still a failing test.
+    const statusSignal = TRANSPORT_PATTERNS.find((pattern) => pattern.re.test(text))
+    if (statusSignal) {
+      transport += 1
+      note(statusSignal.label)
+      continue
     }
-    if (textTransport) continue
     for (const pattern of SOFT_PATTERNS) {
       if (pattern.re.test(text)) {
         soft += 1
-        if (evidence.length < 4) evidence.push(pattern.label)
+        note(pattern.label)
         break
       }
     }

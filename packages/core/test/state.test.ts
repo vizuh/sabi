@@ -231,3 +231,42 @@ test('measured context tokens come from billed usage only, and unknown usage sta
   assert.equal(measuredContextTokens({ promptTokens: Number.NaN, completionTokens: 2 }), undefined)
   assert.equal(measuredContextTokens(undefined), undefined)
 })
+
+test('provider and subscription limits are transport, not task failures', () => {
+  // The exact phrasings a harness emits when a plan runs out; before this, three of them carried
+  // no evidence at all and the round fell to `unclassified` — the rule the proxy consults Jev on.
+  const limits = [
+    "You've hit your session limit · resets 8:30pm (Europe/Lisbon)",
+    'Usage limit reached · continuing automatically at 8:30pm · esc or type to cancel',
+    '⚠ /low-priority to continue now at lower priority · uses your weekly limit',
+    "Agent terminated early due to an API error: You've hit your session limit · resets 8:30pm (error type rate_limit, HTTP 429)",
+    'Error: rate_limit_error',
+    'insufficient_quota',
+  ]
+  for (const content of limits) {
+    const state = extractTrajectoryState(
+      body([system, { role: 'user', content: 'continue' }, { role: 'tool', content }]),
+    )
+    assert.equal(state.failure, 'transport', content)
+    assert.ok(state.failureEvidence.length > 0, content)
+  }
+})
+
+test('a named limit outranks an error-looking line; a bare status code does not outrank a failing test', () => {
+  // "Error:" plus a named limit is still the provider talking, not the task.
+  const limited = extractTrajectoryState(
+    body([system, { role: 'user', content: 'continue' }, { role: 'tool', content: "Error: You've hit your session limit" }]),
+  )
+  assert.equal(limited.failure, 'transport')
+
+  // A genuinely failing test that happens to print 429 stays a task failure, with or without words.
+  const failedTest = extractTrajectoryState(
+    body([
+      system,
+      { role: 'user', content: 'run the tests' },
+      { role: 'assistant', tool_calls: [{ function: { name: 'shell_command', arguments: '{"command":"npm test"}' } }] },
+      { role: 'tool', content: 'Tests: 1 failed, 0 passed\nexpected 200, got 429\nexit code: 1' },
+    ]),
+  )
+  assert.equal(failedTest.failure, 'hard')
+})
