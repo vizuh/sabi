@@ -128,10 +128,22 @@ npm run connect:command-code     # writes/updates the "sabi" provider in ~/.comm
 cmd --list-models | grep sabi
 ```
 
+This asks a consent question before registering anything paid: **route paid upstream models
+(real API credits) through Command Code?** On a real terminal it prompts once; on bare Enter or a
+non-interactive/CI/agent-driven run it defaults to **no** and registers nothing paid — pass `--paid`
+to skip the prompt and register the paid tiers unattended, or `--free` to skip it and register none.
+This is a behavior change from earlier versions, which registered every paid tier unconditionally.
+
+In the shipped config, `sabi-code`, `sabi-cheap`, `sabi-mid` and `sabi-strong` all resolve only to
+the paid `openrouter` upstream — none of them register unless you answered yes or passed `--paid`.
 Then pick `sabi/sabi-code` in `/model`, or pass `--model sabi/sabi-code`. The fixed aliases
 (`sabi-cheap`, `sabi-mid`, `sabi-strong`) bypass the policy and exist as baselines for comparison.
 `--include-local` also exposes `sabi-local` (Ollama); it is skipped by default because a 32k window
 is too small for harness prompts.
+
+To hard-disable a specific upstream regardless of `--paid`, set `"enabled": false` on it in
+`sabi.config.json` — see Configuration below. The kill switch is enforced again at request time, so
+even a stale registration or another harness's config pointed at the running proxy is refused.
 
 Read the outcome with:
 
@@ -154,6 +166,11 @@ if it is down, every `sabi/*` request fails inside the harness with
 2. `<cwd>/sabi.config.json`
 3. `~/.config/sabi/sabi.config.json` (honours `$XDG_CONFIG_HOME`)
 4. the nearest `sabi.config.json` above the installed package
+
+Each entry in `upstreams` accepts `"enabled": false` as a persistent kill switch — omitted or
+`true` means usable. A disabled upstream stays schema-valid but `connect:command-code` will not
+register any alias that needs it, and the proxy refuses to dispatch to it even if something else
+still points there.
 
 Case 4 is what makes a fresh clone work: run from the checkout and the shipped config is found.
 For a personal setup that survives moving the clone, copy the file to `~/.config/sabi/`. To work on
@@ -298,9 +315,17 @@ round. The mod never calls the judge; this applies to proxy clients only.
 - **No secrets in git.** Keys are read from the environment; the config only stores `$ENV_VAR`
   references. Do not commit a config with literal keys.
 - **Nothing leaves the machine except the model calls themselves.** The class-A path adds no network
-  hop of its own. The class-B path forwards to the upstreams you configured, and the Jev judge sends
-  excerpts of the last instruction and tool result plus round metadata — a 6k-character target, not a
-  strict serialized-size guarantee for every field.
+  hop of its own. The class-B path forwards to the upstreams you configured — once you supply a key
+  it will spend real credit on every routed round — and the Jev judge sends excerpts of the last
+  instruction and tool result plus round metadata — a 6k-character target, not a strict
+  serialized-size guarantee for every field.
+- **Paid upstreams are opt-in at wiring time.** `npm run connect:command-code` defaults to
+  registering nothing paid unless you pass `--paid` or answer yes at its prompt; `enabled: false`
+  on an upstream disables it everywhere, including at request time, regardless of that consent.
+  The consent question only governs whether Command Code gets wired in with paid tiers — the
+  moment real spend actually becomes possible is exporting that upstream's key and running
+  `npm start`, same as always. `enabled: false` is the durable switch for "never route here,
+  period"; anything hitting the proxy directly still needs a key you supplied yourself.
 - **The decision log is metadata only, with one exception.** Nothing from the conversation is written
   — no prompt content, no file contents, no tool output — but a failed upstream call records the first
   200 characters of the provider's error response (credential patterns redacted). A provider that

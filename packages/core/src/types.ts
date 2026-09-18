@@ -144,6 +144,8 @@ export interface UpstreamEntry {
   apiKey?: string | false
   headers?: Record<string, string>
   streamUsage?: boolean
+  /** Kill switch. Omitted or true: usable. False: schema stays valid, but nothing may route or dispatch to it. */
+  enabled?: boolean
 }
 
 export interface JudgeThresholds {

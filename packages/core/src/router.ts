@@ -1,9 +1,9 @@
-import { ensureRouteCompatible, firstServingTier, SabiRouteError, servesInputModalities } from './compatibility.ts'
+import { ensureRouteCompatible, isEnabledUpstream, SabiRouteError, servesInputModalities } from './compatibility.ts'
 import { decideTier } from './policy.ts'
 import { extractTrajectoryState } from './state.ts'
 import type { ChatRequestBody, RouteDecision, SabiConfig } from './types.ts'
 
-export { ensureRouteCompatible, SabiRouteError } from './compatibility.ts'
+export { ensureRouteCompatible, isEnabledUpstream, SabiRouteError } from './compatibility.ts'
 
 export function normalizeAlias(model: unknown): string {
   const raw = String(model ?? '').trim()
@@ -44,14 +44,20 @@ export function route(body: ChatRequestBody, config: SabiConfig): RouteDecision 
   let { rule, tier, reason } = decideTier(state, config.policy)
   const planned = Object.hasOwn(config.models, tier) ? config.models[tier] : undefined
   if (!planned) throw new SabiRouteError(`policy rule '${rule}' maps to unknown tier '${tier}'`, 500)
-  // Input modalities are a hard constraint, not a preference. A policy tier that cannot accept the
-  // request (an image on a text-only model) is skipped for the first tier that can, so the round is
-  // served instead of failing upstream with "no endpoints found that support image input".
-  if (!servesInputModalities(planned.capabilities?.inputModalities, required)) {
-    const alternate = firstServingTier(config.models, required, (entry) => entry.capabilities?.inputModalities)
+  // Input modality and upstream availability are both hard constraints, not preferences. A policy
+  // tier that cannot accept the request, or whose upstream is disabled, is skipped for the first
+  // tier (in configuration order) that satisfies both — otherwise disabling one upstream would 400
+  // every round a policy rule happens to map to it, even when another enabled tier could serve it.
+  const servesRound = (entry: typeof planned): boolean =>
+    isEnabledUpstream(config.upstreams[entry.upstream]) && servesInputModalities(entry.capabilities?.inputModalities, required)
+  if (!servesRound(planned)) {
+    const disabled = !isEnabledUpstream(config.upstreams[planned.upstream])
+    const alternate = Object.keys(config.models).find((name) => servesRound(config.models[name]!))
     if (alternate) {
-      rule = 'capability'
-      reason = `input needs ${required.join('+')}; '${tier}' (${planned.model}) cannot accept it, '${alternate}' can`
+      rule = disabled ? 'availability' : 'capability'
+      reason = disabled
+        ? `upstream for '${tier}' (${planned.model}) is disabled; '${alternate}' can serve`
+        : `input needs ${required.join('+')}; '${tier}' (${planned.model}) cannot accept it, '${alternate}' can`
       tier = alternate
     }
   }

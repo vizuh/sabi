@@ -128,10 +128,25 @@ npm run connect:command-code     # grava/atualiza o provider "sabi" em ~/.comman
 cmd --list-models | grep sabi
 ```
 
+Isso pergunta antes de registrar qualquer coisa paga: **rotear modelos pagos (créditos reais de
+API) através do Command Code?** Em um terminal real pergunta uma vez; com Enter em branco ou numa
+execução não interativa (CI, agente) o padrão é **não**, e nada pago é registrado — passe `--paid`
+para pular a pergunta e registrar os níveis pagos sem interação, ou `--free` para pular e não
+registrar nenhum. Isso é uma mudança de comportamento em relação a versões anteriores, que
+registravam todos os níveis pagos sem perguntar.
+
+Na config que vem no repositório, `sabi-code`, `sabi-cheap`, `sabi-mid` e `sabi-strong` resolvem só
+para o upstream pago `openrouter` — nenhum deles é registrado a menos que você tenha respondido sim
+ou passado `--paid`.
 Depois escolha `sabi/sabi-code` em `/model`, ou passe `--model sabi/sabi-code`. Os aliases fixos
 (`sabi-cheap`, `sabi-mid`, `sabi-strong`) ignoram a política e existem como baselines de comparação.
 `--include-local` também expõe `sabi-local` (Ollama); ele fica de fora por padrão porque uma janela de
 32k é pequena demais para prompts de harness.
+
+Para desativar de forma permanente um upstream específico, independente de `--paid`, defina
+`"enabled": false` nele em `sabi.config.json` — veja Configuração abaixo. Esse interruptor é
+aplicado de novo no momento da requisição, então mesmo um registro antigo ou a config de outro
+harness apontando para o proxy em execução é recusado.
 
 Leia o resultado com:
 
@@ -154,6 +169,11 @@ se estiver fora do ar, toda requisição `sabi/*` falha dentro do harness com
 2. `<cwd>/sabi.config.json`
 3. `~/.config/sabi/sabi.config.json` (respeita `$XDG_CONFIG_HOME`)
 4. o `sabi.config.json` mais próximo acima do pacote instalado
+
+Cada entrada em `upstreams` aceita `"enabled": false` como um interruptor permanente — omitido ou
+`true` significa utilizável. Um upstream desativado continua válido no schema, mas o
+`connect:command-code` não registra nenhum alias que dependa dele, e o proxy recusa despachar para
+ele mesmo que algo mais ainda aponte para lá.
 
 O caso 4 é o que faz um clone novo funcionar: rodando do checkout, a config que veio com ele é
 encontrada. Para uma configuração pessoal que sobrevive a mover o clone, copie o arquivo para
@@ -267,9 +287,18 @@ O juiz precisa de uma chave da TypeSafe: exporte `TYPESAFE_API_KEY`, ou ponha `j
 - **Nenhum segredo no git.** As chaves vêm do ambiente; a config guarda só referências `$ENV_VAR`.
   Não commite uma config com chave literal.
 - **Nada sai da máquina além das próprias chamadas de modelo.** O caminho A não adiciona nenhum salto
-  de rede próprio. O caminho B encaminha para os upstreams que você configurou, e o juiz Jev envia
-  trechos da última instrução e do último resultado de ferramenta mais metadados da rodada — um alvo de
-  6k caracteres, não uma garantia estrita de tamanho serializado para todos os campos.
+  de rede próprio. O caminho B encaminha para os upstreams que você configurou — assim que você
+  fornecer uma chave, cada rodada roteada gasta crédito real — e o juiz Jev envia trechos da última
+  instrução e do último resultado de ferramenta mais metadados da rodada — um alvo de 6k caracteres,
+  não uma garantia estrita de tamanho serializado para todos os campos.
+- **Upstreams pagos exigem consentimento no momento de conectar.** `npm run connect:command-code`
+  por padrão não registra nada pago, a menos que você passe `--paid` ou responda sim na pergunta;
+  `enabled: false` num upstream o desativa em todo lugar, inclusive no momento da requisição,
+  independente desse consentimento. Essa pergunta só decide se o Command Code é conectado com
+  os níveis pagos — o momento em que o gasto real se torna possível é exportar a chave desse
+  upstream e rodar `npm start`, como sempre foi. `enabled: false` é o interruptor permanente para
+  "nunca rotear aqui, ponto"; qualquer coisa que acesse o proxy diretamente ainda precisa de uma
+  chave que você mesmo forneceu.
 - **O log de decisões é só metadado, com uma exceção.** Nada da conversa é gravado — sem conteúdo de
   prompt, sem conteúdo de arquivo, sem saída de ferramenta — mas uma chamada de upstream que falha
   registra os primeiros 200 caracteres da resposta de erro do provedor (padrões de credencial

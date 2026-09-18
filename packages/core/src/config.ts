@@ -192,6 +192,9 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
     } catch {
       throw new Error(`Sabi config ${source}: upstream '${name}' has an invalid baseURL`)
     }
+    if (upstream.enabled !== undefined && typeof upstream.enabled !== 'boolean') {
+      throw new Error(`Sabi config ${source}: upstream '${name}'.enabled must be a boolean`)
+    }
   }
 
   if (!Object.keys(models).length) throw new Error(`Sabi config ${source}: no models declared`)
