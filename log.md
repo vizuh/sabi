@@ -202,3 +202,25 @@ Closed the four gaps a review of [picaye/jev-compaction](https://github.com/pica
 - **Offline eval fixture.** `EvalTask.compactedAfterRound` and a `compaction-reset` task exercise the boundary in the replay: identical second failure, `rule: failure`, `failureStreak: 1`, `contextGeneration: 1`.
 
 220 package tests (12 new), typecheck clean, `npm run eval` 8 tasks / 10 rounds. Not done: no live session has compacted yet, so the detector's thresholds (`COMPACTION_MIN_MESSAGES`, `COMPACTION_SHRINK`) are unmeasured heuristics; the mod still has no judge path, so shadow answers can only come from the proxy.
+
+## [2026-09-18] fix | Provider and subscription limits are transport, not task failures
+
+A real session hit a plan wall — `You've hit your session limit · resets 8:30pm`, `Usage limit reached · continuing automatically at 8:30pm`, `uses your weekly limit`, `error type rate_limit` — and the detector's answer, measured with those exact strings before the change, was the wrong kind of nothing or the wrong kind of escalation:
+
+| Before | Text |
+|---|---|
+| `none` (no evidence at all) | `You've hit your session limit · resets 8:30pm` |
+| `none` | `Usage limit reached · continuing automatically at 8:30pm` |
+| `none` | `uses your weekly limit` |
+| `hard` — escalate to strong | `Error: You've hit your session limit` |
+| `hard` | `Error: rate_limit_error` (the pattern required `rate-limit`, not `rate_limit`) |
+| `hard` — must stay hard | `Tests: 1 failed, 0 passed\nexpected 200, got 429\nexit code: 1` |
+| `transport` — must stay transport | `HTTP 429 too many requests: rate limit exceeded` |
+
+Two routing failures followed. A round whose only evidence was a limit message fell to `unclassified` — the rule the proxy consults Jev on — so Jev was asked "how demanding is this step?" about a plan wall and could escalate; and a limit message that looked like an error line became `hard`, escalating to the strongest tier, which hits the same wall and spends more doing it.
+
+`TRANSPORT_LIMIT_PATTERNS` (rate limit / too many requests / session, usage, weekly, monthly, daily, subscription or plan limit / quota exceeded) is now checked before the hard patterns, so wording beats an `Error:` prefix in the same text. The numeric signals stay where they were (`429`, `timeout`): a failing test that prints a 429, or a test that timed out, is still a task failure and never loses to a status code. After the change every limit phrasing above classifies `transport` (evidence `quota-exceeded` / `rate-limited`), the round routes to the transport tier — retry, never escalate — and Jev is not consulted for it at all.
+
+Jev gets the same knowledge for paraphrases that still reach it: `real_problem.criteria.false` now names a provider or subscription limit, and the difficulty instructions say a limit is never task difficulty. Both are prompt text, not measured behavior — unverified until real limit traffic passes through them.
+
+222 package tests (2 new; 236 with this checkout's uncommitted setup-wizard tests), typecheck clean, `npm run eval` unchanged (8 tasks / 10 rounds). Docs: README/PT-BR policy paragraph. No new evidence codes, no config keys.

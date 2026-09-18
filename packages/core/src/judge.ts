@@ -29,13 +29,13 @@ export const JUDGE_QUESTIONS: JudgeQuestions = {
     criteria: {
       true: 'A real defect or failure that blocks or degrades the task and should be fixed or investigated',
       false:
-        'An expected outcome (for example the user explicitly asked to run something that fails), informational output, a permission prompt or denial from the harness, or a failure unrelated to the task',
+        'An expected outcome (for example the user explicitly asked to run something that fails), informational output, a permission prompt or denial from the harness, a provider or subscription limit (rate limit, session/usage/quota limit) that says the provider or the plan was exhausted rather than the task being broken, or a failure unrelated to the task',
     },
   },
   difficulty: {
     type: 'choice',
     instructions:
-      "How demanding is the agent's next step, given the state so far? Consider the last instruction, the tool activity, and the trajectory position.",
+      "How demanding is the agent's next step, given the state so far? Consider the last instruction, the tool activity, and the trajectory position. A provider or subscription limit in the evidence (rate limit, session/usage/quota limit, too many requests) is not task difficulty — it says the provider or the plan was exhausted, never that the step is demanding.",
     criteria: {
       trivial: 'Mechanical or bookkeeping work — reading, listing, searching, routine follow-ups',
       standard: 'Ordinary implementation, debugging, or verification work',
