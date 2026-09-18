@@ -1,4 +1,4 @@
-import { ensureRouteCompatible, SabiRouteError } from './compatibility.ts'
+import { ensureRouteCompatible, firstServingTier, SabiRouteError, servesInputModalities } from './compatibility.ts'
 import { decideTier } from './policy.ts'
 import { extractTrajectoryState } from './state.ts'
 import type { ChatRequestBody, RouteDecision, SabiConfig } from './types.ts'
@@ -40,7 +40,21 @@ export function route(body: ChatRequestBody, config: SabiConfig): RouteDecision 
     ensureRouteCompatible(body, config, decision)
     return decision
   }
-  const { rule, tier, reason } = decideTier(state, config.policy)
+  const required = state.inputModalities ?? []
+  let { rule, tier, reason } = decideTier(state, config.policy)
+  const planned = Object.hasOwn(config.models, tier) ? config.models[tier] : undefined
+  if (!planned) throw new SabiRouteError(`policy rule '${rule}' maps to unknown tier '${tier}'`, 500)
+  // Input modalities are a hard constraint, not a preference. A policy tier that cannot accept the
+  // request (an image on a text-only model) is skipped for the first tier that can, so the round is
+  // served instead of failing upstream with "no endpoints found that support image input".
+  if (!servesInputModalities(planned.capabilities?.inputModalities, required)) {
+    const alternate = firstServingTier(config.models, required, (entry) => entry.capabilities?.inputModalities)
+    if (alternate) {
+      rule = 'capability'
+      reason = `input needs ${required.join('+')}; '${tier}' (${planned.model}) cannot accept it, '${alternate}' can`
+      tier = alternate
+    }
+  }
   const model = Object.hasOwn(config.models, tier) ? config.models[tier] : undefined
   if (!model) throw new SabiRouteError(`policy rule '${rule}' maps to unknown tier '${tier}'`, 500)
   const decision: RouteDecision = {

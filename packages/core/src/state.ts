@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatRequestBody, EvidenceCode, FailureLevel, RoundKind, TrajectoryState } from './types.ts'
+import type { ChatMessage, ChatRequestBody, EvidenceCode, FailureLevel, ModelModality, RoundKind, TrajectoryState } from './types.ts'
 
 // Exact built-in names only: never strip MCP/server prefixes to guess a capability.
 const EXPLORE_TOOLS = new Set([
@@ -100,6 +100,72 @@ export function textOf(content: unknown): string {
     if (typeof obj.output === 'string') return obj.output
   }
   return ''
+}
+
+export const CHARS_PER_TOKEN = 3.6
+
+/**
+ * The harness charges a flat bound per image instead of a byte count (its own estimator uses
+ * 1500), because providers tokenize a decoded image by resolution, not by base64 length. Sabi
+ * mirrors that number so its estimate stays comparable with the host's.
+ */
+export const MEDIA_TOKENS_PER_IMAGE = 1500
+
+type MediaKind = Exclude<ModelModality, 'text'>
+
+const MEDIA_PART_TYPES: Record<string, MediaKind> = {
+  image: 'image',
+  image_url: 'image',
+  input_image: 'image',
+  input_audio: 'audio',
+  audio_url: 'audio',
+  video_url: 'video',
+  file: 'file',
+}
+
+export interface MediaTally {
+  counts: Partial<Record<MediaKind, number>>
+  /** Serialized size of non-image payloads, the upper-bound proxy for their tokens. */
+  payloadChars: number
+}
+
+function payloadCharsOf(part: Record<string, unknown>): number {
+  try {
+    return JSON.stringify(part).length
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Collects media content parts. Parts are read where they actually appear: an OpenAI-shaped
+ * content array, and the nested `content` of a tool_result-style block, where a tool can return a
+ * screenshot. Images are charged the host's per-image bound; other media by payload size, which is
+ * an upper bound rather than a tokenizer (a remote URL is charged only its URL length).
+ */
+export function tallyMedia(content: unknown, tally: MediaTally, depth = 0): void {
+  if (depth > 3 || !Array.isArray(content)) return
+  for (const part of content) {
+    if (!part || typeof part !== 'object') continue
+    const record = part as Record<string, unknown>
+    const kind = typeof record.type === 'string' ? MEDIA_PART_TYPES[record.type] : undefined
+    if (kind) {
+      tally.counts[kind] = (tally.counts[kind] ?? 0) + 1
+      if (kind !== 'image') tally.payloadChars += payloadCharsOf(record)
+      continue
+    }
+    if (record.content !== undefined) tallyMedia(record.content, tally, depth + 1)
+  }
+}
+
+export function mediaTokens(tally: MediaTally): number {
+  const images = tally.counts.image ?? 0
+  return images * MEDIA_TOKENS_PER_IMAGE + Math.ceil(tally.payloadChars / CHARS_PER_TOKEN)
+}
+
+export function modalitiesOf(counts: Partial<Record<MediaKind, number>>): ModelModality[] {
+  const kinds = (Object.keys(counts) as MediaKind[]).filter((kind) => (counts[kind] ?? 0) > 0).sort()
+  return ['text', ...kinds]
 }
 
 function isHarnessDenial(text: string): boolean {
@@ -224,12 +290,14 @@ export function extractTrajectoryState(body: ChatRequestBody): TrajectoryState {
   let assistantTurns = 0
   let toolMessages = 0
   let contextChars = 0
+  const media: MediaTally = { counts: {}, payloadChars: 0 }
   for (const message of messages) {
     const role = String(message?.role ?? '')
     if (role === 'assistant') assistantTurns += 1
     if (role === 'tool') toolMessages += 1
     contextChars += textOf(message?.content).length
     if (message?.tool_calls) contextChars += JSON.stringify(message.tool_calls).length
+    tallyMedia(message?.content, media)
   }
   const lastRole = messages.length > 0 ? String(messages[messages.length - 1]?.role ?? '') : ''
   const toolNames = Array.isArray(body.tools)
@@ -241,13 +309,16 @@ export function extractTrajectoryState(body: ChatRequestBody): TrajectoryState {
   else if (lastRole === 'tool') roundKind = classifyRound(calls)
   else roundKind = 'unclassified'
   const failure = detectFailure(trailingToolTexts(messages))
+  const hasMedia = Object.keys(media.counts).length > 0
   return {
     messageCount: messages.length,
     assistantTurns,
     toolMessages,
     lastRole,
     contextChars,
-    estimatedTokens: Math.ceil(contextChars / 3.6),
+    // Media is not text, so it adds no chars — but it is context. Charging it here is what keeps
+    // the context-pressure rule and the decision log from treating a screenshot round as tiny.
+    estimatedTokens: Math.ceil(contextChars / CHARS_PER_TOKEN) + mediaTokens(media),
     // The proxy only counts transcript chars and tool calls; tool schemas and the system prompt
     // are not measured, so an estimated model window is not a verified fit. Mark it unknown.
     contextTokens: undefined,
@@ -260,5 +331,7 @@ export function extractTrajectoryState(body: ChatRequestBody): TrajectoryState {
     failureEvidence: failure.evidence,
     repeatedFailure: false,
     failureStreak: 0,
+    inputModalities: modalitiesOf(media.counts),
+    ...(hasMedia ? { mediaCounts: media.counts } : {}),
   }
 }

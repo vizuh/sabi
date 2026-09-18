@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { planRound, trajectoryFromRound, type HarnessRound } from '../src/harness.ts'
+import type { CatalogTier } from '../src/types.ts'
 
 const policy = {
   failure: 'strong',
@@ -184,4 +185,48 @@ test('a tool-reported rate limit routes to transport, not strong', () => {
   const plan = planRound(state, policy, tiers)
   assert.equal(plan?.rule, 'transport')
   assert.equal(plan?.tier, 'mid')
+})
+
+const visionTiers: Record<string, CatalogTier> = {
+  cheap: { model: 'deepseek/deepseek-v4-flash', effort: 'high', inputModalities: ['text'] },
+  mid: { model: 'gpt-5.6-luna', effort: 'high', inputModalities: ['text', 'image'] },
+  strong: { model: 'zai-org/glm-5.3', effort: 'high', inputModalities: ['text'] },
+}
+
+test('an image round passes over the text-only tiers', () => {
+  const state = trajectoryFromRound(
+    round({
+      calls: [{ name: 'read_file', args: '{"absolute_path":"/repo/a.ts"}', failed: false }],
+      inputModalities: ['text', 'image'],
+      mediaCounts: { image: 1 },
+    }),
+  )
+  assert.deepEqual(state.inputModalities, ['text', 'image'])
+  assert.deepEqual(state.mediaCounts, { image: 1 })
+  const plan = planRound(state, policy, visionTiers)
+  assert.equal(plan?.rule, 'capability')
+  assert.equal(plan?.tier, 'mid')
+  assert.equal(plan?.model, 'gpt-5.6-luna')
+  assert.equal(plan?.effort, 'high')
+  assert.match(String(plan?.reason), /input needs text\+image/)
+})
+
+test('an image round is charged the per-image bound in context tokens', () => {
+  const plain = trajectoryFromRound(round({}))
+  const withImage = trajectoryFromRound(round({ inputModalities: ['text', 'image'], mediaCounts: { image: 2 } }))
+  assert.equal(withImage.estimatedTokens, plain.estimatedTokens + 3000)
+  assert.equal(withImage.contextTokens, (plain.contextTokens ?? 0) + 3000)
+})
+
+test('with no tier able to read the image, the round stays on the session model', () => {
+  const state = trajectoryFromRound(round({ inputModalities: ['text', 'image'], mediaCounts: { image: 1 } }))
+  const plan = planRound(state, policy, { cheap: visionTiers.cheap, strong: visionTiers.strong })
+  assert.equal(plan, undefined)
+})
+
+test('tiers without declared modalities are never constrained', () => {
+  const state = trajectoryFromRound(round({ inputModalities: ['text', 'image'], mediaCounts: { image: 1 } }))
+  const plan = planRound(state, policy, tiers)
+  assert.equal(plan?.rule, 'unclassified')
+  assert.equal(plan?.tier, 'cheap')
 })

@@ -17,6 +17,35 @@ const BASE_PARAMETERS = new Set(['model', 'messages', 'stream'])
 const MESSAGE_FIELDS = new Set(['role', 'content', 'name', 'tool_calls', 'tool_call_id', 'function_call', 'refusal'])
 const REASONING_HISTORY = new Set(['reasoning', 'reasoning_content', 'reasoning_details', 'thinking_blocks'])
 
+/**
+ * Whether a model whose declared input modalities are `declared` can serve `required`. An
+ * undeclared capability is unknown, not a refusal — the same rule the route check applies, so
+ * declaring one modality never silently blocks a model the operator has not described.
+ */
+export function servesInputModalities(
+  declared: ModelModality[] | undefined,
+  required: readonly ModelModality[],
+): boolean {
+  if (!declared) return true
+  return required.every((modality) => declared.includes(modality))
+}
+
+/**
+ * First tier, in configuration order, whose declared modalities cover `required`. Tier order is the
+ * preference order, so a proxy that lists cheap before strong falls forward to the cheapest model
+ * that can actually take the input.
+ */
+export function firstServingTier<T>(
+  tiers: Record<string, T>,
+  required: readonly ModelModality[],
+  declared: (tier: T) => ModelModality[] | undefined,
+): string | undefined {
+  for (const [name, tier] of Object.entries(tiers)) {
+    if (servesInputModalities(declared(tier), required)) return name
+  }
+  return undefined
+}
+
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }

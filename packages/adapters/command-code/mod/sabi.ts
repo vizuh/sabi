@@ -1,13 +1,16 @@
 import type { AgentState, ModApi, ModContext, ModelRequestEvent, TurnUsage } from '@commandcode/harness'
 import {
   loadConfig,
+  modalitiesOf,
   planRound,
   sanitizeReason,
+  tallyMedia,
   telemetryPolicy,
   trajectoryFromRound,
   type CatalogTier,
   type HarnessRound,
   type HarnessToolCall,
+  type MediaTally,
   type RoundPlan,
   type SabiConfig,
   type TrajectoryState,
@@ -17,6 +20,20 @@ const MOD_ID = 'sabi'
 const DECISION_TYPE = 'sabi/decision'
 
 type ConfigWithHarness = SabiConfig & { harness?: { tiers?: Record<string, CatalogTier> } }
+
+/**
+ * Reads media out of the harness transcript. The host's own check looks for a user content part
+ * with `type: 'image'`; this widens it to every role and to nested tool-result content, because a
+ * tool can return a screenshot too. It reports positive evidence only — a transcript it cannot
+ * read yields no modalities rather than an assumed text-only round.
+ */
+function mediaIn(messages: readonly unknown[] | undefined): MediaTally {
+  const tally: MediaTally = { counts: {}, payloadChars: 0 }
+  for (const message of messages ?? []) {
+    tallyMedia((message as { content?: unknown } | null)?.content, tally)
+  }
+  return tally
+}
 
 interface Ledger {
   rounds: number
@@ -98,6 +115,7 @@ export default function sabi(cmd: ModApi): void {
 
     prepareNextTurn: ({ state }) => {
       const ledger = readLedger(state)
+      const media = mediaIn(state.messages)
       const round: HarnessRound = {
         messageCount: ledger.messageCount + calls.length,
         assistantTurns: ledger.rounds,
@@ -107,6 +125,9 @@ export default function sabi(cmd: ModApi): void {
         hasTools: ledger.hasTools,
         toolNames: ledger.toolNames,
         calls,
+        ...(Object.keys(media.counts).length
+          ? { inputModalities: modalitiesOf(media.counts), mediaCounts: media.counts }
+          : {}),
       }
       const trajectory = trajectoryFromRound(round, previousFailure)
       const plan = planRound(trajectory, policy, tiers, { contextWindow: config.harness?.contextWindow })
@@ -151,6 +172,7 @@ export default function sabi(cmd: ModApi): void {
               repeatedFailure: servingPlan.state.repeatedFailure,
               failureStreak: servingPlan.state.failureStreak,
               contextTokens: servingPlan.state.contextTokens,
+              inputModalities: servingPlan.state.inputModalities,
             }
           : undefined,
         servedBy: servedBy ?? undefined,
