@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatRequestBody, FailureLevel, RoundKind, TrajectoryState } from './types.ts'
+import type { ChatMessage, ChatRequestBody, EvidenceCode, FailureLevel, RoundKind, TrajectoryState } from './types.ts'
 
 const EXPLORE_TOOLS = new Set([
   'read_file',
@@ -41,25 +41,30 @@ const KIND_RANK: Record<RoundKind, number> = {
   'first-turn': 4,
 }
 
-const HARD_PATTERNS: Array<{ re: RegExp; label: string; numeric?: boolean }> = [
-  { re: /^\s*(?:Error|ERROR|error):/m, label: 'error line' },
-  { re: /Traceback \(most recent call last\)/, label: 'python traceback' },
+const HARD_PATTERNS: Array<{ re: RegExp; label: EvidenceCode; numeric?: boolean }> = [
+  { re: /^\s*(?:Error|ERROR|error):/m, label: 'error-line' },
+  { re: /Traceback \(most recent call last\)/, label: 'python-traceback' },
   { re: /\bpanic:/, label: 'panic' },
   {
     re: /AssertionError|TypeError|ReferenceError|SyntaxError|ImportError|ModuleNotFoundError|Cannot find module/,
     label: 'exception',
   },
-  { re: /\berror TS\d+/, label: 'typescript error' },
-  { re: /\b(?:FAIL|FAILED|FAILURES|Failing)\b/, label: 'fail marker' },
-  { re: /\bcommand failed\b/i, label: 'command failed' },
-  { re: /exit (?:code|status)[:=\s]+([1-9]\d*)/i, label: 'nonzero exit' },
-  { re: /(\d+)\s+fail(?:ed|ing|ures)/i, label: 'failure count', numeric: true },
-  { re: /command not found/i, label: 'command not found' },
-  { re: /permission denied/i, label: 'permission denied' },
-  { re: /no such file or directory/i, label: 'missing file' },
+  { re: /\berror TS\d+/, label: 'typescript-error' },
+  { re: /\b(?:FAIL|FAILED|FAILURES|Failing)\b/, label: 'fail-marker' },
+  { re: /\bcommand failed\b/i, label: 'command-failed' },
+  { re: /exit (?:code|status)[:=\s]+([1-9]\d*)/i, label: 'nonzero-exit' },
+  { re: /(\d+)\s+fail(?:ed|ing|ures)/i, label: 'failure-count', numeric: true },
+  { re: /command not found/i, label: 'command-not-found' },
+  { re: /permission denied/i, label: 'permission-denied' },
+  { re: /no such file or directory/i, label: 'missing-file' },
 ]
 
-const SOFT_PATTERNS = [/warning/i, /deprecated/i, /retrying/i, /timed out/i]
+const SOFT_PATTERNS: Array<{ re: RegExp; label: EvidenceCode }> = [
+  { re: /warning/i, label: 'soft-warning' },
+  { re: /deprecated/i, label: 'soft-deprecated' },
+  { re: /retrying/i, label: 'soft-retrying' },
+  { re: /timed out/i, label: 'soft-timeout' },
+]
 
 const HARNESS_DENIAL =
   /\buser\b[^\n]{0,40}\b(?:denied|declined|rejected)\b|denied by (?:the )?user|\b(?:permission|tool call|request)[^\n]{0,30}\b(?:denied|declined|rejected)\b/i
@@ -78,14 +83,6 @@ export function textOf(content: unknown): string {
   return ''
 }
 
-function snippet(text: string, index: number): string {
-  const start = Math.max(0, index - 20)
-  return text
-    .slice(start, index + 100)
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
 function isHarnessDenial(text: string): boolean {
   return HARNESS_DENIAL.test(text)
 }
@@ -98,7 +95,7 @@ export function detectFailure(texts: string[]): { level: FailureLevel; evidence:
     const text = String(raw ?? '')
     if (!text.trim()) continue
     if (isHarnessDenial(text)) {
-      evidence.push('permission denial — not treated as a model failure')
+      evidence.push('permission-denial')
       continue
     }
     let textHard = false
@@ -111,14 +108,14 @@ export function detectFailure(texts: string[]): { level: FailureLevel; evidence:
       }
       hard += 1
       textHard = true
-      if (evidence.length < 4) evidence.push(`${pattern.label}: ${snippet(text, match.index ?? 0)}`)
+      if (evidence.length < 4) evidence.push(pattern.label)
       break
     }
     if (!textHard) {
-      for (const re of SOFT_PATTERNS) {
-        if (re.test(text)) {
+      for (const pattern of SOFT_PATTERNS) {
+        if (pattern.re.test(text)) {
           soft += 1
-          if (evidence.length < 4) evidence.push(`soft: ${snippet(text, text.search(re))}`)
+          if (evidence.length < 4) evidence.push(pattern.label)
           break
         }
       }
@@ -217,11 +214,17 @@ export function extractTrajectoryState(body: ChatRequestBody): TrajectoryState {
     lastRole,
     contextChars,
     estimatedTokens: Math.ceil(contextChars / 3.6),
+    // The proxy only counts transcript chars and tool calls; tool schemas and the system prompt
+    // are not measured, so an estimated model window is not a verified fit. Mark it unknown.
+    contextTokens: undefined,
+    contextKnown: false,
     hasTools: toolNames.length > 0,
     toolNames,
     lastToolNames: calls.map((call) => call.name),
     roundKind,
     failure: failure.level,
     failureEvidence: failure.evidence,
+    repeatedFailure: false,
+    failureStreak: 0,
   }
 }

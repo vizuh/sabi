@@ -10,7 +10,10 @@ import {
   judgeTriggers,
   route,
   SabiRouteError,
+  sanitizeError,
+  sanitizeReason,
   sessionIdFor,
+  telemetryPolicy,
   type ChatRequestBody,
   type DecisionRecord,
   type JudgeRecord,
@@ -43,6 +46,7 @@ interface ServerState {
   logFile: string
   recent: DecisionRecord[]
   judge: JudgeClient
+  telemetry: ReturnType<typeof telemetryPolicy>
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
@@ -74,10 +78,16 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
 }
 
 function modelSummary(config: SabiConfig) {
+  // Policy-reachable tiers: the tiers the auto alias can actually select. This is what a
+  // provider writer should advertise; using every configured model (including `local`) made
+  // the adaptive window differ from the reachable set.
+  const reachable = new Set(
+    Object.values(config.policy).filter((tier) => tier !== 'off' && config.models[tier]),
+  )
   const contextWindowFor = (target: string): number | undefined => {
     if (target !== 'auto') return config.models[target]?.contextWindow
-    const windows = Object.values(config.models)
-      .map((model) => model.contextWindow)
+    const windows = [...reachable]
+      .map((tier) => config.models[tier]?.contextWindow)
       .filter((value): value is number => typeof value === 'number' && value > 0)
     return windows.length ? Math.min(...windows) : undefined
   }
@@ -97,6 +107,7 @@ export function createSabiServer(options: SabiServerOptions): SabiServer {
     logFile: options.logFile ?? defaultLogPath(),
     recent: [],
     judge: options.judgeClient ?? createTypesafeClient(),
+    telemetry: telemetryPolicy(options.config.telemetry),
   }
 
   const server = createServer((req, res) => {
@@ -201,7 +212,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       judgeRecord = {
         status: name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'error',
         latencyMs: Date.now() - judgeStarted,
-        note: String((error as Error).message ?? error).slice(0, 200),
+        note: sanitizeError(String((error as Error).message ?? error)).slice(0, 200),
       }
     }
   }
@@ -214,7 +225,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     mode: decision.mode,
     rule: decision.rule,
     tier: decision.tier,
-    reason: decision.reason,
+    reason: sanitizeReason(decision.reason, state.telemetry),
     upstream: decision.upstream,
     upstreamModel: decision.upstreamModel,
     stream: streamRequested,
@@ -255,7 +266,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     upstreamBody = buildUpstreamBody(config, decision, body)
   } catch (error) {
     sendError(res, 500, (error as Error).message)
-    finish({ outcome: 'error', error: (error as Error).message })
+    finish({ outcome: 'error', error: sanitizeError((error as Error).message) })
     return
   }
 
@@ -277,7 +288,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       res.writeHead(upstreamResponse.status, { 'content-type': 'application/json; charset=utf-8' })
       res.end(text || JSON.stringify({ error: { message: `upstream error ${upstreamResponse.status}` } }))
     }
-    finish({ outcome: 'error', error: text.slice(0, 300) })
+    finish({ outcome: 'error', error: sanitizeError(text) })
     return
   }
 

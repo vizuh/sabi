@@ -2,6 +2,31 @@ export type FailureLevel = 'none' | 'soft' | 'hard'
 
 export type RoundKind = 'first-turn' | 'exploration' | 'implementation' | 'verification' | 'unclassified'
 
+/**
+ * Allowlisted failure-evidence codes. These are the only values that may appear in
+ * `TrajectoryState.failureEvidence` and in decision-log reasons — never raw excerpts.
+ * Diagnostic snippets are an explicit opt-in via `telemetry.captureSnippets`.
+ */
+export type EvidenceCode =
+  | 'error-line'
+  | 'python-traceback'
+  | 'panic'
+  | 'exception'
+  | 'typescript-error'
+  | 'fail-marker'
+  | 'command-failed'
+  | 'nonzero-exit'
+  | 'failure-count'
+  | 'command-not-found'
+  | 'permission-denied'
+  | 'missing-file'
+  | 'soft-warning'
+  | 'soft-deprecated'
+  | 'soft-retrying'
+  | 'soft-timeout'
+  | 'tool-error'
+  | 'permission-denial'
+
 export interface ChatToolCall {
   id?: string
   type?: string
@@ -37,12 +62,22 @@ export interface TrajectoryState {
   lastRole: string
   contextChars: number
   estimatedTokens: number
+  /** Full request context estimate (transcript + tool schemas + system prompt) when known, else the same as `contextChars` (unknown). */
+  contextTokens?: number
+  contextKnown?: boolean
   hasTools: boolean
   toolNames: string[]
   lastToolNames: string[]
   roundKind: RoundKind
   failure: FailureLevel
+  /** Allowlisted evidence codes only; never raw snippets. */
   failureEvidence: string[]
+  /** Same failure as an earlier round, without a successful/interceding turn. */
+  repeatedFailure?: boolean
+  /** Count of consecutive rounds (this one included) with the same failure signature. */
+  failureStreak?: number
+  /** Finite model context window for the tier that would serve this round, if the catalog is explicit. */
+  contextWindow?: number
 }
 
 export interface CostRates {
@@ -84,6 +119,21 @@ export interface JudgeConfig {
   costPerMTokInput?: number
 }
 
+export interface CatalogTier {
+  model: string
+  effort?: string
+  minPlan?: string
+  contextWindow?: number
+}
+
+export interface TelemetryConfig {
+  /** Record evidence codes only. Default: true. Diagnostic excerpts never leave the host by default. */
+  allowlistOnly?: boolean
+  /** Opt-in: persist up to `captureChars` of the reasoning evidence used to route. Default: 800. */
+  captureSnippets?: boolean
+  captureChars?: number
+}
+
 export interface SabiConfig {
   provenance?: string
   server?: { host?: string; port?: number }
@@ -92,6 +142,12 @@ export interface SabiConfig {
   aliases: Record<string, string>
   policy: Record<string, string>
   judge?: JudgeConfig
+  telemetry?: TelemetryConfig
+  harness?: {
+    provenance?: string
+    tiers: Record<string, CatalogTier>
+    contextWindow?: number
+  }
 }
 
 export interface UsageTotals {

@@ -33,3 +33,63 @@ Added the in-process adapter. `packages/core/src/harness.ts` (+7 tests) maps har
 `sabi.config.json` gains `harness.tiers` — Command Code catalog ids verified 2026-09-18 against `cmd --list-models` and the bundled `models.md`: cheap `deepseek/deepseek-v4-flash`, mid `claude-sonnet-5` (Pro+), strong `claude-opus-5` (Max), all at effort `high` so the first comparison isolates the model axis. The OpenRouter `models` tiers are untouched and remain the class-B path.
 
 52 tests pass, typecheck clean. Not yet loaded into a live harness session (`npm run mod`).
+
+## [2026-09-18] change | Installable by others: mod package, config discovery, plan-safe tiers, EN/PT-BR docs
+
+Made Sabi installable on someone else's machine without publishing anything and without a server. `packages/adapters/command-code/package.json` now declares `{"commandcode": {"mods": ["./mod/sabi.ts"]}}`, so `cmd mods add ./packages/adapters/command-code` registers it in project scope (`cmd mods list` → `sabi · project · from local:…`). `packages/core/src/config.ts` gained a discovery order — `$SABI_CONFIG` (alone when set) → `<cwd>` → `~/.config/sabi/` (honours `XDG_CONFIG_HOME`) → nearest config above the installed package — replacing the repo-relative path that only worked inside this checkout; `REPO_ROOT` is gone and the decision log is now `<cwd>/.sabi/decisions.jsonl` (`$SABI_LOG` overrides).
+
+`harness.tiers` defaults changed to ids available from the **Go** plan up (cheap `deepseek/deepseek-v4-flash`, mid `gpt-5.6-luna`, strong `zai-org/glm-5.3`). Verified live on this account: `claude-sonnet-5` and `claude-opus-5` answer `403 MODEL_NOT_IN_PLAN`, while luna, glm-5.3 and kimi-k3 run — and `cmd --list-models` lists the whole catalog regardless of plan, so a listed id is not a usable id. Routing to an out-of-plan model fails the round, which the previous defaults would have done on every mid and strong round.
+
+Live verification of the class-A adapter (first time it has actually run in a harness): `cmd -p … --mod …/mod/sabi.ts` loaded the mod, resolved the config through the discovery order from a foreign working directory, and switched models mid-run — turn 1 served by `zai-org/GLM-5.3` (session model), turn 2 planned as `exploration → cheap` and served by `deepseek/deepseek-v4-flash`, with both decisions persisted as session entries. No `mod_error` events. Also verified: `-p` runs do not load project-scope mods (a trivial drop-in mod behaves the same), so headless checks must pass `--mod`; `cmd mods list` shows project sources only after the project has had a session.
+
+Docs: `README.md` rewritten around the two adapters with both install paths, plus new bilingual guides `docs/install.md` / `docs/install.pt-BR.md` and a PT-BR mirror `README.pt-BR.md`. 59 tests pass (7 new config-discovery tests), typecheck clean. Repo stays private; nothing published, nothing hosted.
+
+## [2026-09-18] research | Command Code-first routing review (docs only)
+
+Added `docs/research/folder-review.md` (package findings and ready-to-post issue comments), `docs/research/command-code-roadmap.md` (context/tool routing proposals and acceptance checks), and `docs/research/prime-agent-reuse.md` (installed Prime evidence, parent-checked). Updated the English README to separate mod/proxy behavior and remove the content-free telemetry claim; linked the research from README and handoff. Preserved concurrent source, installation docs and earlier log entries.
+
+Recommendation: keep Command Code's loop native; fix content-safe telemetry and round attribution first, then evaluate context/tool recommendations in shadow mode. Reuse Prime's persistent-state, nonblocking-work and progress patterns, not its Python runtime. Jev remains optional; a future Prime per-round adapter is not verified by this review.
+
+Evidence/validation: read Command Code 1.56.0 bundled contracts and shipped CLI; read Prime Agent 0.9.5 installed source/docs; fetched TypeSafe's documentation index, state, confidence and skill-suggestion pages (no TypeSafe inference). Checked 17 local Markdown links, 14 inspected source paths and static runtime anchors; inspected source remained unchanged during review. Docs whitespace check passed. No build/test or live routing run was performed; prior implementation-run results remain attributed to that session. Remaining risks include experimental hooks, incomplete routing state, telemetry privacy, unmeasured task-level savings and stale claims in the PT-BR README/older docs.
+
+GitHub reads returned no open or closed issues for private `vizuh/sabi`, so no comments were posted and no issues created. Actionable comment text is saved in the folder review. No source/config changes, installs, commits, pushes or deployments by this review.
+
+## [2026-09-18] research | Task-aware routing readiness
+
+Added `docs/research/task-aware-routing.md` and linked it from the roadmap and handoff. Current source has round/tool heuristics, not domain, impact, authority or modality-aware routing. Proposed one engine with composable security/design/infrastructure profiles; keep risk, difficulty and permissions separate. Included evidence requirements, host boundaries and six replay scenarios for the next implementation agent. Domain readiness and model rankings remain unverified.
+
+Validation: re-read core state/policy/judge and the Command Code mod; read the installed design skill dispatcher. Checked local links and docs whitespace. Docs only: no tests, live provider calls, source/config changes or issue posts.
+
+## [2026-09-18] research | Small dependency-light implementation sequence
+
+Added a three-patch sequence to `docs/research/command-code-roadmap.md` and linked it from the handoff: finish current correctness changes; keep one pure planning path behind both adapters; then add data-only task profiles in shadow mode. Checked manifests: core declares no runtime dependencies; adapter and server depend only on the internal core. Proposed no new packages, services or runtime dependencies. Config/log modules can remain where they are; pure planner imports must stay I/O-free.
+
+Concurrent source changes for telemetry/context/repeated failures were observed and preserved, not validated as complete. Suggested focused fixtures for rule precedence, failure identity, unknown context and round attribution. This change set is documentation only; local links and whitespace checked, no source edits, tests/builds, installs, issue posts or live routing runs.
+
+## [2026-09-18] research | OpenCode and plain-terminal integration plan
+
+Added `docs/research/opencode-terminal-plan.md`, linked from the roadmap and handoff. Plan: reuse the existing Sabi proxy for an OpenCode custom provider and plain HTTP terminal calls; normalize host-specific tool observations and test transport before any pilot. Defer a plugin, new adapter package or convenience CLI until needed. OpenRouter is already supported by the existing upstream path; a direct OpenRouter call would bypass Sabi.
+
+Evidence: installed OpenCode `--version` returned 1.18.30; help/run-help confirmed CLI flags. Local plugin package/types are 1.18.4, so no next-round plugin contract is assumed. Read official OpenCode providers/tools/CLI and OpenRouter quickstart pages on 2026-09-18; inspected Sabi's server/upstream code. No credential or session files read. Verified JSON examples parse, local doc links resolve and whitespace is clean. The configuration example remains a skeleton needing model limits/capabilities and restrictive host permissions. No source/config edits, installs, service starts, model calls, tests/builds, issue posts, commits or pushes by this review.
+
+## [2026-09-18] change | Implement the research backlog: telemetry, repeated failures, attribution, accounting
+
+Implemented the highest-value fixes from `docs/research/folder-review.md` and `command-code-roadmap.md` (all three workstreams), with the acceptance checks they named.
+
+**Telemetry privacy.** `packages/core/src/state.ts` now emits allowlisted evidence codes (`fail-marker`, `nonzero-exit`, …) instead of raw output excerpts; `packages/core/src/telemetry.ts` adds a policy gate: reasons are kept only when they end in an allowlisted code, provider errors are redacted to a kind + first line, and `sabi.config.json` sets `telemetry.allowlistOnly: true` (snippet capture is an explicit opt-in). The proxy and the mod both run reasons/errors through the policy; canary tests prove secret-like markers in prompts, tool output and errors never reach logs, reports or `/decisions`.
+
+**Repeated-failure (stuck) and context-pressure rules.** `TrajectoryState` gains `repeatedFailure`/`failureStreak`/`contextTokens`/`contextKnown`/`contextWindow`; `trajectoryFromRound` detects the same hard failure as the previous round; `policy.ts` adds `stuck` (first in the order) and `context-pressure` conditions. Repeated failures route to the stuck tier (configurable via `policy.stuck`) instead of escalating forever. The mod tracks previous-round state so the rule fires through the full lifecycle.
+
+**Round attribution.** The mod previously re-serialized stale `lastModel`/`lastUsage` when a turn had no fresh events. `servedBy` is now scoped per turn and cleared at `onTurnStart`; usage only advances attribution when a fresh value actually arrives, so "unknown" stays unknown.
+
+**Accounting.** `report.ts` dedupes cached judge usage (spend counted once per real call), subtracts judge cost, reports `netCost`, and labels the all-strong counterfactual a rate-only estimate; `modelSummary` advertises the policy-reachable tier set, not every configured model.
+
+`harness.tiers` and `telemetry` config are now validated; 76 tests pass (was 59 after installability, 52 at the last commit), typecheck clean. Docs: this entry, handoff updated. No commit, push or deployment yet.
+
+## [2026-09-18] research | Competitive scorecard and corrected differentiation claims
+
+Added `docs/research/competitive-scorecard.md` and linked it from the handoff. Refetched the four closest competitors' READMEs at exact commit SHAs using GitHub read APIs. Corrected `docs/research/github-landscape.md`: loop-position-aware request routing already overlaps Sabi, rule-based routing is not a unique advantage, and sequential-routing research prevents a blanket task-only claim. Sabi's native model/effort control is a credible focus; no completed-task cost/quality advantage or unique category was demonstrated.
+
+Compared the five-part positioning with inspected source: native routing and proxy aliases exist; broader trajectory logic is partial/in progress; learned outcome profiles and live quota scheduling were not found. Local and remote main HEAD were both `575c34cb5744a291b2c72595cfa187e90c457155`; the working tree contained additional uncommitted research and implementation work, not delivered through GitHub. Prior live-smoke claims remain attributed to the implementation handoff.
+
+Validation: pinned README contents and references checked; local Markdown links and whitespace checked. No competitor code cloned/run, benchmarks reproduced, tests/builds or paid evaluation calls performed. Docs only; no source/config changes, issue posts, commits, pushes or deployments by this review.

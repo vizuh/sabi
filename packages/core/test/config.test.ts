@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { configSearchPaths, defaultConfigPath, loadConfig, PACKAGE_ROOT } from '../src/config.ts'
+import { configSearchPaths, defaultConfigPath, loadConfig, PACKAGE_ROOT, validateConfig } from '../src/config.ts'
 
 const minimal = {
   upstreams: { mock: { baseURL: 'http://127.0.0.1:1/v1' } },
@@ -85,4 +85,33 @@ test('loadConfig reads the file it resolves and rejects a missing one with a hin
 test('the default package root is the directory that ships this package', () => {
   assert.equal(path.basename(PACKAGE_ROOT), 'core')
   assert.equal(path.basename(path.dirname(PACKAGE_ROOT)), 'packages')
+})
+
+test('harness.tiers is validated as an independent routing catalog', () => {
+  const base = {
+    upstreams: { mock: { baseURL: 'http://127.0.0.1:1/v1' } },
+    models: { cheap: { upstream: 'mock', model: 'm-cheap' } },
+    aliases: { 'sabi-code': 'auto' },
+    policy: { unclassified: 'cheap' },
+  }
+  assert.doesNotThrow(() => validateConfig({ ...base, harness: { tiers: { cheap: { model: 'm', effort: 'high' } } } }))
+  assert.throws(
+    () => validateConfig({ ...base, harness: { tiers: { cheap: {} } } }),
+    /harness\.tiers\.cheap must declare a model id/,
+  )
+  assert.throws(
+    () => validateConfig({ ...base, harness: { tiers: 'nope' } }),
+    /harness\.tiers must be an object/,
+  )
+})
+
+test('telemetry config is validated', () => {
+  const base = {
+    upstreams: { mock: { baseURL: 'http://127.0.0.1:1/v1' } },
+    models: { cheap: { upstream: 'mock', model: 'm-cheap' } },
+    aliases: { 'sabi-code': 'auto' },
+    policy: { unclassified: 'cheap' },
+  }
+  assert.doesNotThrow(() => validateConfig({ ...base, telemetry: { allowlistOnly: true, captureChars: 400 } }))
+  assert.throws(() => validateConfig({ ...base, telemetry: { captureChars: -1 } }), /captureChars/)
 })

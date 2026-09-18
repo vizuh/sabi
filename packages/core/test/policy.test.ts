@@ -23,6 +23,8 @@ function state(patch: Partial<TrajectoryState>): TrajectoryState {
 
 const policy = {
   failure: 'strong',
+  stuck: 'mid',
+  'context-pressure': 'mid',
   'first-turn': 'mid',
   verification: 'mid',
   implementation: 'mid',
@@ -31,10 +33,10 @@ const policy = {
 }
 
 test('hard failure escalates to strong even on an exploration round', () => {
-  const decision = decideTier(state({ failure: 'hard', failureEvidence: ['fail marker: FAILED'] }), policy)
+  const decision = decideTier(state({ failure: 'hard', failureEvidence: ['fail-marker'] }), policy)
   assert.equal(decision.rule, 'failure')
   assert.equal(decision.tier, 'strong')
-  assert.match(decision.reason, /FAILED/)
+  assert.match(decision.reason, /fail-marker/)
 })
 
 test('first turn routes to mid', () => {
@@ -66,8 +68,9 @@ test('disabled rules are skipped', () => {
   assert.equal(decision.tier, 'cheap')
 })
 
-test('policy order is failure first and unclassified last', () => {
-  assert.equal(POLICY_ORDER[0], 'failure')
+test('policy order is stuck and failure first, unclassified last', () => {
+  assert.equal(POLICY_ORDER[0], 'stuck')
+  assert.equal(POLICY_ORDER[1], 'failure')
   assert.equal(POLICY_ORDER[POLICY_ORDER.length - 1], 'unclassified')
 })
 
@@ -76,4 +79,24 @@ test('condition matching maps round kinds', () => {
   assert.equal(matches('verification', state({ roundKind: 'exploration' })), false)
   assert.equal(matches('failure', state({ failure: 'soft' })), false)
   assert.equal(matches('failure', state({ failure: 'hard' })), true)
+})
+
+test('a repeated failure routes to the stuck tier instead of escalating further', () => {
+  const decision = decideTier(state({ failure: 'hard', repeatedFailure: true, failureStreak: 2 }), policy)
+  assert.equal(decision.rule, 'stuck')
+  assert.equal(decision.tier, 'mid')
+})
+
+test('context pressure routes to the context-pressure tier above failure', () => {
+  const decision = decideTier(
+    state({ roundKind: 'unclassified', contextTokens: 95_000, contextWindow: 100_000, failure: 'none' }),
+    policy,
+  )
+  assert.equal(decision.rule, 'context-pressure')
+  assert.equal(decision.tier, 'mid')
+})
+
+test('an unknown context window never triggers context pressure', () => {
+  const decision = decideTier(state({ contextTokens: 90_000, contextWindow: undefined }), policy)
+  assert.notEqual(decision.rule, 'context-pressure')
 })

@@ -164,3 +164,53 @@ Command Code's catalog models are reachable only from inside the harness: the do
 
 ### Revisit later?
 At the second adapter (Prime Agent / OpenCode): read the installed runtime first to decide which class it gets.
+
+---
+
+## [2026-09-18] Distribution: clone + local install, no hosted service, plan-safe tiers
+
+### Decision
+Sabi is delivered as code other people run locally, from this private repo. The supported install is `git clone` + `npm install` + `cmd mods add ./packages/adapters/command-code`; the package declares what it ships with `{"commandcode": {"mods": ["./mod/sabi.ts"]}}`. Nothing is published (no npm, no tarball) and nothing is hosted. `sabi.config.json` is now discovered in a fixed order — `$SABI_CONFIG` alone when set, then `<cwd>`, then `~/.config/sabi/`, then the nearest config above the installed package — so a fresh clone works unmodified while an individual can still override per project or per user. `harness.tiers` defaults are restricted to ids covered by the **Go** plan.
+
+### Why
+- A hosted Sabi could not route the Command Code catalog at all (see the class decision above): the BYOK surface is inbound-only, so a server-side Sabi would be a BYOK relay — the weakest half of the product — while taking custody of other people's keys and putting one shared point of failure in every user's loop.
+- npm publishing is not available for a private repo, and the mod depends on `@sabi/core`, a workspace package: a registry install would need both published or a bundle step. A clone plus a local source needs neither — jiti compiles the TypeScript at load and the workspace link resolves `@sabi/core`.
+- Without the search order, `loadConfig()` resolved `sabi.config.json` from the core package's own location (`new URL('../../../', import.meta.url)`), which is correct inside this repo and nonsense from any other project — the mod would simply refuse to load anywhere else.
+- The tier defaults previously named `claude-sonnet-5` (Pro) and `claude-opus-5` (Max). Verified live on this account: an out-of-plan model fails the round with `403 MODEL_NOT_IN_PLAN: … available in Pro and above plans`, and `cmd --list-models` prints the whole catalog regardless of plan — a plausible-looking list is not evidence of usability. Defaults must work from Go up; the Pro/Max table lives in the docs.
+
+### Alternatives considered
+- A hosted control plane (policy, config, telemetry — not inference) — deferred, not rejected; it is the right shape if policy freshness or team accounting ever justifies it, and it sidesteps key custody.
+- Publishing `@sabi/core` and the adapter to npm — blocked by the private-repo decision; revisit if the product goes public.
+- Installing through `cmd mods add vizuh/sabi` (git shorthand) — untested; this is a monorepo, so a git source gets the repo root rather than the adapter package.
+- Shipping a tarball — rejected; it would carry the adapter without its `@sabi/core` dependency.
+- Bundling core into the mod to make it self-contained — deferred; it removes the workspace dependency but adds a build step to an otherwise build-less mod.
+
+### Tradeoffs
+- Every user needs read access to the private repo, and the clone must stay in place (a local source is referenced, not copied).
+- The shipped tiers are deliberately not the strongest models a Max account could use.
+- `sabi.config.json` is the product surface, and users are expected to edit it.
+
+### Revisit later?
+If someone needs Sabi without a clone, that is the trigger to publish `@sabi/core` + a bundled mod, or to build the small control plane.
+
+---
+
+## [2026-09-18] Content-free telemetry, repeated-failure and context rules
+
+### Decision
+Decision records carry **allowlisted evidence codes only** by default (`telemetry.allowlistOnly: true`); raw tool-output excerpts and provider error bodies are opt-in (`telemetry.captureSnippets`) and never the default. `TrajectoryState` gains `repeatedFailure`/`failureStreak` and `contextTokens`/`contextKnown`/`contextWindow`; the deterministic router adds `stuck` (repeated failures route to a configured stuck tier instead of escalating forever) and `context-pressure` (prefer a big-window model near limits, only when the window is known). Routes stay deterministic; "unknown" stays unknown.
+
+### Why
+The telemetry finding was the only *critical* one in the folder review: `snippet()` embedded tool output and `policy.ts` put it in reasons. Replacing excerpts with codes keeps the routing signal (the failure *kind* is what drove the rule) while making the "never prompt content" claim true. The repeated-failure rule addresses the review's "repeated failures trigger investigation, not endless escalation" — and it must precede `failure` in the policy order, since a repeated failure is also a hard failure. Context pressure only fires when `contextWindow` is known; an unknown window can never pick a smaller model by guess.
+
+### Alternatives considered
+- Keep raw excerpts but strip them before export — rejected; the review's acceptance check wanted the default to be content-free, not a post-hoc redaction step.
+- Add a Jev judgment for stuck detection — rejected for now; deterministic `repeatedFailure` is cheaper and the review asked for semantics only where measured.
+- Escalate on repeated failures (stuck → strong) — rejected; the review explicitly named investigation over escalation.
+
+### Tradeoffs
+- Evidence codes lose the exact failing text, so tuning `HARD_PATTERNS` now needs a replay fixture that reproduces the class, not the snippet.
+- `stuck` and `context-pressure` add two policy keys; default config sets both (`stuck: mid`, `context-pressure: mid`) so behavior is explicit.
+
+### Revisit later?
+Tune `stuck`/`context-pressure` thresholds from real sessions; add a Jev question for root-cause only if deterministic detection misses cases measured in evals.

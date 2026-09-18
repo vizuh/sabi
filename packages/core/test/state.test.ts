@@ -65,6 +65,7 @@ test('test-run tool results are verification and failing output escalates', () =
   assert.equal(state.roundKind, 'verification')
   assert.equal(state.failure, 'hard')
   assert.ok(state.failureEvidence.length > 0)
+  assert.ok(state.failureEvidence.every((line) => !line.includes('Tests:')))
 })
 
 test('passing test output does not register a failure', () => {
@@ -89,7 +90,7 @@ test('harness permission denials are not treated as failures', () => {
     ]),
   )
   assert.equal(state.failure, 'none')
-  assert.ok(state.failureEvidence.some((line) => line.includes('permission denial')))
+  assert.ok(state.failureEvidence.some((line) => line === 'permission-denial'))
 })
 
 test('unknown shell command stays unclassified', () => {

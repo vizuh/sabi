@@ -321,3 +321,22 @@ test('the judge is not called for rounds outside callOn', async () => {
   })
   assert.equal(judgeCalls, before)
 })
+
+test('decision records never embed secret-like markers (canary)', async () => {
+  const marker = 'sk-live-ABCDEF1234567890abcdef'
+  const response = await postChat({
+    model: 'sabi-code',
+    stream: false,
+    messages: [
+      system,
+      { role: 'user', content: `use the key ${marker}` },
+      { role: 'assistant', tool_calls: [{ function: { name: 'shell_command', arguments: '{"command":"echo hi"}' } }] },
+      { role: 'tool', content: `${marker} in output` },
+    ],
+  })
+  assert.equal(response.status, 200)
+  const rows = await readDecisions()
+  const serialized = JSON.stringify(rows)
+  assert.ok(!serialized.includes('sk-live-ABCDEF1234567890abcdef'))
+  assert.ok(!serialized.includes('use the key'))
+})

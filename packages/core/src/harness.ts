@@ -1,6 +1,6 @@
 import { decideTier } from './policy.ts'
 import { classifyRound, detectFailure } from './state.ts'
-import type { FailureLevel, RoundKind, TrajectoryState } from './types.ts'
+import type { CatalogTier, FailureLevel, RoundKind, TrajectoryState } from './types.ts'
 
 const CHARS_PER_TOKEN = 3.6
 
@@ -16,15 +16,10 @@ export interface HarnessRound {
   assistantTurns: number
   lastRole: string
   contextChars: number
+  contextTokens?: number
   hasTools: boolean
   toolNames: string[]
   calls: HarnessToolCall[]
-}
-
-export interface CatalogTier {
-  model: string
-  effort?: string
-  minPlan?: string
 }
 
 export interface RoundPlan {
@@ -42,7 +37,10 @@ function roundKindOf(round: HarnessRound, calls: Array<{ name: string; args?: st
   return 'unclassified'
 }
 
-export function trajectoryFromRound(round: HarnessRound): TrajectoryState {
+export function trajectoryFromRound(
+  round: HarnessRound,
+  previous?: Pick<TrajectoryState, 'failure' | 'failureEvidence'>,
+): TrajectoryState {
   const calls = round.calls.map((call) => ({ name: call.name, args: call.args }))
   const outputs = round.calls
     .map((call) => call.output ?? '')
@@ -56,8 +54,16 @@ export function trajectoryFromRound(round: HarnessRound): TrajectoryState {
   const failureEvidence = failed
     ? detected.evidence.length > 0
       ? detected.evidence
-      : ['tool reported an error']
+      : ['tool-error']
     : detected.evidence
+
+  const contextTokens = round.contextTokens ?? Math.ceil(round.contextChars / CHARS_PER_TOKEN)
+
+  // Repeated-failure heuristic: the *same* failure signature (hard failure matching the
+  // previous round's hard failure) is what triggers investigation, not just two failures.
+  const sameFailure = previous?.failure === 'hard' && failure === 'hard'
+  const repeatedFailure = sameFailure === true
+  const failureStreak = repeatedFailure ? 2 : failure === 'hard' ? 1 : 0
 
   return {
     messageCount: round.messageCount,
@@ -66,12 +72,16 @@ export function trajectoryFromRound(round: HarnessRound): TrajectoryState {
     lastRole: round.lastRole,
     contextChars: round.contextChars,
     estimatedTokens: Math.ceil(round.contextChars / CHARS_PER_TOKEN),
+    contextTokens,
+    contextKnown: true,
     hasTools: round.hasTools,
     toolNames: round.toolNames,
     lastToolNames: calls.map((call) => call.name),
     roundKind: roundKindOf(round, calls),
     failure,
     failureEvidence,
+    repeatedFailure,
+    failureStreak,
   }
 }
 
@@ -79,8 +89,11 @@ export function planRound(
   state: TrajectoryState,
   policy: Record<string, string>,
   tiers: Record<string, CatalogTier>,
+  options: { previous?: Pick<TrajectoryState, 'failure' | 'failureEvidence'>; contextWindow?: number } = {},
 ): RoundPlan | undefined {
-  const decision = decideTier(state, policy)
+  const withWindow =
+    options.contextWindow !== undefined && state.contextWindow === undefined ? { ...state, contextWindow: options.contextWindow } : state
+  const decision = decideTier(withWindow, policy, { stuckTier: policy.stuck })
   const tier = tiers[decision.tier]
   if (!tier || !tier.model) return undefined
   return {
@@ -89,6 +102,6 @@ export function planRound(
     effort: tier.effort,
     rule: decision.rule,
     reason: decision.reason,
-    state,
+    state: withWindow,
   }
 }

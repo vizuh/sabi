@@ -2,12 +2,15 @@ import type { AgentState, ModApi, ModContext, ModelRequestEvent, TurnUsage } fro
 import {
   loadConfig,
   planRound,
+  sanitizeReason,
+  telemetryPolicy,
   trajectoryFromRound,
   type CatalogTier,
   type HarnessRound,
   type HarnessToolCall,
   type RoundPlan,
   type SabiConfig,
+  type TrajectoryState,
 } from '@sabi/core'
 
 const MOD_ID = 'sabi'
@@ -19,6 +22,7 @@ interface Ledger {
   rounds: number
   messageCount: number
   contextChars: number
+  contextTokens?: number
   toolNames: string[]
   hasTools: boolean
   lastModel?: string
@@ -31,6 +35,7 @@ function readLedger(state: AgentState): Ledger {
     rounds: typeof raw.rounds === 'number' ? raw.rounds : 0,
     messageCount: typeof raw.messageCount === 'number' ? raw.messageCount : 0,
     contextChars: typeof raw.contextChars === 'number' ? raw.contextChars : 0,
+    contextTokens: typeof raw.contextTokens === 'number' ? raw.contextTokens : undefined,
     toolNames: Array.isArray(raw.toolNames) ? raw.toolNames : [],
     hasTools: raw.hasTools === true,
     lastModel: raw.lastModel,
@@ -57,11 +62,14 @@ export default function sabi(cmd: ModApi): void {
     return
   }
   const policy = config.policy ?? {}
+  const telemetry = telemetryPolicy(config.telemetry)
 
   let calls: HarnessToolCall[] = []
   let nextPlan: RoundPlan | undefined
   let servingPlan: RoundPlan | undefined
   let servedBy: string | undefined
+  let previousFailure: { failure: TrajectoryState['failure']; failureEvidence: string[] } | undefined
+  let previousContextTokens: number | undefined
 
   cmd.on<ModelRequestEvent>('model_request_end', (event) => {
     if (typeof event.model === 'string') servedBy = event.model
@@ -72,6 +80,7 @@ export default function sabi(cmd: ModApi): void {
       calls = []
       servingPlan = nextPlan
       nextPlan = undefined
+      servedBy = undefined
       const ledger = readLedger(state)
       return writeLedger(state, { ...ledger, rounds: turnNumber })
     },
@@ -94,12 +103,16 @@ export default function sabi(cmd: ModApi): void {
         assistantTurns: ledger.rounds,
         lastRole: calls.length > 0 ? 'tool' : 'assistant',
         contextChars: ledger.contextChars,
+        contextTokens: ledger.contextTokens,
         hasTools: ledger.hasTools,
         toolNames: ledger.toolNames,
         calls,
       }
-      const plan = planRound(trajectoryFromRound(round), policy, tiers)
+      const trajectory = trajectoryFromRound(round, previousFailure)
+      const plan = planRound(trajectory, policy, tiers, { contextWindow: config.harness?.contextWindow })
       if (!plan) return undefined
+      // Track the planned state for the repeated-failure and context-pressure heuristics.
+      previousContextTokens = plan.state.contextTokens
       nextPlan = plan
       return plan.effort ? { model: plan.model, effort: plan.effort } : { model: plan.model }
     },
@@ -107,14 +120,22 @@ export default function sabi(cmd: ModApi): void {
     onTurnEnd: ({ state, turnNumber, usage }, ctx) => {
       const ledger = readLedger(state)
       const outputChars = calls.reduce((total, call) => total + (call.output?.length ?? 0), 0)
+      const usedThisTurn = usage !== undefined
+      // `servingPlan` is the plan consumed by the round that just ended; on the first round
+      // there is no plan yet (the host serves it), so the adopted plan is the served one.
+      const adopted = servingPlan ?? nextPlan
       const next: Ledger = {
         ...ledger,
         rounds: turnNumber,
         messageCount: ledger.messageCount + calls.length,
         contextChars: ledger.contextChars + outputChars,
-        lastModel: servedBy ?? ledger.lastModel,
-        lastUsage: usage ?? ledger.lastUsage,
+        contextTokens: previousContextTokens,
+        // Only advance attribution when a fresh value actually arrived this turn. A missing
+        // usage or model event stays unknown rather than re-serializing an old round's value.
+        lastModel: servedBy,
+        lastUsage: usedThisTurn ? usage : undefined,
       }
+      previousFailure = adopted ? { failure: adopted.state.failure, failureEvidence: adopted.state.failureEvidence } : undefined
       recordDecision(ctx, {
         turn: turnNumber,
         planned: servingPlan
@@ -123,14 +144,19 @@ export default function sabi(cmd: ModApi): void {
               model: servingPlan.model,
               effort: servingPlan.effort,
               rule: servingPlan.rule,
-              reason: servingPlan.reason,
+              reason: sanitizeReason(String(servingPlan.reason ?? ''), telemetry),
               roundKind: servingPlan.state.roundKind,
               failure: servingPlan.state.failure,
               evidence: servingPlan.state.failureEvidence.slice(0, 3),
+              repeatedFailure: servingPlan.state.repeatedFailure,
+              failureStreak: servingPlan.state.failureStreak,
+              contextTokens: servingPlan.state.contextTokens,
             }
           : undefined,
-        servedBy: next.lastModel,
-        usage: next.lastUsage,
+        servedBy: servedBy ?? undefined,
+        usage: usedThisTurn ? usage : undefined,
+        // Decision records never embed raw tool output by default; snippet capture is opt-in.
+        captureSnippets: telemetry.captureSnippets,
       })
       return writeLedger(state, next)
     },

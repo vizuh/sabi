@@ -128,3 +128,37 @@ test('trajectory metrics come from the harness round', () => {
   assert.equal(state.estimatedTokens, 1000)
   assert.equal(state.toolMessages, 0)
 })
+
+test('a second identical hard failure is marked repeated and routes to the stuck tier', () => {
+  const first = trajectoryFromRound(
+    round({ calls: [{ name: 'shell_command', args: '{"command":"npm test"}', failed: true, output: 'Tests: 2 failed' }] }),
+  )
+  assert.equal(first.failure, 'hard')
+  assert.equal(first.repeatedFailure, false)
+  assert.equal(first.failureStreak, 1)
+
+  const second = trajectoryFromRound(
+    round({ calls: [{ name: 'shell_command', args: '{"command":"npm test"}', failed: true, output: 'Tests: 2 failed' }] }),
+    { failure: first.failure, failureEvidence: first.failureEvidence },
+  )
+  assert.equal(second.repeatedFailure, true)
+  assert.equal(second.failureStreak, 2)
+  assert.equal(planRound(second, policy, tiers)?.rule, 'failure')
+})
+
+test('evidence is allowlisted codes, never raw output excerpts', () => {
+  const state = trajectoryFromRound(
+    round({
+      calls: [
+        {
+          name: 'read_file',
+          args: '{"absolute_path":"/repo/secret.txt"}',
+          failed: false,
+          output: 'api_key=sk-live-abcdef1234567890\nError: not a real problem',
+        },
+      ],
+    }),
+  )
+  assert.equal(state.failure, 'none')
+  assert.ok(state.failureEvidence.every((code) => !code.includes('sk-live') && !code.includes('api_key')))
+})

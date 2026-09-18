@@ -160,6 +160,43 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
     }
   }
 
+  const telemetry = config.telemetry
+  if (telemetry !== undefined) {
+    if (typeof telemetry !== 'object' || telemetry === null) {
+      throw new Error(`Sabi config ${source}: telemetry must be an object`)
+    }
+    if (telemetry.allowlistOnly !== undefined && typeof telemetry.allowlistOnly !== 'boolean') {
+      throw new Error(`Sabi config ${source}: telemetry.allowlistOnly must be a boolean`)
+    }
+    if (telemetry.captureSnippets !== undefined && typeof telemetry.captureSnippets !== 'boolean') {
+      throw new Error(`Sabi config ${source}: telemetry.captureSnippets must be a boolean`)
+    }
+    if (telemetry.captureChars !== undefined && (typeof telemetry.captureChars !== 'number' || telemetry.captureChars <= 0)) {
+      throw new Error(`Sabi config ${source}: telemetry.captureChars must be a positive number`)
+    }
+  }
+
+  const harness = config.harness
+  if (harness !== undefined) {
+    if (typeof harness !== 'object' || harness === null) {
+      throw new Error(`Sabi config ${source}: harness must be an object`)
+    }
+    if (!harness.tiers || typeof harness.tiers !== 'object' || Array.isArray(harness.tiers)) {
+      throw new Error(`Sabi config ${source}: harness.tiers must be an object mapping tier names to models`)
+    }
+    for (const [tierName, tier] of Object.entries(harness.tiers)) {
+      if (!tier || typeof tier !== 'object' || typeof tier.model !== 'string' || !tier.model) {
+        throw new Error(`Sabi config ${source}: harness.tiers.${tierName} must declare a model id`)
+      }
+      if (tier.effort !== undefined && typeof tier.effort !== 'string') {
+        throw new Error(`Sabi config ${source}: harness.tiers.${tierName}.effort must be a string`)
+      }
+      if (tier.minPlan !== undefined && typeof tier.minPlan !== 'string') {
+        throw new Error(`Sabi config ${source}: harness.tiers.${tierName}.minPlan must be a string`)
+      }
+    }
+  }
+
   return { ...config, upstreams, models, aliases, policy }
 }
 

@@ -52,11 +52,18 @@
   },
   "policy": {
     "failure": "strong",
+    "stuck": "mid",
+    "context-pressure": "mid",
     "first-turn": "mid",
     "verification": "mid",
     "implementation": "mid",
     "exploration": "cheap",
     "unclassified": "cheap"
+  },
+  "telemetry": {
+    "allowlistOnly": true,
+    "captureSnippets": false,
+    "captureChars": 800
   },
   "judge": {
     "enabled": true,
@@ -71,11 +78,12 @@
     "costPerMTokInput": 0.042
   },
   "harness": {
-    "provenance": "Command Code catalog ids, efforts and min plans verified 2026-09-18 against `cmd --list-models` and the bundled reference models.md. Used by the in-process mod adapter (harness keeps its own loop, no proxy, no key). The `models` tiers above are the separate BYOK proxy path and are unused while the mod is active. A tier must be a model the account can actually serve: `cmd --list-models` prints the whole catalog regardless of plan, and an out-of-plan model answers 403 MODEL_NOT_IN_PLAN and fails that round. The defaults are the strongest ids available from the Go plan up; docs/install.md lists Pro and Max presets.",
+    "provenance": "Command Code catalog ids, efforts and min plans verified 2026-09-18 against `cmd --list-models` and the bundled reference models.md. Used by the in-process mod adapter (harness keeps its own loop, no proxy, no key). The `models` tiers above are the separate BYOK proxy path and are unused while the mod is active. A tier must be a model the account can actually serve: `cmd --list-models` prints the whole catalog regardless of plan, and an out-of-plan model answers 403 MODEL_NOT_IN_PLAN and fails that round. The defaults are the strongest ids available from the Go plan up; docs/install.md lists Pro and Max presets. `contextWindow` is the largest verified window among the tiers (1M), used by the context-pressure rule.",
     "tiers": {
       "cheap": { "model": "deepseek/deepseek-v4-flash", "effort": "high", "minPlan": "Go" },
       "mid": { "model": "gpt-5.6-luna", "effort": "high", "minPlan": "Go" },
       "strong": { "model": "zai-org/glm-5.3", "effort": "high", "minPlan": "Go" }
-    }
+    },
+    "contextWindow": 1000000
   }
 }

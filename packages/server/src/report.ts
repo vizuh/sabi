@@ -58,7 +58,8 @@ for (const row of rows) {
       judgeLatencyMs += row.judge.latencyMs
       judgeLatencyCount += 1
     }
-    judgeInputTokens += row.judge.usage?.inputTokens ?? 0
+    // Cache hits carry the usage of the original call; count the spend once per real call.
+    if (!row.judge.cached) judgeInputTokens += row.judge.usage?.inputTokens ?? 0
   }
   if (!row.usage) continue
   promptTokens += row.usage.promptTokens
@@ -77,6 +78,7 @@ const formatMap = (map: Map<string, number>): string =>
     .join(' · ') || '—'
 
 const savings = counterfactual > 0 ? (1 - cost / counterfactual) * 100 : 0
+const netCost = cost + judgeCost
 
 if (asJson) {
   console.log(
@@ -93,8 +95,11 @@ if (asJson) {
         completionTokens,
         cachedTokens,
         cost,
+        judgeCost,
+        netCost,
         counterfactual,
         savingsPct: savings,
+        counterfactualType: 'estimate',
         judge: {
           calls: judgeCalls,
           errors: judgeErrors,
@@ -129,6 +134,6 @@ if (asJson) {
     `tokens    in ${promptTokens.toLocaleString()} (cached ${cachedTokens.toLocaleString()}) · out ${completionTokens.toLocaleString()}`,
   )
   console.log(
-    `cost      $${cost.toFixed(4)} · all-${strong ? 'strong' : 'baseline'} counterfactual $${counterfactual.toFixed(4)} · savings ${savings.toFixed(1)}%`,
+    `cost      $${cost.toFixed(4)} (nets $${netCost.toFixed(4)} with judge) · all-${strong ? 'strong' : 'baseline'} counterfactual $${counterfactual.toFixed(4)} · savings ${savings.toFixed(1)}% (rate-only estimate)`,
   )
 }
