@@ -295,3 +295,58 @@ test('a rate-limited tool result routes to the transport tier, not strong', asyn
   const next = await h.hooks.prepareNextTurn!({ state, turnNumber: 1 }, h.ctx)
   assert.deepEqual(next, { model: 'gpt-5.6-luna', effort: 'high' })
 })
+
+test('a conversation carrying an image plans a tier that can read it', async () => {
+  const h = loadMod()
+  let state = await round(h, 1, {
+    modState: {},
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'what is wrong in this screenshot?' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'Zml4dHVyZQ==' } },
+        ],
+      },
+    ],
+  })
+  // A read round would otherwise plan the cheap tier, whose catalog model is text-only: the host
+  // strips images for it, so the round must land on the model that can actually see.
+  await h.hooks.afterToolCall!(
+    {
+      toolCallId: 't1',
+      toolName: 'read_file',
+      input: { absolute_path: '/repo/src/a.ts' },
+      result: 'file body',
+      isError: false,
+      state,
+    },
+    h.ctx,
+  )
+  const next = await h.hooks.prepareNextTurn!({ state, turnNumber: 1 }, h.ctx)
+  assert.deepEqual(next, { model: 'gpt-5.6-luna', effort: 'high' })
+
+  state = await round(h, 2, state)
+  await h.hooks.onTurnEnd!({ state, turnNumber: 2, hadToolCalls: false, usage: { inputTokens: 10, outputTokens: 5 } }, h.ctx)
+  const planned = h.decisions.at(-1)?.planned as Record<string, unknown>
+  assert.equal(planned.rule, 'capability')
+  assert.deepEqual(planned.inputModalities, ['text', 'image'])
+})
+
+test('a transcript with no readable media plans no modality constraint', async () => {
+  const h = loadMod()
+  const state = await round(h, 1, { modState: {}, messages: [{ role: 'user', content: 'plain question' }] })
+  await h.hooks.afterToolCall!(
+    {
+      toolCallId: 't1',
+      toolName: 'read_file',
+      input: { absolute_path: '/repo/src/a.ts' },
+      result: 'file body',
+      isError: false,
+      state,
+    },
+    h.ctx,
+  )
+  const next = await h.hooks.prepareNextTurn!({ state, turnNumber: 1 }, h.ctx)
+  assert.deepEqual(next, { model: 'deepseek/deepseek-v4-flash', effort: 'high' })
+})

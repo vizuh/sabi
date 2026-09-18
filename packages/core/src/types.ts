@@ -81,6 +81,14 @@ export interface TrajectoryState {
   failureStreak?: number
   /** Finite model context window for the tier that would serve this round, if the catalog is explicit. */
   contextWindow?: number
+  /**
+   * Input modalities this request actually carries, `text` first. A wire-level caller that sees the
+   * whole body states the full set; a harness that can only look for positive evidence omits the
+   * field entirely rather than claiming a text-only round.
+   */
+  inputModalities?: ModelModality[]
+  /** Media content parts found in the request, by kind. */
+  mediaCounts?: Partial<Record<Exclude<ModelModality, 'text'>, number>>
 }
 
 export interface CostRates {
@@ -162,6 +170,8 @@ export interface CatalogTier {
   effort?: string
   minPlan?: string
   contextWindow?: number
+  /** Operator-verified input modalities for this exact catalog model. Omission means unknown. */
+  inputModalities?: ModelModality[]
 }
 
 export interface TelemetryConfig {

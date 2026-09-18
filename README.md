@@ -33,6 +33,26 @@ Each round is classified from the state of the trajectory — round position, to
 
 The proxy records routed rounds in `.sabi/decisions.jsonl` and summarizes them with `npm run report`. The mod records decisions as host session entries, which that report does not read. **Privacy:** default telemetry stores allowlisted evidence and hashed opaque identities; diagnostic snippets are opt-in. Keep logs local and review `telemetry` settings before enabling capture.
 
+## Media and vision
+
+Media is a routing constraint, not a preference decided after the fact. Every tier can declare the input modalities its model accepts (`capabilities.inputModalities` on the proxy, `inputModalities` on `harness.tiers`). A round that carries an image is never sent to a tier that declares text only — it is served by the first tier in configuration order that declares the modality, and the decision records `rule: capability`. Undeclared stays unknown: a tier that declares nothing is never blocked.
+
+| Tier | Proxy (`models`) | Mod (`harness.tiers`) |
+|---|---|---|
+| cheap | `deepseek/deepseek-v4-flash-0731` — text only | `deepseek/deepseek-v4-flash` — text only |
+| mid | `openai/gpt-5.6-luna` — text, image, file | `gpt-5.6-luna` — text, image |
+| strong | `anthropic/claude-sonnet-5` — text, image, file | `zai-org/glm-5.3` — text only |
+
+What happens when nothing can serve the round:
+
+- **Adaptive alias (`sabi-code`)** — the round moves to a tier that can read it. Verified live: an exploration round carrying an image planned for the text-only cheap tier was served by `openai/gpt-5.6-luna` (`rule: capability`), instead of failing upstream with `404 No endpoints found that support image input`.
+- **Fixed alias (`sabi-cheap`)** — refused, with `400 incompatible route 'cheap': input modality 'image' is not supported`. A baseline alias is an explicit model choice and does not silently upgrade.
+- **No tier at all** — refused at the proxy; on the mod path the round is left on the session model, because the host strips images for a text-only model and routing there would answer blind.
+
+Media is also charged to the context estimate: each image costs 1500 tokens (the host's own bound, not the base64 length, which says nothing about image tokens) and other media are charged by payload size, so a screenshot round no longer looks like a tiny round to the context-pressure rule. `contextChars` stays text-only; `state.inputModalities` and `state.mediaCounts` are recorded on every decision.
+
+Declared modalities must be verified per model id, not inferred from the family: on OpenRouter `deepseek/deepseek-v4-flash-0731` is text-only while `deepseek/deepseek-v4-flash-vision-exp` accepts images, and in the Command Code catalog `gpt-5.6-luna` accepts images while `zai-org/GLM-5.3` does not.
+
 ## Install — Command Code mod (recommended)
 
 Requirements: Node 22.6+, Command Code, git access to this private repo, and a plan that covers the models in `harness.tiers` (see [Plan coverage](#plan-coverage)).

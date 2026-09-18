@@ -1,8 +1,7 @@
+import { firstServingTier, servesInputModalities } from './compatibility.ts'
 import { decideTier } from './policy.ts'
-import { classifyRound, detectFailure } from './state.ts'
-import type { CatalogTier, FailureLevel, RoundKind, TrajectoryState } from './types.ts'
-
-const CHARS_PER_TOKEN = 3.6
+import { CHARS_PER_TOKEN, classifyRound, detectFailure, mediaTokens, modalitiesOf } from './state.ts'
+import type { CatalogTier, FailureLevel, ModelModality, RoundKind, TrajectoryState } from './types.ts'
 
 export interface HarnessToolCall {
   name: string
@@ -20,6 +19,12 @@ export interface HarnessRound {
   hasTools: boolean
   toolNames: string[]
   calls: HarnessToolCall[]
+  /**
+   * Modalities the harness found in the conversation. Absent means "not observed", which leaves the
+   * plan unconstrained — a harness can only report positive evidence about content it can read.
+   */
+  inputModalities?: ModelModality[]
+  mediaCounts?: Partial<Record<Exclude<ModelModality, 'text'>, number>>
 }
 
 export interface RoundPlan {
@@ -65,7 +70,7 @@ export function trajectoryFromRound(
       : ['tool-error']
     : detected.evidence
 
-  const contextTokens = round.contextTokens ?? Math.ceil(round.contextChars / CHARS_PER_TOKEN)
+  const contextTokens = round.contextTokens ?? Math.ceil(round.contextChars / CHARS_PER_TOKEN) + mediaTokens(roundMedia(round))
 
   // Repeated-failure heuristic: the *same* failure signature (hard failure matching the
   // previous round's hard failure) is what triggers investigation, not just two failures.
@@ -79,7 +84,7 @@ export function trajectoryFromRound(
     toolMessages: round.calls.length,
     lastRole: round.lastRole,
     contextChars: round.contextChars,
-    estimatedTokens: Math.ceil(round.contextChars / CHARS_PER_TOKEN),
+    estimatedTokens: Math.ceil(round.contextChars / CHARS_PER_TOKEN) + mediaTokens(roundMedia(round)),
     contextTokens,
     contextKnown: true,
     hasTools: round.hasTools,
@@ -90,7 +95,17 @@ export function trajectoryFromRound(
     failureEvidence,
     repeatedFailure,
     failureStreak,
+    ...(round.inputModalities ? { inputModalities: round.inputModalities } : {}),
+    ...(round.mediaCounts && Object.keys(round.mediaCounts).length
+      ? { inputModalities: round.inputModalities ?? modalitiesOf(round.mediaCounts), mediaCounts: round.mediaCounts }
+      : {}),
   }
+}
+
+function roundMedia(round: HarnessRound): { counts: Partial<Record<Exclude<ModelModality, 'text'>, number>>; payloadChars: number } {
+  // A harness reports what it saw, never payload sizes: images are charged the per-image bound and
+  // no other media is charged, rather than guessing a byte count the harness never measured.
+  return { counts: round.mediaCounts ?? {}, payloadChars: 0 }
 }
 
 export function planRound(
@@ -102,14 +117,28 @@ export function planRound(
   const withWindow =
     options.contextWindow !== undefined && state.contextWindow === undefined ? { ...state, contextWindow: options.contextWindow } : state
   const decision = decideTier(withWindow, policy, { stuckTier: policy.stuck })
-  const tier = tiers[decision.tier]
-  if (!tier || !tier.model) return undefined
+  const required = withWindow.inputModalities ?? []
+  let tier = decision.tier
+  let rule = decision.rule
+  let reason = decision.reason
+  const planned = tiers[tier]
+  if (planned && !servesInputModalities(planned.inputModalities, required)) {
+    const alternate = firstServingTier(tiers, required, (entry) => entry.inputModalities)
+    // With no tier that can accept the input, plan nothing and leave the round on the session
+    // model: the host strips media for a text-only model, so routing there would answer blind.
+    if (!alternate) return undefined
+    reason = `input needs ${required.join('+')}; '${tier}' (${planned.model}) cannot accept it, '${alternate}' can`
+    rule = 'capability'
+    tier = alternate
+  }
+  const chosen = tiers[tier]
+  if (!chosen || !chosen.model) return undefined
   return {
-    tier: decision.tier,
-    model: tier.model,
-    effort: tier.effort,
-    rule: decision.rule,
-    reason: decision.reason,
+    tier,
+    model: chosen.model,
+    effort: chosen.effort,
+    rule,
+    reason,
     state: withWindow,
   }
 }

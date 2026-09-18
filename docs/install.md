@@ -185,17 +185,50 @@ Other Go-and-above choices for `strong`: `moonshotai/kimi-k3`, `qwen/qwen3.8-max
 `deepseek/deepseek-v4-pro`. `minPlan` in the config is a note for humans, not a runtime check —
 Sabi cannot read your plan.
 
+## Images and other media
+
+Sabi refuses to send media to a model that cannot read it. Declare what each tier accepts, and the
+router does the rest:
+
+```json
+"mid": {
+  "upstream": "openrouter",
+  "model": "openai/gpt-5.6-luna",
+  "capabilities": { "inputModalities": ["text", "image", "file"] }
+}
+```
+
+- An adaptive round (`sabi-code`) that carries an image is served by the first tier in
+  configuration order that declares `image` — tier order is the preference order, so list cheap
+  before strong. The decision records `rule: capability` with a reason naming both tiers.
+- A fixed alias (`sabi-cheap`) is refused with
+  `400 incompatible route 'cheap': input modality 'image' is not supported`, because a baseline
+  alias is an explicit choice. Use `sabi-code` when a session may contain screenshots.
+- Nothing declared at all means unknown, and Sabi forwards as before — declaring modalities is what
+  turns the constraint on. Verify them per model id against the upstream: on OpenRouter
+  `deepseek/deepseek-v4-flash-0731` is text-only while `deepseek/deepseek-v4-flash-vision-exp`
+  accepts images.
+- The mod path reads the same idea from `harness.tiers[].inputModalities` and scans the transcript
+  for media. It cannot fix a model the host already chose: if no tier can read the image, the round
+  stays on the session model rather than being routed to a text-only one that would have the image
+  silently stripped.
+- Media is charged to the context estimate — 1500 tokens per image, the host's own bound — so a
+  screenshot does not look like a small round to the context-pressure rule.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 |---|---|
 | `ECONNREFUSED 127.0.0.1:8787` in the harness | Path B is selected (`sabi/*` model) but the proxy is not running. `npm start`, or switch the session model back. |
 | `403 MODEL_NOT_IN_PLAN` | A tier in `harness.tiers` is above your plan. See [Plan coverage](#plan-coverage). |
+| `No endpoints found that support image input` (upstream 404) | An upstream model that takes no images, and no `capabilities.inputModalities` declared. See [Images and other media](#images-and-other-media). |
+| `400 input modality 'image' is not supported` | Working as intended: the round carries media the selected tier cannot accept. Use the adaptive alias, or declare a tier that accepts it. |
 | `Sabi disabled: Sabi config not found at …` | No config in any of the four locations. The message lists every path searched; set `SABI_CONFIG` or create one. |
 | `cmd mods list` shows `Mods (0)` | Project-scope sources appear only after the project has had a session. Start `cmd` in the checkout once. |
 | Mod loads interactively but not in `-p` | Expected: `-p` does not load project-scope mods. Pass `--mod ./packages/adapters/command-code/mod/sabi.ts`. |
 | `WARN: missing upstream credentials` at startup | The config references an env var that is unset. Export it, or set that upstream's `apiKey` to `false`. |
 | Round 1 ignores Sabi | By design: `prepareNextTurn` fires only from the second round, so the first round runs on the session model. |
+| An image round looks bigger than its text | Expected: media is charged 1500 tokens per image in `state.estimatedTokens`, and `state.mediaCounts` records the count. |
 
 ## Security
 

@@ -141,3 +141,36 @@ test('alias normalization strips provider prefixes', () => {
   assert.equal(normalizeAlias('sabi-code'), 'sabi-code')
   assert.equal(normalizeAlias(undefined), '')
 })
+
+test('an image part is reported as a modality and charged without inflating text chars', () => {
+  const image = { type: 'image_url', image_url: { url: `data:image/png;base64,${'A'.repeat(4000)}` } }
+  const withImage = extractTrajectoryState(
+    body([system, { role: 'user', content: [{ type: 'text', text: 'inspect' }, image] }]),
+  )
+  assert.deepEqual(withImage.inputModalities, ['text', 'image'])
+  assert.deepEqual(withImage.mediaCounts, { image: 1 })
+  // The base64 payload is not text: four thousand payload chars must not become characters, but
+  // the round still owes the per-image token bound.
+  assert.ok(withImage.contextChars < 100, `payload counted as text (${withImage.contextChars} chars)`)
+  assert.equal(withImage.estimatedTokens - Math.ceil(withImage.contextChars / 3.6), 1500)
+})
+
+test('media inside a tool result counts too, and other media are charged by payload', () => {
+  const state = extractTrajectoryState(
+    body([
+      system,
+      { role: 'user', content: 'look at this' },
+      { role: 'tool', content: [{ type: 'image_url', image_url: { url: 'https://example.invalid/crop.png' } }] },
+      { role: 'user', content: [{ type: 'input_audio', input_audio: { data: 'Zml4dHVyZQ==', format: 'wav' } }] },
+    ]),
+  )
+  assert.deepEqual(state.inputModalities, ['text', 'audio', 'image'])
+  assert.deepEqual(state.mediaCounts, { image: 1, audio: 1 })
+  assert.ok(state.estimatedTokens > Math.ceil(state.contextChars / 3.6), 'media must add tokens')
+})
+
+test('a request with no media states text as its only modality', () => {
+  const state = extractTrajectoryState(body([system, { role: 'user', content: 'plain question' }]))
+  assert.deepEqual(state.inputModalities, ['text'])
+  assert.equal(state.mediaCounts, undefined)
+})

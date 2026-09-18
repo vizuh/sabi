@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { buildEffectiveRequestEnvelope, ensureRouteCompatible, route, SabiRouteError } from '../src/index.ts'
 import { validateConfig } from '../src/config.ts'
-import type { ChatRequestBody, ModelEntry, SabiConfig } from '../src/types.ts'
+import type { ChatRequestBody, ModelCapabilities, ModelEntry, SabiConfig } from '../src/types.ts'
 
 // All model metadata is synthetic. These are not claims about any live model.
 function catalog(patch: Partial<ModelEntry> = {}): ModelEntry {
@@ -107,11 +107,61 @@ test('all recognized media require explicit modality and full-item context bound
   for (const { modality, part } of parts) {
     const request = body({ messages: [{ role: 'user', content: [{ type: 'text', text: 'inspect' }, part] }] })
     assert.doesNotThrow(() => route(request, config()))
-    rejected(request, config({ capabilities: { ...catalog().capabilities, inputModalities: ['text'] } }), /input modality .* is not supported/)
-    const settings = config()
-    delete settings.models.cheap!.contextAccounting!.mediaTokens![modality as 'image']
-    rejected(request, settings, /context token bound .* is unknown/)
+
+    // A tier whose declared modalities exclude the input cannot serve the round. The adaptive
+    // alias moves it to a tier that can instead of sending it upstream to fail.
+    const limited = config({ capabilities: { ...catalog().capabilities, inputModalities: ['text'] } })
+    const rerouted = route(request, limited)
+    assert.equal(rerouted.tier, 'other')
+    assert.equal(rerouted.rule, 'capability')
+    assert.match(rerouted.reason, new RegExp(`input needs text\\+${modality}`))
+
+    // With no tier able to serve the input, the mismatch is a hard failure — never a silent
+    // downgrade to a model that would drop the media.
+    const noneCapable = validateConfig({
+      upstreams: { mock: { baseURL: 'http://127.0.0.1:1/v1', apiKey: false } },
+      models: { cheap: catalog({ capabilities: { ...catalog().capabilities, inputModalities: ['text'] } }) },
+      aliases: { 'sabi-code': 'auto' },
+      policy: { 'first-turn': 'cheap', unclassified: 'cheap' },
+      compatibility: { mode: 'strict' },
+    })
+    rejected(request, noneCapable, /input modality .* is not supported/)
+
+    // The tier that would serve it still owes a full-item context bound for every medium it accepts.
+    const accounting = catalog().contextAccounting!
+    const noBound = validateConfig({
+      upstreams: { mock: { baseURL: 'http://127.0.0.1:1/v1', apiKey: false } },
+      models: { cheap: catalog({ contextAccounting: { ...accounting, mediaTokens: {} } }) },
+      aliases: { 'sabi-code': 'auto' },
+      policy: { 'first-turn': 'cheap', unclassified: 'cheap' },
+      compatibility: { mode: 'strict' },
+    })
+    rejected(request, noBound, /context token bound .* is unknown/)
   }
+})
+
+test('media routing takes the first tier in configuration order that can accept the input', () => {
+  const image = body({
+    messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: 'https://example.invalid/i.png' } }] }],
+  })
+  const textOnly: ModelCapabilities = { ...catalog().capabilities, inputModalities: ['text'] }
+  const settings = validateConfig({
+    upstreams: { mock: { baseURL: 'http://127.0.0.1:1/v1', apiKey: false } },
+    models: {
+      cheapest: catalog({ model: 'synthetic-cheapest', capabilities: textOnly }),
+      middle: catalog({ model: 'synthetic-middle', capabilities: { ...catalog().capabilities, inputModalities: ['text', 'image'] } }),
+      strong: catalog({ model: 'synthetic-strong' }),
+    },
+    aliases: { 'sabi-code': 'auto', 'sabi-fixed': 'cheapest' },
+    policy: { 'first-turn': 'cheapest', unclassified: 'cheapest' },
+    compatibility: { mode: 'strict' },
+  })
+  const decision = route(image, settings)
+  assert.equal(decision.tier, 'middle')
+  assert.equal(decision.rule, 'capability')
+
+  // A fixed alias is an explicit choice: it does not silently upgrade, it refuses.
+  rejected({ ...image, model: 'sabi-fixed' }, settings, /input modality .* is not supported/)
 })
 
 test('unknown parts and unsupported output modalities fail instead of being dropped', () => {

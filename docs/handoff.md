@@ -2,7 +2,7 @@
 
 ## Current status
 
-PR #3 merged to `main` as `7d57ff4` from `feat/multi-harness-support`. A follow-up is on `fix/sse-terminal-choice-order` for one post-terminal SSE choice guard found by final peer probing. Last full validation before this follow-up: 164 Node tests, typecheck and offline eval pass; Hermes adapter adds 12 Python tests. OpenCode 1.18.30 and Kilo CLI 7.7.4 passed real-client read tasks through Sabi + a local mock. Prime 0.9.5 passed a strict three-round proxy probe; same-parent native setters are proven ineffective and remain deferred. Hermes 0.21.3 passed the isolated Hermes → Sabi → mock probe (`mid → cheap → mid`). No paid provider certification.
+PR #3 merged to `main` as `7d57ff4` from `feat/multi-harness-support`. A follow-up is on `fix/sse-terminal-choice-order` for one post-terminal SSE choice guard found by final peer probing. A third branch, `fix/media-routing-constraint`, carries media/modality routing — images were failing on text-only tiers at the proxy and being stripped silently on the mod path (see [Media routing](#media-routing--2026-09-18)). Last full validation before this follow-up: 164 Node tests, typecheck and offline eval pass; Hermes adapter adds 12 Python tests. OpenCode 1.18.30 and Kilo CLI 7.7.4 passed real-client read tasks through Sabi + a local mock. Prime 0.9.5 passed a strict three-round proxy probe; same-parent native setters are proven ineffective and remain deferred. Hermes 0.21.3 passed the isolated Hermes → Sabi → mock probe (`mid → cheap → mid`). No paid provider certification.
 
 ## Last meaningful update
 
@@ -63,6 +63,14 @@ PR #3 merged to `main` as `7d57ff4` from `feat/multi-harness-support`. A follow-
   content-free logging or blur proxy/mod Jev behavior. The English README now separates
   those facts. Historical entries are retained, not rewritten.
 
+## Media routing — 2026-09-18
+
+- Open PR: `fix/media-routing-constraint` (worktree `sabi-e6f139d4a2fa/vision-routing`). It carries only the media/modality work; nothing else was staged.
+- Root cause, from the proxy's own log: 8 of 12 recorded errors were OpenRouter `404 No endpoints found that support image input`, all routed to cheap → `deepseek/deepseek-v4-flash-0731`. Modality was not part of the state, and declared capabilities did not exist in the config, so `ensureRouteCompatible` had nothing to enforce. The mod path failed the same way but silently: the host strips images for a text-only model, so the round answered blind.
+- Fix: `inputModalities`/`mediaCounts` on `TrajectoryState` (from content parts, nested tool-result content included), declared modalities per tier (`models[].capabilities.inputModalities`, `harness.tiers[].inputModalities`), and capability-aware tier selection in `route()` and `planRound()` recording `rule: capability`. Fixed aliases refuse rather than upgrade; with no capable tier the proxy refuses and the mod keeps the session model. Images are charged 1500 tokens each (the host's bound) instead of base64 length.
+- Live evidence against the real upstream: exploration round with an image → served by `openai/gpt-5.6-luna`, `rule: capability`, HTTP 200; the same request on `sabi-cheap` → HTTP 400 `input modality 'image' is not supported`. 175 Node tests, typecheck clean.
+- Not covered here: per-harness media shapes for Prime/OpenCode/Hermes (they should reuse `tallyMedia` once their transcript formats are verified), and refused routes are not written to the decision log — the 400 happens before a record exists.
+
 ## What still needs to happen
 
 1. Run a real session with the mod active and validate escalation precision, judge precision and savings on real work, not toy rounds. The mod logs one decision per round into the session; the proxy writes `.sabi/decisions.jsonl` + `npm run report`.
@@ -96,7 +104,8 @@ None technical. Unconfirmed: business goal and success metrics (marked TODO in `
 
 ## Testing / verification notes
 
-- `npm test` (164 Node tests) and `npm run typecheck`; `npm run eval` is an offline repricing/evidence run, not a live benchmark.
+- `npm test` (175 Node tests) and `npm run typecheck`; `npm run eval` is an offline repricing/evidence run, not a live benchmark.
+- Media check without a harness: POST a message with an `image_url` part and a trailing tool result to the proxy — the decision must show `rule: capability`, a tier that declares `image`, and `state.mediaCounts`. The same request on a fixed alias must return 400 with `input modality 'image' is not supported`.
 - Class-A check without installing: `cmd -p "Read package.json and reply with only the value of its name field." --mod ./packages/adapters/command-code/mod/sabi.ts -t --output-format json` — turn 2 must show a different model than turn 1.
 - `-p` runs do **not** load project-scope mods (verified against a trivial drop-in mod), so headless checks must pass `--mod`. `cmd mods list` shows project sources only after the project has had a session.
 - The interactive project-scope load was not observed directly (this session had no TTY): `cmd mods list` reporting `sabi · project · from local:…` is the evidence that a session in that project loads it. Everything else about the mod (factory, hooks, routing, persistence) was verified headlessly via `--mod`.
