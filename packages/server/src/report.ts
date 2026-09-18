@@ -45,6 +45,13 @@ let judgeInputTokens = 0
 let unknownCostRows = 0
 let unknownCounterfactualRows = 0
 let unknownJudgeUsageCalls = 0
+// What the policy could not see: proof of over-escalation, blind spots, and config that never fires.
+let vetoedRounds = 0
+let vetoAvoidedCost = 0
+let vetoUnknownCostRows = 0
+let upgradedRounds = 0
+let unclassifiedRounds = 0
+const firedRules = new Set<string>()
 
 for (const row of rows) {
   byTier.set(row.tier, (byTier.get(row.tier) ?? 0) + 1)
@@ -71,6 +78,22 @@ for (const row of rows) {
       else unknownJudgeUsageCalls += 1
     }
   }
+  firedRules.add(row.rule)
+  if (row.rule === 'unclassified') unclassifiedRounds += 1
+  if (row.judge?.overridden === true) {
+    if (row.judge.direction === 'up') upgradedRounds += 1
+    if (row.judge.direction === 'down') {
+      vetoedRounds += 1
+      // Same usage at the originally planned tier's rate: a rate-only figure, like the baseline.
+      const planned = row.usage ? estimateCost(row.usage, config.models[row.judge.originalTier ?? '']?.cost) : undefined
+      const served = row.cost?.total
+      if (planned && typeof served === 'number' && Number.isFinite(served)) {
+        vetoAvoidedCost += Math.max(0, planned.total - served)
+      } else {
+        vetoUnknownCostRows += 1
+      }
+    }
+  }
   if (!row.usage) {
     unknownCostRows += 1
     unknownCounterfactualRows += 1
@@ -91,6 +114,7 @@ const judgeCost = judgeCalls === 0 ? 0 : unknownJudgeUsageCalls > 0 || judgeRate
 const modelCost = unknownCostRows > 0 ? null : cost
 const baselineCost = unknownCounterfactualRows > 0 ? null : counterfactual
 const money = (value: number | null): string => value === null ? 'unknown' : `$${value.toFixed(4)}`
+const pct = (value: number | null): string => value === null ? 'unknown' : `${value.toFixed(1)}%`
 
 const formatMap = (map: Map<string, number>): string =>
   [...map.entries()]
@@ -100,6 +124,26 @@ const formatMap = (map: Map<string, number>): string =>
 
 const netCost = modelCost === null || judgeCost === null ? null : modelCost + judgeCost
 const savings = baselineCost !== null && baselineCost > 0 && netCost !== null ? (1 - netCost / baselineCost) * 100 : null
+
+// Discover: where the policy was wrong or blind, derived only from what the log actually recorded.
+const configuredRules = Object.entries(config.policy)
+  .filter(([, tier]) => tier !== 'off')
+  .map(([rule]) => rule)
+const rulesNeverFired = configuredRules.filter((rule) => !firedRules.has(rule))
+const idleTiers = Object.keys(config.models).filter((tier) => !byTier.has(tier))
+const unclassifiedSharePct = rows.length === 0 ? null : (unclassifiedRounds / rows.length) * 100
+const avoidedCost = vetoUnknownCostRows > 0 ? null : vetoAvoidedCost
+const discover = {
+  vetoedRounds,
+  avoidedCost,
+  avoidedCostType: 'rate-only estimate',
+  avoidedCostUnknownRows: vetoUnknownCostRows,
+  upgradedRounds,
+  unclassifiedRounds,
+  unclassifiedSharePct,
+  rulesNeverFired,
+  idleTiers,
+}
 
 if (asJson) {
   console.log(
@@ -127,6 +171,7 @@ if (asJson) {
         counterfactual: baselineCost,
         savingsPct: savings,
         counterfactualType: 'estimate',
+        discover,
         judge: {
           calls: judgeCalls,
           errors: judgeErrors,
@@ -156,6 +201,17 @@ if (asJson) {
         ` · ${judgeOverridesDown} downgrades, ${judgeOverridesUp} upgrades · avg ${avg}ms · ${judgeInputTokens} known tok · cost ${money(judgeCost)}`,
     )
   }
+  console.log('')
+  console.log('discover (what the policy could not see)')
+  console.log(
+    `  judge vetoes    ${vetoedRounds} downgraded · ${money(avoidedCost)} avoided at the same usage (rate-only)`,
+  )
+  console.log(`  judge upgrades  ${upgradedRounds} escalated after a difficulty override`)
+  console.log(
+    `  blind spots     ${unclassifiedRounds} unclassified rounds (${pct(unclassifiedSharePct)} of decisions) — no policy signal`,
+  )
+  console.log(`  never fired     ${rulesNeverFired.join(', ') || '—'}`)
+  console.log(`  idle tiers      ${idleTiers.join(', ') || '—'}`)
   console.log('')
   console.log(
     `tokens    in ${promptTokens.toLocaleString()} (cached ${cachedTokens.toLocaleString()}) · out ${completionTokens.toLocaleString()}`,

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 
 const script = fileURLToPath(new URL('../src/report.ts', import.meta.url))
-function report(rows: unknown[], priced = true, judgeRate?: number): Record<string, any> {
+function report(rows: unknown[], priced = true, judgeRate?: number, policy: Record<string, string> = {}): Record<string, any> {
   const dir = mkdtempSync(path.join(tmpdir(), 'sabi-report-test-'))
   try {
     mkdirSync(path.join(dir, '.sabi'))
@@ -15,7 +15,7 @@ function report(rows: unknown[], priced = true, judgeRate?: number): Record<stri
     writeFileSync(config, JSON.stringify({
       upstreams: { mock: { baseURL: 'http://127.0.0.1:1/v1', apiKey: false } },
       models: { strong: { upstream: 'mock', model: 'fixture-model', ...(priced ? { cost: { input: 1, output: 2 } } : {}) } },
-      aliases: { 'sabi-code': 'strong' }, policy: {},
+      aliases: { 'sabi-code': 'strong' }, policy,
       judge: { enabled: false, ...(judgeRate === undefined ? {} : { costPerMTokInput: judgeRate }) },
     }))
     writeFileSync(path.join(dir, '.sabi/decisions.jsonl'), rows.map(r => JSON.stringify(r)).join('\n') + '\n')
@@ -51,4 +51,38 @@ test('report includes known judge spend, but never invents an absent judge price
   assert.equal(out.judgeCost, 0.001)
   assert.equal(out.netCost, 0.0014)
   assert.ok(Math.abs(out.savingsPct) < 1e-10)
+})
+
+test('report surfaces what the policy could not see, without inventing a counterfactual', () => {
+  const vetoed = {
+    ...row,
+    tier: 'strong',
+    cost: { total: 0.0002 },
+    judge: { status: 'ok', overridden: true, direction: 'down', originalTier: 'strong', finalTier: 'mid' },
+  }
+  const upgraded = {
+    ...row,
+    rule: 'unclassified',
+    judge: { status: 'ok', overridden: true, direction: 'up', originalTier: 'cheap', finalTier: 'strong' },
+  }
+  const out = report([vetoed, upgraded], true, undefined, { 'first-turn': 'strong', failure: 'strong', stuck: 'strong' })
+  assert.equal(out.discover.vetoedRounds, 1)
+  assert.equal(out.discover.upgradedRounds, 1)
+  assert.equal(out.discover.unclassifiedRounds, 1)
+  assert.equal(out.discover.unclassifiedSharePct, 50)
+  // 1000 in / 200 out at the planned tier's $1/$2 = 0.0014, against 0.0002 actually served.
+  assert.ok(Math.abs(out.discover.avoidedCost - 0.0012) < 1e-9)
+  assert.equal(out.discover.avoidedCostType, 'rate-only estimate')
+  // `first-turn` fired on both rows, so only the rules that never fired are named.
+  assert.deepEqual(out.discover.rulesNeverFired, ['failure', 'stuck'])
+  assert.deepEqual(out.discover.idleTiers, [])
+})
+
+test('a veto without usable usage or price leaves the avoided cost unknown', () => {
+  const out = report([
+    { ...row, usage: undefined, judge: { status: 'ok', overridden: true, direction: 'down', originalTier: 'strong' } },
+  ])
+  assert.equal(out.discover.vetoedRounds, 1)
+  assert.equal(out.discover.avoidedCost, null)
+  assert.equal(out.discover.avoidedCostUnknownRows, 1)
 })

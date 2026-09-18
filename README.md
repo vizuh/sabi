@@ -152,7 +152,8 @@ One batched TypeSafe request covers both questions using excerpts of the last in
 ```bash
 npm test        # core, proxy, adapter-profile and eval tests
 npm run typecheck
-npm run report  # decisions, tokens, cost, savings vs an all-strong counterfactual, judge stats
+npm run report  # decisions, tokens, cost, savings vs an all-strong counterfactual, judge stats,
+                # and a `discover` block: vetoes and the cost they avoided, blind spots, dead rules
 ```
 
 ## Layout
@@ -182,6 +183,7 @@ Product name: **Sabi**. GitHub handles `sabi`, `uasabi` and `sabido` were taken,
 - [Command Code roadmap](docs/research/command-code-roadmap.md) — proposed context/tool routing and acceptance checks
 - [Folder review](docs/research/folder-review.md) — source findings and ready-to-post issue comments
 - [Prime Agent reuse](docs/research/prime-agent-reuse.md) — installed evidence and patterns worth borrowing
+- [RTK learnings](docs/research/rtk-learnings.md) — what a context compressor teaches a router: claim discipline, a discover view, and seeing through a rewrite prefix
 - [docs/install.md](docs/install.md) — step-by-step install for someone else's machine
 - [docs/context.md](docs/context.md) — background, constraints, risks
 - [docs/decisions.md](docs/decisions.md) — running decisions
