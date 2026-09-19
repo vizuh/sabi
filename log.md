@@ -359,3 +359,13 @@ existing decision, handoff and receipt records. Added `sabi replay --last=<n>` a
 of recorded actions, rules and execution outcomes; it does not invoke Orca, a harness or a paid task.
 Added CLI and daemon regression coverage. Policy re-execution and automatic lesson compilation remain
 the next phase after enough real outcome data exists.
+
+## [2026-09-19] docs | Controller delivery and package release boundary
+
+PR #22 merged to `main` as `4c88fdb`. Updated the agent instructions, bilingual README/install docs,
+handoff, decisions log, research scope note and release workflow to distinguish the experimental
+source-only controller/Orca bridge from the public `@vizuh/sabi` Command Code package release. The
+existing `v0.1.2` release remains the latest package release at `35560c0`; no artificial package tag
+was created for controller-only changes. Validation is source/test and merged-state evidence only;
+installed user-config mutation, live OpenCode activation in Orca and real cross-terminal execution
+remain unclaimed.

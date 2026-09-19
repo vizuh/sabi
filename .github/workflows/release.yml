@@ -1,11 +1,16 @@
 name: release
 
-# A release is one command:  git tag v0.1.2 && git push origin v0.1.2
+# A package release is one command after the package version is merged:
+#   git tag vX.Y.Z && git push origin vX.Y.Z
 #
 # The tag is the version — pack.mjs stamps it into the published manifest (the `v` is stripped) —
-# so bump `packages/adapters/command-code/package.json` and merge before tagging. This job
-# typechecks, runs the suite, publishes @vizuh/sabi with provenance, and opens a GitHub Release
-# carrying generated notes and the exact tarball npm serves.
+# so bump `packages/adapters/command-code/package.json` and merge before tagging. This job publishes
+# only the packaged Command Code adapter as @vizuh/sabi; the root controller and other private
+# adapters remain source-only. It typechecks, runs the suite, publishes with provenance, and opens
+# a GitHub Release carrying generated notes and the exact tarball npm serves.
+#
+# A controller-only change belongs in the normal source PR flow. Do not cut a package tag merely
+# to claim controller work until a publishable controller artifact and versioning contract exist.
 #
 # Tags that predate this packaging (or a version that is already on the registry) are handled
 # rather than failed: there is nothing to build and nothing to publish, so both steps stand down

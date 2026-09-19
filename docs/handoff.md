@@ -2,11 +2,23 @@
 
 ## Current status
 
-PR #3 merged to `main` as `7d57ff4` from `feat/multi-harness-support`. A follow-up is on `fix/sse-terminal-choice-order` for one post-terminal SSE choice guard found by final peer probing. A third branch, `fix/media-routing-constraint`, carries media/modality routing — images were failing on text-only tiers at the proxy and being stripped silently on the mod path (see [Media routing](#media-routing--2026-09-18)). Last full validation before this follow-up: 164 Node tests, typecheck and offline eval pass; Hermes adapter adds 12 Python tests. OpenCode 1.18.30 and Kilo CLI 7.7.4 passed real-client read tasks through Sabi + a local mock. Prime 0.9.5 passed a strict three-round proxy probe; same-parent native setters are proven ineffective and remain deferred. Hermes 0.21.3 passed the isolated Hermes → Sabi → mock probe (`mid → cheap → mid`). No paid provider certification.
+`main` includes PR #22, merged as `4c88fdb`, with the user-level controller daemon, Claude/Codex hooks, the OpenCode bridge, trace schema v1 and read-only replay. The source/test boundary is validated; installed user-config mutation, live OpenCode plugin activation inside Orca, and real cross-terminal execution remain separate evidence gates. The current latest package release is `v0.1.2` at `35560c0` and publishes only `@vizuh/sabi` (the Command Code adapter). The root controller and Orca bridge are not in that npm artifact, so controller-only changes continue through source PRs rather than an artificial package tag.
 
 ## Last meaningful update
 
 2026-09-19
+
+## Controller host hooks and release boundary — 2026-09-19
+
+PR #22 is merged on `main`. The supported local controller setup is `npm link` followed by
+`sabi setup --hooks` (or `sabi hooks install`); hooks fail open when the daemon is unavailable, and
+they do not switch a paid subscription or a harness-selected model. `sabi replay --last=<n>` is a
+read-only summary of recorded controller traces and does not replay a task.
+
+The release workflow is package-scoped: a `vX.Y.Z` tag publishes the packaged Command Code adapter
+after its package version is merged, then creates the matching GitHub Release. It does not publish
+the private controller or Orca bridge. Do not create a new package release for controller-only source
+changes until a publishable controller artifact and versioning contract are defined.
 
 ## Provider-neutral secret loading — 2026-09-19
 

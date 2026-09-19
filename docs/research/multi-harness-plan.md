@@ -1,5 +1,10 @@
 # Multi-harness support plan
 
+> Scope note (2026-09-19): PR #22 adds an experimental controller host-hook surface for Claude,
+> Codex and OpenCode. That bridge routes controller actions and does not change the inference-routing
+> status below; native per-round model/effort routing still requires the separate evidence gates in
+> this document.
+
 Proposal for approval, 2026-09-18. All four have a documented custom-provider path;
 none has passed a Sabi integration test in this review. [Pinned evidence and limits](harness-support-evidence.md).
 

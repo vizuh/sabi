@@ -324,6 +324,10 @@ sabi setup --hooks
 # or: sabi hooks install --opencode
 ```
 
+This is the current source-checkout installation path: the root controller is private and `npm link`
+exposes it locally. The public `@vizuh/sabi` release contains the Command Code adapter only; it does
+not install the controller or Orca bridge.
+
 The plugin asks the loopback controller for a plan, dispatches only `DELEGATE`, `SPAWN` and
 `ORCHESTRATE`, and replaces the current message only after the daemon reports accepted execution.
 `CONTINUE` stays in OpenCode. Transport and daemon failures fail open. This is controller routing,
