@@ -427,3 +427,9 @@ assignments before previews become session context; raw screen text remains inte
 classification and is not persisted as a candidate descriptor.
 The live post-fix scan observed 34 worktrees/12 sessions and zero unredacted credential-pattern
 matches in returned descriptors.
+
+## [2026-09-19] release | Make the scoped controller package public
+
+The generated `@vizuh/sabi-controller` manifest now declares public access and the tag workflow passes
+`--access public`. The clean-prefix package test asserts the generated publish contract before any
+registry publication.

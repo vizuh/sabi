@@ -34,6 +34,8 @@ test('controller bundle installs and runs from a clean npm prefix', () => {
 
     const installedCli = path.join(installDir, 'node_modules', '@vizuh', 'sabi-controller', 'dist', 'cli.mjs')
     assert.equal(existsSync(installedCli), true)
+    const installedPackage = JSON.parse(readFileSync(path.join(installDir, 'node_modules', '@vizuh', 'sabi-controller', 'package.json'), 'utf8')) as { publishConfig?: { access?: string } }
+    assert.equal(installedPackage.publishConfig?.access, 'public')
     assert.equal(execFileSync(process.execPath, [installedCli, '--version'], { encoding: 'utf8' }).trim(), expectedVersion)
 
     const claudeSettings = path.join(tempRoot, 'claude', 'settings.json')

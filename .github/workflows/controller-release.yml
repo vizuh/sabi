@@ -35,7 +35,7 @@ jobs:
             echo "state=already" >> "$GITHUB_OUTPUT"
             echo "@vizuh/sabi-controller@$version is already published — skipping."
           else
-            npm publish ./packages/controller/pkg --provenance
+            npm publish ./packages/controller/pkg --access public --provenance
             echo "state=fresh" >> "$GITHUB_OUTPUT"
           fi
         env:

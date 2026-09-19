@@ -47,6 +47,7 @@ const manifest = {
   files: ['dist', 'resources', 'README.md', 'LICENSE'],
   engines: { node: '>=22.6' },
   license: 'MIT',
+  publishConfig: { access: 'public' },
   repository: { type: 'git', url: 'git+https://github.com/vizuh/sabi.git', directory: 'packages/controller' },
   homepage: 'https://github.com/vizuh/sabi#readme',
 }

@@ -55,6 +55,9 @@ token (or an explicit `SABI_CONTROLLER_TOKEN`) and remains fail-open when the da
 request with the wrong token is rejected with 401. This is still a loopback transport, not a remote
 service contract.
 
+The generated scoped package now declares `publishConfig.access=public`, and the controller release
+workflow passes `--access public`; the clean-package test asserts that manifest contract.
+
 ## Inventory context redaction — 2026-09-19
 
 Live Orca inventory exposed that terminal previews can contain reset URLs or credentials. The
