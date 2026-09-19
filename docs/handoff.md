@@ -22,6 +22,19 @@ Verification: `npm run build:controller`, `node --test scripts/test/controller-p
 `node_modules`. No npm publication, system-login service or universal Orca activation is claimed by
 this local branch.
 
+## Global Orca inventory and cross-worktree handoff — 2026-09-19
+
+The controller inventory no longer discards idle Orca terminals solely because their worktree differs
+from the request `cwd`. It keeps the terminal's real worktree/branch and can select it when the route
+has a valid delegation path. Cross-worktree dispatch sends a bounded structured handoff containing the
+objective, original request, source session, repository/worktree/branch, changed files, tests/results,
+diff summary, unresolved work and next suggested step. The `2 + 2` regression remains deterministic
+`CONTINUE` in the current session.
+
+Verification: global inventory fixture and structured-handoff test pass; typecheck remains clean. This
+does not yet create a persistent registry for harnesses outside Orca or prove a live cross-terminal
+receipt against a paid/interactive session.
+
 ## Controller host hooks and release boundary — 2026-09-19
 
 PR #22 is merged on `main`. The supported local controller setup is `npm link` followed by

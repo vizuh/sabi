@@ -122,13 +122,9 @@ export function configuredHarnesses(): Array<{ agent: string; command: string }>
   return configured.map((agent) => ({ agent, command: agent })).filter(({ command }) => executableExists(command))
 }
 
-function worktreeFor(worktrees: OrcaWorktreeEntry[], cwd: string): OrcaWorktreeEntry | undefined {
-  return worktrees.find((entry) => stringValue(entry.path) && path.resolve(stringValue(entry.path)!) === cwd)
-}
-
 function makeSession(
   entry: OrcaTerminalEntry,
-  cwd: string,
+  worktreePath: string,
   branch: string | undefined,
   currentHandle: string | undefined,
   stuck: boolean,
@@ -139,7 +135,7 @@ function makeSession(
   const handle = stringValue(entry.handle)
   const worktree = stringValue(entry.worktreePath)
   const agent = stringValue(entry.agentIdentity) ?? 'unknown'
-  if (!handle || !worktree || path.resolve(worktree) !== cwd) return undefined
+  if (!handle || !worktree || path.resolve(worktree) !== path.resolve(worktreePath)) return undefined
   const preview = stringValue(entry.preview) ?? ''
   const title = stringValue(entry.title)
   const context = title ? `${title}${preview ? ` | ${preview.slice(0, 160)}` : ''}` : preview.slice(0, 160)
@@ -159,7 +155,7 @@ function makeSession(
     capabilities: ['coding'],
     available,
     capacity,
-    worktree: cwd,
+    worktree: path.resolve(worktree),
     branch: stringValue(entry.branch) ?? branch,
     context,
     lastOutputAt: finiteNumber(entry.lastOutputAt),
@@ -197,13 +193,23 @@ export function discoverAgents(
   const terminalsResult = queryOrcaTerminals()
   const worktrees = (worktreesResult.worktrees ?? []) as OrcaWorktreeEntry[]
   const terminalEntries = (terminalsResult.terminals ?? []) as OrcaTerminalEntry[]
-  const matchingWorktree = worktreeFor(worktrees, resolvedCwd)
+  const branches = new Map(
+    worktrees
+      .map((entry) => {
+        const worktree = stringValue(entry.path)
+        return worktree ? [path.resolve(worktree), stringValue(entry.branch)] as const : undefined
+      })
+      .filter((entry): entry is readonly [string, string | undefined] => entry !== undefined),
+  )
   const sessions = terminalEntries
     .map((entry) => {
       const handle = stringValue(entry.handle)
       const observed = handle ? observedScreen(handle) : ''
       const tuiIdle = handle ? tuiIdleState(handle) : undefined
-      return makeSession(entry, resolvedCwd, stringValue(matchingWorktree?.branch), currentHandle, Boolean(options.stuckSession), now, observed, tuiIdle)
+      const worktree = stringValue(entry.worktreePath)
+      return worktree
+        ? makeSession(entry, worktree, branches.get(path.resolve(worktree)), currentHandle, Boolean(options.stuckSession), now, observed, tuiIdle)
+        : undefined
     })
     .filter((entry): entry is AgentSession => entry !== undefined)
   const active = sessions.find((session) => session.handle === currentHandle) ?? unavailableCurrent(resolvedCwd, now)

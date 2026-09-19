@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { AgentHarness, AgentSession, ControllerSignals, HandoffSnapshot } from '../src/types.ts'
-import { selectRoute } from '../src/controller.ts'
+import { selectRoute, structuredHandoff } from '../src/controller.ts'
 
 const signals: ControllerSignals = {
   cwd: '/tmp/sabi-controller',
@@ -104,4 +104,20 @@ test('ordinary "start a new" wording does not spawn a real harness', async () =>
   assert.equal(result.action, 'CONTINUE')
   assert.equal(result.target?.id, 'session:current')
   assert.deepEqual(result.validActions, ['CONTINUE'])
+})
+
+test('cross-worktree handoff preserves structured objective, diff and next step', () => {
+  const message = structuredHandoff('finish the review', {
+    ...handoff,
+    objective: 'finish the review',
+    changedFiles: ['src/app.ts'],
+    relevantDiff: '1 file changed',
+    nextAction: 'run the focused tests',
+  })
+  const payload = JSON.parse(message.split('\n')[1]!) as Record<string, unknown>
+  assert.equal(payload.objective, 'finish the review')
+  assert.deepEqual(payload.filesChanged, ['src/app.ts'])
+  assert.equal(payload.diff, '1 file changed')
+  assert.equal(payload.nextSuggestedStep, 'run the focused tests')
+  assert.match(message, /\[REQUEST\]\nfinish the review/)
 })

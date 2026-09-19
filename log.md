@@ -395,3 +395,11 @@ resources; `controller-v*` has a separate release workflow from the existing `@v
 Hook commands resolve the installed entrypoint absolutely. The clean-prefix test builds, packs,
 installs and executes the generated tarball without the source checkout. No registry publication,
 login service, universal Orca activation or cross-terminal execution is claimed yet.
+
+## [2026-09-19] feat | Global Orca candidates and structured handoff
+
+Orca inventory now retains eligible idle sessions from other visible worktrees instead of filtering
+everything to the caller's `cwd`. Cross-worktree dispatch includes a bounded JSON handoff with objective,
+source context, changed files, tests/results, diff and next step. Added regression coverage for global
+inventory and the permanent `2 + 2` smallest-route rule. Persistent non-Orca session registration and
+live cross-terminal receipts remain separate gates.

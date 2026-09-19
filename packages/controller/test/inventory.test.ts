@@ -31,6 +31,30 @@ console.log(JSON.stringify({ id: 'fake', ok: true, result }))
   return script
 }
 
+function fakeGlobalOrca(currentCwd: string, otherCwd: string): string {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-inventory-global-'))
+  const script = path.join(dir, 'orca-ide.js')
+  const source = `#!/usr/bin/env node
+const args = process.argv.slice(2)
+const currentCwd = ${JSON.stringify(currentCwd)}
+const otherCwd = ${JSON.stringify(otherCwd)}
+const terminals = [
+  { handle: 'term-current', worktreePath: currentCwd, branch: 'main', connected: true, writable: true, orphaned: false, title: 'current', agentIdentity: 'codex' },
+  { handle: 'term-other', worktreePath: otherCwd, branch: 'feature', connected: true, writable: true, orphaned: false, title: 'other', agentIdentity: 'claude' },
+]
+let result
+if (args[0] === 'worktree' && args[1] === 'ps') result = { worktrees: [{ path: currentCwd, branch: 'main' }, { path: otherCwd, branch: 'feature' }] }
+else if (args[0] === 'terminal' && args[1] === 'list') result = { terminals }
+else if (args[0] === 'terminal' && args[1] === 'read') result = { terminal: { tail: ['❯'] } }
+else if (args[0] === 'terminal' && args[1] === 'wait') result = { wait: { satisfied: true, status: 'running' } }
+else result = {}
+console.log(JSON.stringify({ id: 'fake-global', ok: true, result }))
+`
+  writeFileSync(script, source)
+  chmodSync(script, 0o755)
+  return script
+}
+
 test('historical screen errors do not block an idle live session', () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-cwd-'))
   const previousCommand = process.env.ORCA_CLI_COMMAND
@@ -42,6 +66,28 @@ test('historical screen errors do not block an idle live session', () => {
     assert.equal(inventory.active.lifecycle, 'idle')
     assert.equal(inventory.active.available, true)
     assert.deepEqual(inventory.active.capacity, { status: 'available' })
+  } finally {
+    if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
+    else process.env.ORCA_CLI_COMMAND = previousCommand
+    if (previousHandle === undefined) delete process.env.ORCA_TERMINAL_HANDLE
+    else process.env.ORCA_TERMINAL_HANDLE = previousHandle
+  }
+})
+
+test('inventory includes eligible idle sessions from other Orca worktrees', () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-current-'))
+  const other = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-other-'))
+  const previousCommand = process.env.ORCA_CLI_COMMAND
+  const previousHandle = process.env.ORCA_TERMINAL_HANDLE
+  process.env.ORCA_CLI_COMMAND = fakeGlobalOrca(cwd, other)
+  process.env.ORCA_TERMINAL_HANDLE = 'term-current'
+  try {
+    const inventory = discoverAgents(cwd)
+    assert.equal(inventory.active.id, 'session:term-current')
+    assert.equal(inventory.existingSessions.length, 1)
+    assert.equal(inventory.existingSessions[0]?.id, 'session:term-other')
+    assert.equal(inventory.existingSessions[0]?.worktree, path.resolve(other))
+    assert.equal(inventory.existingSessions[0]?.branch, 'feature')
   } finally {
     if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
     else process.env.ORCA_CLI_COMMAND = previousCommand

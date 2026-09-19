@@ -46,8 +46,9 @@ gets its own public package and release lane so the existing adapter contract is
 - The daemon starts lazily from the CLI and has no user-login service installer.
 - `packages/adapters/orca` is a source bridge, not an installed Orca integration. Orca plugin API v1
   exposes focused worktree/terminal calls and bounded status events, not a universal prompt hook.
-- Inventory is currently scoped to the requested worktree. A global controller needs a registry of
-  sessions across worktrees with stable identity and lifecycle state.
+- Orca terminal discovery now includes idle sessions across its visible worktrees and sends a
+  structured handoff when delegation crosses worktrees. A persistent registry/heartbeat contract for
+  non-Orca harnesses is still missing.
 - Hooks exist for Claude, Codex and OpenCode. Other harnesses are spawn candidates or proxy clients,
   not controller integrations.
 

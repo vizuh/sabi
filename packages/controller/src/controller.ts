@@ -326,8 +326,38 @@ function sendEvidence(value: unknown): Pick<ControllerExecution, 'requestId' | '
   }
 }
 
-function sessionExecution(handle: string, targetId: string, request: string, operation: 'terminal-send' | 'terminal-spawn', waitMs: number): ControllerExecution {
-  const sent = sendOrcaTerminal(handle, request)
+export function structuredHandoff(request: string, handoff: HandoffSnapshot): string {
+  const payload = {
+    objective: handoff.objective,
+    originalRequest: handoff.originalRequest,
+    sourceSession: handoff.sourceSession,
+    repo: handoff.repo,
+    worktree: handoff.worktree,
+    branch: handoff.branch,
+    progress: handoff.progress,
+    filesChanged: handoff.changedFiles,
+    tests: handoff.testsRun,
+    results: handoff.latestResults,
+    unresolvedWork: handoff.unresolvedWork,
+    diff: handoff.relevantDiff,
+    nextSuggestedStep: handoff.nextAction,
+  }
+  return `[SABI HANDOFF]\n${JSON.stringify(payload)}\n[REQUEST]\n${request}\n[/SABI HANDOFF]`
+}
+
+function sessionExecution(
+  handle: string,
+  targetId: string,
+  request: string,
+  operation: 'terminal-send' | 'terminal-spawn',
+  waitMs: number,
+  handoff?: HandoffSnapshot,
+  targetWorktree?: string,
+): ControllerExecution {
+  const outbound = handoff && targetWorktree && path.resolve(targetWorktree) !== path.resolve(handoff.worktree)
+    ? structuredHandoff(request, handoff)
+    : request
+  const sent = sendOrcaTerminal(handle, outbound)
   if (!sent.ok) return { status: 'failed', targetId, terminalHandle: handle, operation, error: sent.detail ?? sent.errorCode }
   const evidence = sendEvidence(sent.result)
   const waited = waitOrcaTerminal(handle, 'tui-idle', waitMs)
@@ -418,7 +448,7 @@ function executeSelection(selection: RouteSelection, inventory: AgentInventory, 
   if (selection.action === 'SPAWN' && selection.target?.kind === 'harness') return executeSpawn(selection.target, cwd, request, waitMs)
   const target = selection.target?.kind === 'session' ? selection.target : inventory.active
   if (!target.handle) return { status: 'failed', targetId: target.id, operation: 'terminal-send', error: 'target-session-handle-missing' }
-  return sessionExecution(target.handle, target.id, request, 'terminal-send', waitMs)
+  return sessionExecution(target.handle, target.id, request, 'terminal-send', waitMs, handoff, target.worktree)
 }
 
 function fallbackTarget(inventory: AgentInventory, failedTargetId: string | undefined): AgentSession | undefined {
@@ -452,7 +482,7 @@ export async function runController(
     const refreshed = discoverAgents(cwd, { stuckSession: signals.stuckSession })
     const fallback = fallbackTarget(refreshed, execution.targetId)
     if (fallback?.handle) {
-      const retry = sessionExecution(fallback.handle, fallback.id, request, 'terminal-send', waitMs)
+      const retry = sessionExecution(fallback.handle, fallback.id, request, 'terminal-send', waitMs, handoff, fallback.worktree)
       execution = { ...retry, status: retry.status === 'failed' ? 'failed' : 'rerouted', reroutedFrom: execution.targetId }
     }
   }
