@@ -55,6 +55,16 @@ token (or an explicit `SABI_CONTROLLER_TOKEN`) and remains fail-open when the da
 request with the wrong token is rejected with 401. This is still a loopback transport, not a remote
 service contract.
 
+## Inventory context redaction — 2026-09-19
+
+Live Orca inventory exposed that terminal previews can contain reset URLs or credentials. The
+controller now redacts common query-token, API-key, bearer and password/secret assignments before
+context reaches status, routing telemetry or handoff candidates. Raw screen text is still used only
+inside the bounded capacity classifier and is not returned as a descriptor.
+
+Live check against Orca 1.4.201 observed 34 worktrees and 12 sessions; a safe-pattern scan of the
+returned descriptors found zero raw reset-token, bearer, API-key or password-assignment matches.
+
 ## Controller host hooks and release boundary — 2026-09-19
 
 PR #22 is merged on `main`. The supported local controller setup is `npm link` followed by

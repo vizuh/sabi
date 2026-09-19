@@ -40,7 +40,7 @@ const currentCwd = ${JSON.stringify(currentCwd)}
 const otherCwd = ${JSON.stringify(otherCwd)}
 const terminals = [
   { handle: 'term-current', worktreePath: currentCwd, branch: 'main', connected: true, writable: true, orphaned: false, title: 'current', agentIdentity: 'codex' },
-  { handle: 'term-other', worktreePath: otherCwd, branch: 'feature', connected: true, writable: true, orphaned: false, title: 'other', agentIdentity: 'claude' },
+  { handle: 'term-other', worktreePath: otherCwd, branch: 'feature', connected: true, writable: true, orphaned: false, title: 'other', preview: 'https://example.test/reset?reset_password_token=secret-value', agentIdentity: 'claude' },
 ]
 let result
 if (args[0] === 'worktree' && args[1] === 'ps') result = { worktrees: [{ path: currentCwd, branch: 'main' }, { path: otherCwd, branch: 'feature' }] }
@@ -88,6 +88,8 @@ test('inventory includes eligible idle sessions from other Orca worktrees', () =
     assert.equal(inventory.existingSessions[0]?.id, 'session:term-other')
     assert.equal(inventory.existingSessions[0]?.worktree, path.resolve(other))
     assert.equal(inventory.existingSessions[0]?.branch, 'feature')
+    assert.doesNotMatch(inventory.existingSessions[0]?.context ?? '', /secret-value/)
+    assert.match(inventory.existingSessions[0]?.context ?? '', /reset_password_token=\[redacted\]/)
   } finally {
     if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
     else process.env.ORCA_CLI_COMMAND = previousCommand

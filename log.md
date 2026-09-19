@@ -418,3 +418,12 @@ Added a random per-user bearer token to the daemon info record and require it fo
 OpenCode reads the same user-scoped token and sends it without handling provider credentials. Wrong
 tokens receive 401, missing daemon/token still fails open in the harness hook. No remote bind is
 enabled.
+
+## [2026-09-19] security | Redact terminal preview context
+
+Live global inventory showed that terminal previews may contain reset URLs or credential-like values.
+Added boundary redaction for common query tokens, API keys, bearer values and password/secret
+assignments before previews become session context; raw screen text remains internal to capacity
+classification and is not persisted as a candidate descriptor.
+The live post-fix scan observed 34 worktrees/12 sessions and zero unredacted credential-pattern
+matches in returned descriptors.

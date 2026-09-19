@@ -60,6 +60,14 @@ function durationMs(text: string): number | undefined {
   return Math.max(0, Math.round(total))
 }
 
+function redactContext(text: string): string {
+  return text
+    .replace(/([?&](?:token|access_token|refresh_token|reset_password_token|api_key|apikey|secret)=)[^&\s]+/gi, '$1[redacted]')
+    .replace(/\b(?:sk-[A-Za-z0-9_-]+|gh[pousr]_[A-Za-z0-9_-]+|xox[baprs]-[A-Za-z0-9-]+)\b/g, '[redacted]')
+    .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/\b(password|passphrase|secret|token|api[-_ ]?key)\s*[:=]\s*\S+/gi, '$1=[redacted]')
+}
+
 function capacityFromText(text: string, now: number): AgentCapacity {
   const lower = text.toLowerCase()
   const resetAfter = durationMs(lower)
@@ -138,7 +146,7 @@ function makeSession(
   if (!handle || !worktree || path.resolve(worktree) !== path.resolve(worktreePath)) return undefined
   const preview = stringValue(entry.preview) ?? ''
   const title = stringValue(entry.title)
-  const context = title ? `${title}${preview ? ` | ${preview.slice(0, 160)}` : ''}` : preview.slice(0, 160)
+  const context = redactContext(title ? `${title}${preview ? ` | ${preview.slice(0, 160)}` : ''}` : preview.slice(0, 160))
   const lifecycle = lifecycleFromEntry(entry, tuiIdle)
   // An idle screen is historical by definition: it may contain a previous limit or stop-hook
   // message after the agent has recovered. Capacity failures are still detectable while a

@@ -595,3 +595,21 @@ template works on every OS would make the public support claim false.
 
 Add LaunchAgent/Windows user-service implementations only with platform tests covering install,
 restart, status, upgrade and uninstall rollback.
+
+## [2026-09-19] Redact Orca preview context at the inventory boundary
+
+### Decision
+
+Treat Orca terminal titles/previews as untrusted bounded text. Redact common reset/access token,
+API-key, bearer and password/secret patterns before exposing context in inventory, routing telemetry
+or handoffs. Keep raw screen text in-process only for capacity classification.
+
+### Why
+
+Real live inventory showed that an otherwise idle terminal preview can contain a password-reset URL.
+Session discovery must not turn that into `sabi status` output or a persisted candidate descriptor.
+
+### Revisit later?
+
+Expand the redaction canary corpus when a new provider/harness exposes a credential format; never
+replace it with storing full terminal transcripts.
