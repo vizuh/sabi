@@ -105,15 +105,22 @@ Sabi is a foreground process, not a service: if it is not running, every `sabi/*
 
 ## Agent Controller daemon (experimental)
 
-The separate controller surface can run once per user rather than once per worktree:
+The separate controller surface is intended to run once per user rather than once per worktree.
+The public controller package is separate from the inference adapter:
 
 ```bash
-npm link                         # from this checkout, for local development
+npm install --global @vizuh/sabi-controller
 sabi setup --hooks               # writes user state, starts daemon and installs host hooks
 sabi status
 sabi route "review this change"
 sabi replay --last=1000         # read-only decision/outcome summary
 ```
+
+The first `@vizuh/sabi-controller` release is prepared by the `controller-v*` workflow. Until a
+controller tag is published, `npm run build:controller` from this repository is a maintainer/CI
+check, not an end-user installation path. It produces a self-contained tarball with the CLI,
+daemon, hooks, OpenCode plugin and Orca bridge resources; it does not require this checkout or its
+`node_modules` at runtime.
 
 `setup` detects installed harness executables and enables automatic controller routing through
 the daemon. With `--hooks`, it merges a Sabi `UserPromptSubmit` hook into Claude Code and Codex,
@@ -132,10 +139,11 @@ Controller records use trace schema v1: bounded candidate descriptors, the close
 the selected route, execution status and elapsed time. `sabi replay` reads those JSONL records without
 calling a harness, so policy changes can be evaluated against observed traffic before execution.
 
-The controller is currently an experimental, source-only monorepo package; `npm link` is the local
-development setup. The public `@vizuh/sabi` GitHub/npm release publishes the Command Code adapter,
-not the controller or Orca bridge. A controller-only change is delivered through the source PR
-flow until a separate publishable controller artifact is defined.
+The public `@vizuh/sabi` GitHub/npm release publishes the Command Code adapter, not the controller.
+The controller has its own `@vizuh/sabi-controller` package and release lane. A published controller
+release must still pass the clean-machine package test and the host-integration evidence gates in
+`docs/research/public-installation-plan.md`; package installation alone does not prove live Orca
+activation or cross-terminal execution.
 
 At startup the proxy loads only the credential names referenced by the active config. Existing
 environment variables win, then `SABI_SECRETS_FILE`, the nearest workspace `secrets/.env`, and

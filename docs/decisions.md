@@ -551,3 +551,28 @@ are recorded. A failed or unauthorized study must fail open to the existing rout
 Add a generic evidence-provider contract only when a second provider or a real routing consumer needs
 it. At that point validate the signals, redaction boundary and replay behavior with local fixtures
 before adding any provider package or model-specific default.
+
+## [2026-09-19] Bundle the controller without widening the adapter release
+
+### Decision
+
+Keep `packages/controller` private inside the workspace, but build its public boundary as a bundled
+`@vizuh/sabi-controller` staging package. Release it only from `controller-v*`; leave the existing
+`v*` workflow and `@vizuh/sabi` Command Code package unchanged.
+
+### Why
+
+The controller imports private workspace code and cannot be installed safely from a clean machine as
+raw TypeScript. Bundling removes that runtime dependency and gives users one global CLI while keeping
+the existing adapter's package contract stable.
+
+### Evidence and limits
+
+The local package test builds, packs and installs the tarball into a temporary npm prefix, then runs
+the installed CLI and `doctor` without the checkout's `node_modules`. This proves packaging, not npm
+publication, login-service persistence, universal Orca activation or cross-terminal execution.
+
+### Revisit later?
+
+Only publish a `controller-v*` tag after the clean-machine and Phase E live host gates pass. Add
+platform service installers and broader harness claims as separate evidence-backed changes.

@@ -3,6 +3,24 @@
 Status: implementation plan, 2026-09-19. This replaces the development-only `npm link` assumption
 for users who install Sabi on their own machines.
 
+## Phase A implementation status
+
+The first packaging slice is now implemented in the controller workstream:
+
+- `npm run build:controller` bundles the private workspace dependencies into a self-contained Node
+  22+ package staging directory;
+- the generated public package is `@vizuh/sabi-controller`, with its own `sabi --version` and
+  `controller-v*` release workflow;
+- the packaged hook launcher uses an absolute installed entrypoint instead of assuming the harness
+  inherits an interactive `PATH`;
+- an automated test builds, packs and installs the tarball into a clean npm prefix, then runs the
+  installed CLI and `doctor` without the repository or its `node_modules`;
+- no registry publication is claimed until the release tag, npm package and clean-machine proof all
+  exist.
+
+This phase does not yet claim a system-login service, universal Orca prompt interception, or live
+cross-terminal execution. Those remain explicit host-integration gates below.
+
 ## Outcome
 
 A new user should be able to install Sabi without cloning a repository or installing dependencies in
@@ -21,13 +39,10 @@ supported, partial or unavailable. Opening a new Orca worktree must not require 
 The existing public `@vizuh/sabi` package remains the Command Code inference adapter. The controller
 gets its own public package and release lane so the existing adapter contract is not silently changed.
 
-## Current blockers
+## Remaining blockers
 
-- The root controller package is private and its `bin` points at TypeScript workspace source.
-- The controller imports private workspace packages such as `@sabi/core`; a temporary checkout with
-  no `node_modules` cannot run it.
-- The hook command defaults to bare `sabi`, but harness-launched processes cannot be assumed to inherit
-  the user's interactive npm `PATH`.
+- The generated package and release workflow exist, but no `controller-v*` tag or npm publication has
+  been made yet.
 - The daemon starts lazily from the CLI and has no user-login service installer.
 - `packages/adapters/orca` is a source bridge, not an installed Orca integration. Orca plugin API v1
   exposes focused worktree/terminal calls and bounded status events, not a universal prompt hook.

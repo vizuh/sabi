@@ -302,14 +302,16 @@ O Agent Controller separado pode instalar um pequeno plugin `chat.message` do Op
 hooks do Claude e do Codex:
 
 ```bash
-npm link
+npm install --global @vizuh/sabi-controller
 sabi setup --hooks
 # ou: sabi hooks install --opencode
 ```
 
-Este é o fluxo atual a partir de um checkout: o controller raiz é privado e `npm link` o expõe
-localmente. A release pública `@vizuh/sabi` contém apenas o adaptador do Command Code; ela não instala
-o controller nem a ponte Orca.
+Este é o fluxo pretendido para usuários. A release pública `@vizuh/sabi` contém apenas o adaptador do
+Command Code; ela não instala o controller nem a ponte Orca. Antes da primeira tag de
+`@vizuh/sabi-controller`, o pacote ainda não está disponível de propósito; não substitua esse fluxo
+por `npm link` numa instalação de usuário. Mantenedores podem executar `npm run build:controller` e
+o teste de pacote em prefixo limpo a partir do repositório.
 
 O plugin consulta o daemon loopback, despacha apenas `DELEGATE`, `SPAWN` e `ORCHESTRATE`, e substitui
 a mensagem atual somente depois que o daemon informa execução aceita. `CONTINUE` permanece no

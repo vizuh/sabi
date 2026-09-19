@@ -319,14 +319,16 @@ The separate Agent Controller can install a thin OpenCode `chat.message` plugin 
 Claude and Codex hooks:
 
 ```bash
-npm link
+npm install --global @vizuh/sabi-controller
 sabi setup --hooks
 # or: sabi hooks install --opencode
 ```
 
-This is the current source-checkout installation path: the root controller is private and `npm link`
-exposes it locally. The public `@vizuh/sabi` release contains the Command Code adapter only; it does
-not install the controller or Orca bridge.
+This is the intended user installation path. The public `@vizuh/sabi` release contains the Command
+Code adapter only; it does not install the controller or Orca bridge. Before the first
+`@vizuh/sabi-controller` tag is published, the package command is intentionally unavailable; do not
+replace it with `npm link` for a user installation. Maintainers can run `npm run build:controller`
+and the clean-prefix package test from the repository.
 
 The plugin asks the loopback controller for a plan, dispatches only `DELEGATE`, `SPAWN` and
 `ORCHESTRATE`, and replaces the current message only after the daemon reports accepted execution.

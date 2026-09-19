@@ -22,6 +22,7 @@ import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 type Command = 'route' | 'status' | 'agents' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'daemon' | 'hooks' | 'hook'
 
 const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'doctor', 'config', 'logs', 'replay', 'setup', 'daemon', 'hooks', 'hook'])
+const CLI_VERSION = process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
 
 function flagValue(argv: string[], name: string): string | undefined {
   return argv.find((a) => a.startsWith(`${name}=`))?.slice(name.length + 1)
@@ -304,6 +305,10 @@ function runReplay(argv: string[]): void {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2)
+  if (argv.includes('--version') || argv.includes('-v')) {
+    console.log(CLI_VERSION)
+    return
+  }
   if (argv.includes('--help') || argv.includes('-h')) {
     printHelp()
     return

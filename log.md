@@ -386,3 +386,12 @@ dependency. Raw reports, Design DNA, screenshots, assets and URLs stay under ign
 state; a future routing consumer may accept only bounded evidence flags and a soft model-affinity
 prior. Kimi K3 remains a local hypothesis for reference-driven visual work, not a hard-coded public
 route. No URL was studied and no TokenScout dependency or site artifact was added.
+
+## [2026-09-19] feat | Public controller package boundary
+
+Added the first external-installation slice for the controller. `npm run build:controller` creates a
+self-contained `@vizuh/sabi-controller` staging package with the CLI, daemon, hooks and integration
+resources; `controller-v*` has a separate release workflow from the existing `@vizuh/sabi` adapter.
+Hook commands resolve the installed entrypoint absolutely. The clean-prefix test builds, packs,
+installs and executes the generated tarball without the source checkout. No registry publication,
+login service, universal Orca activation or cross-terminal execution is claimed yet.

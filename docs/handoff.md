@@ -2,11 +2,25 @@
 
 ## Current status
 
-`main` includes PR #22, merged as `4c88fdb`, with the user-level controller daemon, Claude/Codex hooks, the OpenCode bridge, trace schema v1 and read-only replay. The source/test boundary is validated; installed user-config mutation, live OpenCode plugin activation inside Orca, and real cross-terminal execution remain separate evidence gates. The current latest package release is `v0.1.2` at `35560c0` and publishes only `@vizuh/sabi` (the Command Code adapter). The root controller and Orca bridge are not in that npm artifact, so controller-only changes continue through source PRs rather than an artificial package tag.
+`main` includes PR #22, merged as `4c88fdb`, with the user-level controller daemon, Claude/Codex hooks, the OpenCode bridge, trace schema v1 and read-only replay. The source/test boundary is validated; installed user-config mutation, live OpenCode plugin activation inside Orca, and real cross-terminal execution remain separate evidence gates. The current latest package release is `v0.1.2` at `35560c0` and publishes only `@vizuh/sabi` (the Command Code adapter). The current controller implementation branch adds the separate `@vizuh/sabi-controller` bundle and release lane, but it is not published or merged yet.
 
 ## Last meaningful update
 
 2026-09-19
+
+## Public controller package — 2026-09-19
+
+Built the first no-checkout installation boundary. `packages/controller/pack.mjs` bundles the CLI,
+daemon, hooks, OpenCode plugin and Orca bridge resources into `packages/controller/pkg`; the generated
+manifest is `@vizuh/sabi-controller` and the `controller-v*` workflow publishes it independently of
+the existing `@vizuh/sabi` Command Code package. Hook commands use the installed Node/CLI paths, so
+they do not depend on an interactive `PATH`.
+
+Verification: `npm run build:controller`, `node --test scripts/test/controller-package.test.ts`,
+`npm run typecheck` and the full suite remain the required gates. The package test performs a real
+`npm pack`, installs into a clean temporary prefix, and runs the installed CLI without the checkout's
+`node_modules`. No npm publication, system-login service or universal Orca activation is claimed by
+this local branch.
 
 ## Controller host hooks and release boundary — 2026-09-19
 
