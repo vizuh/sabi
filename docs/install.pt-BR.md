@@ -137,10 +137,22 @@ cmd mods remove sabi          # ou: cmd mods remove ./packages/adapters/command-
 
 ```bash
 npm install
-export OPENROUTER_API_KEY=...      # exigido pela config que acompanha o repositório
-export TYPESAFE_API_KEY=...        # opcional: Jev. Sem ela, use judge.enabled false
 npm start                          # http://127.0.0.1:8787/v1
 ```
+
+### As credenciais não dependem do harness
+
+O proxy carrega somente os nomes de ambiente referenciados pelo `sabi.config.json` ativo. Variáveis
+já presentes no ambiente vencem; depois vêm `SABI_SECRETS_FILE`, o `secrets/.env` mais próximo no
+workspace e `~/.config/sabi/secrets.env` ou `~/.config/sabi/.env`. Use atribuições dotenv normais,
+como `OPENROUTER_API_KEY=...` e `TYPESAFE_API_KEY=...`; o alias `typesafe=...` do arquivo atual do
+HugoOS também é aceito. O Sabi nunca copia esses valores para OpenCode, Hermes, Kilo, Command Code,
+Orca, worktree, log ou Git. O caminho do mod do Command Code continua sem chave. Os outros harnesses
+precisam apenas da URL do proxy local; as assinaturas e credenciais próprias continuam neles.
+
+Se os segredos estiverem em outro lugar, inicie com `SABI_SECRETS_FILE=/caminho/absoluto/.env npm start`.
+Usuários sem arquivo central podem continuar exportando as variáveis do provider normalmente, e quem
+não usa Jev pode definir `judge.enabled` como `false`.
 
 ### Confirmar que subiu
 

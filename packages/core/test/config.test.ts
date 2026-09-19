@@ -3,7 +3,16 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { configSearchPaths, defaultConfigPath, loadConfig, PACKAGE_ROOT, validateConfig } from '../src/config.ts'
+import {
+  configSearchPaths,
+  defaultConfigPath,
+  loadConfig,
+  loadConfiguredSecrets,
+  PACKAGE_ROOT,
+  parseEnvFile,
+  secretSearchPaths,
+  validateConfig,
+} from '../src/config.ts'
 
 const minimal = {
   upstreams: { mock: { baseURL: 'http://127.0.0.1:1/v1' } },
@@ -80,6 +89,66 @@ test('loadConfig reads the file it resolves and rejects a missing one with a hin
     () => loadConfig(path.join(project, 'nope.config.json')),
     /Sabi config not found at .*nope\.config\.json/,
   )
+})
+
+test('parseEnvFile reads dotenv assignments without evaluating shell code', () => {
+  assert.deepEqual(parseEnvFile([
+    '# ignored',
+    'export OPENROUTER_API_KEY="router-value"',
+    'typesafe=jev-value # inline comment',
+    'EMPTY=',
+    'not an assignment',
+  ].join('\n')), {
+    OPENROUTER_API_KEY: 'router-value',
+    typesafe: 'jev-value',
+    EMPTY: '',
+  })
+})
+
+test('workspace secret discovery loads only configured keys and preserves shell precedence', () => {
+  const { root, project, pkg } = workspace()
+  const file = path.join(root, 'secrets', '.env')
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, 'OPENROUTER_API_KEY=file-router\ntypesafe=file-jev\nUNRELATED=do-not-load\n')
+  const env: NodeJS.ProcessEnv = { OPENROUTER_API_KEY: 'shell-router' }
+  const config = validateConfig({
+    upstreams: {
+      openrouter: { baseURL: 'http://127.0.0.1:1/v1', apiKey: '$OPENROUTER_API_KEY' },
+      ollama: { baseURL: 'http://127.0.0.1:2/v1', apiKey: false },
+    },
+    models: { cheap: { upstream: 'openrouter', model: 'm-cheap' } },
+    aliases: { 'sabi-code': 'auto' },
+    policy: { unclassified: 'cheap' },
+    judge: { enabled: true, baseURL: 'http://127.0.0.1:3/v1', apiKey: '$TYPESAFE_API_KEY' },
+  })
+
+  const result = loadConfiguredSecrets(config, { cwd: project, packageRoot: pkg, env })
+  assert.equal(result.file, file)
+  assert.deepEqual(result.loaded, ['TYPESAFE_API_KEY'])
+  assert.equal(env.OPENROUTER_API_KEY, 'shell-router')
+  assert.equal(env.TYPESAFE_API_KEY, 'file-jev')
+  assert.equal(env.UNRELATED, undefined)
+})
+
+test('explicit SABI_SECRETS_FILE wins over the nearest workspace file', () => {
+  const { root, project, pkg } = workspace()
+  const workspaceFile = path.join(root, 'secrets', '.env')
+  const explicitFile = path.join(root, 'private', 'credentials.env')
+  mkdirSync(path.dirname(workspaceFile), { recursive: true })
+  mkdirSync(path.dirname(explicitFile), { recursive: true })
+  writeFileSync(workspaceFile, 'OPENROUTER_API_KEY=workspace\n')
+  writeFileSync(explicitFile, 'OPENROUTER_API_KEY=explicit\n')
+  const env: NodeJS.ProcessEnv = { SABI_SECRETS_FILE: explicitFile }
+  const paths = secretSearchPaths({ cwd: project, packageRoot: pkg, env })
+  assert.deepEqual(paths, [explicitFile])
+  const config = validateConfig({
+    upstreams: { openrouter: { baseURL: 'http://127.0.0.1:1/v1', apiKey: '$OPENROUTER_API_KEY' } },
+    models: { cheap: { upstream: 'openrouter', model: 'm-cheap' } },
+    aliases: { 'sabi-code': 'auto' },
+    policy: { unclassified: 'cheap' },
+  })
+  assert.deepEqual(loadConfiguredSecrets(config, { cwd: project, packageRoot: pkg, env }).loaded, ['OPENROUTER_API_KEY'])
+  assert.equal(env.OPENROUTER_API_KEY, 'explicit')
 })
 
 test('the default package root is the directory that ships this package', () => {

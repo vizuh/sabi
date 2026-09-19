@@ -91,8 +91,6 @@ Turn 1 runs on the session model; turn 2 (a read round → `exploration` → che
 
 ```bash
 npm install
-export OPENROUTER_API_KEY=...    # upstream model credentials
-export TYPESAFE_API_KEY=...      # Jev judge (optional; set judge.enabled false to skip)
 npm start                        # http://127.0.0.1:8787/v1
 
 npm run connect:command-code     # writes/updates the "sabi" provider in ~/.commandcode/providers.json
@@ -103,12 +101,16 @@ npm run connect:opencode         # OpenCode: merges the "sabi" provider into ~/.
 
 Then pick `sabi/sabi-code` in `/model` (or `--model sabi/sabi-code`). Fixed baseline aliases for comparison: `sabi-cheap`, `sabi-mid`, `sabi-strong`. `sabi-local` targets Ollama and is not exposed by default — its 32k window is too small for harness prompts. Other clients — OpenCode and Hermes, with what they do and do not get — are covered in [docs/install.md](docs/install.md#clients-other-than-command-code).
 
-Sabi is a foreground process, not a service: if it is not running, every `sabi/*` request fails with `ECONNREFUSED 127.0.0.1:8787` inside the harness. On this machine both keys come from the workspace secrets file:
+Sabi is a foreground process, not a service: if it is not running, every `sabi/*` request fails with `ECONNREFUSED 127.0.0.1:8787` inside the harness.
 
-```bash
-export OPENROUTER_API_KEY="$(grep -E '^OPENROUTER_API_KEY=' ../../../secrets/.env | cut -d= -f2-)"
-export TYPESAFE_API_KEY="$(grep -E '^typesafe=' ../../../secrets/.env | cut -d= -f2-)"
-```
+At startup the proxy loads only the credential names referenced by the active config. Existing
+environment variables win, then `SABI_SECRETS_FILE`, the nearest workspace `secrets/.env`, and
+finally `~/.config/sabi/secrets.env` or `~/.config/sabi/.env`. A dotenv file can use
+`OPENROUTER_API_KEY=...` and `TYPESAFE_API_KEY=...`; the HugoOS workspace's existing `typesafe=...`
+name is also accepted for the TypeSafe key. No secret is copied into a harness config, terminal,
+worktree, log or Git. The Command Code mod remains keyless; OpenCode, Hermes, Kilo and other
+OpenAI-compatible clients only point at the local proxy, while their own account credentials stay
+with the harness.
 
 ## Where Sabi finds its config
 

@@ -8,6 +8,19 @@ round 2 on, a read round goes cheap, edits and tests go mid, and a failing tool 
 This package is the **mod only**. The local proxy (BYOK, for any harness that accepts a `baseURL`)
 lives in the [repository](https://github.com/vizuh/sabi).
 
+The two paths are independent:
+
+- **Command Code mod:** no Sabi provider key and no proxy; it routes the subscription already
+  available to Command Code.
+- **Local proxy:** works with OpenCode, Hermes, Kilo and other OpenAI-compatible clients, using
+  OpenRouter, Ollama or another configured upstream.
+
+For the proxy, Sabi loads only the credential names referenced by `sabi.config.json`. Existing
+environment variables win, followed by `SABI_SECRETS_FILE`, the nearest workspace `secrets/.env`,
+and `~/.config/sabi/secrets.env` or `~/.config/sabi/.env`. It never copies secret values into a
+harness config, terminal, worktree, log or Git. Users who do not use Jev can set `judge.enabled` to
+`false`; users without a central secrets file can keep exporting provider variables normally.
+
 ## Install
 
 ```bash

@@ -277,3 +277,18 @@ Checked first: no task/round success signal exists anywhere in this codebase —
 `packages/core/src/log.ts` gained `readDecisions()`, factored out of `report.ts`'s inline parse loop so `report.ts`, `backtest.ts` and `recovery.ts` share one read path instead of three.
 
 259 Node tests pass (17 new here: `recovery.test.ts` — pairing/exclusion rules including the adjacency-breaking regression, non-overlapping-interval comparison, and key-decoding without string-splitting, with the Wilson bounds checked against hand-computed values for known (p̂, n) pairs; 6 new `judge.test.ts` cases proving the tie-breaker declines when decisive, is a no-op below the sample gate, never overrides a confident veto/confirm or fires outside the ambiguous branch, and survives the fallback-rule-is-unclassified collision), typecheck clean, offline eval unaffected. Docs: `docs/decisions.md`. Explicitly out of scope: the full `U(m,t)` formula (no verified local source for `value`/`C_latency`/`C_retry`); porting to the Class A mod path (`judge.ts` is proxy-only today).
+
+## [2026-09-19] change | Provider-neutral workspace secret loading
+
+Added `packages/core/src/config.ts` secret discovery and a dotenv parser. The proxy now loads only
+the environment names referenced by enabled upstreams and Jev, with existing process variables
+winning over `SABI_SECRETS_FILE`, the nearest workspace `secrets/.env`, and the per-user Sabi file.
+The provider-name alias fallback accepts the current HugoOS `typesafe=` entry without requiring a
+provider-specific integration. `packages/server/src/index.ts` activates it at startup and reports
+only a count and path, never values. `scripts/setup.ts` now points users at the discovered file
+instead of incorrectly requiring an exported shell variable.
+
+Updated EN/PT-BR/ZH README and install/harness docs for users of OpenRouter, Ollama, OpenCode,
+Hermes, Kilo, Command Code and other clients; the proxy remains the shared boundary and Orca is
+not required. No secret file was changed. Validation: 262 Node tests, focused config tests 17/17,
+typecheck, and a no-provider-call startup with shell keys unset loaded 2 configured keys.

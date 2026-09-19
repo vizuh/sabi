@@ -5,6 +5,10 @@ import { fileURLToPath } from 'node:url'
 import type { SabiConfig } from './types.ts'
 
 const CONFIG_FILE = 'sabi.config.json'
+const SECRET_FILE = '.env'
+const SECRET_DIR = 'secrets'
+const ENV_REFERENCE = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/
+const BRACED_ENV_REFERENCE = /^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$/
 
 /** `packages/core` in the repo, or the package root when installed under node_modules. */
 export const PACKAGE_ROOT = fileURLToPath(new URL('../', import.meta.url))
@@ -13,6 +17,23 @@ export interface ConfigSearchOptions {
   cwd?: string
   packageRoot?: string
   env?: NodeJS.ProcessEnv
+}
+
+export interface SecretSearchOptions {
+  cwd?: string
+  packageRoot?: string
+  env?: NodeJS.ProcessEnv
+}
+
+export interface SecretLoadOptions extends SecretSearchOptions {
+  /** Explicit path used by tests and by users who keep secrets outside a workspace. */
+  file?: string
+}
+
+export interface SecretLoadResult {
+  file?: string
+  loaded: string[]
+  error?: string
 }
 
 function userConfigPath(env: NodeJS.ProcessEnv): string {
@@ -24,6 +45,17 @@ function nearestConfigAbove(start: string): string | undefined {
   let dir = path.resolve(start)
   for (;;) {
     const candidate = path.join(dir, CONFIG_FILE)
+    if (existsSync(candidate)) return candidate
+    const parent = path.dirname(dir)
+    if (parent === dir) return undefined
+    dir = parent
+  }
+}
+
+function nearestSecretFile(start: string): string | undefined {
+  let dir = path.resolve(start)
+  for (;;) {
+    const candidate = path.join(dir, SECRET_DIR, SECRET_FILE)
     if (existsSync(candidate)) return candidate
     const parent = path.dirname(dir)
     if (parent === dir) return undefined
@@ -52,6 +84,28 @@ export function configSearchPaths(options: ConfigSearchOptions = {}): string[] {
 export function defaultConfigPath(options: ConfigSearchOptions = {}): string {
   const candidates = configSearchPaths(options)
   return candidates.find((candidate) => existsSync(candidate)) ?? (candidates[0] as string)
+}
+
+/**
+ * Secret discovery is optional and provider-neutral: an explicit file wins, then a workspace
+ * `secrets/.env`, then the per-user Sabi directory. Existing process variables always win.
+ */
+export function secretSearchPaths(options: SecretSearchOptions = {}): string[] {
+  const env = options.env ?? process.env
+  const explicit = env.SABI_SECRETS_FILE?.trim()
+  if (explicit) return [explicit]
+
+  const candidates: string[] = []
+  for (const start of [options.cwd ?? process.cwd(), options.packageRoot ?? PACKAGE_ROOT]) {
+    const candidate = nearestSecretFile(start)
+    if (candidate) candidates.push(candidate)
+  }
+  const configHome = env.XDG_CONFIG_HOME?.trim() || path.join(os.homedir(), '.config')
+  candidates.push(
+    path.join(configHome, 'sabi', 'secrets.env'),
+    path.join(configHome, 'sabi', SECRET_FILE),
+  )
+  return [...new Set(candidates)]
 }
 
 export function loadConfig(configPath = defaultConfigPath()): SabiConfig {
@@ -327,16 +381,101 @@ export function minOutputTokensFor(config: SabiConfig, target: string): number |
   return limits.length ? Math.min(...limits) : undefined
 }
 
-export function resolveKey(reference: string | false | undefined): string | undefined {
+export function keyReferenceName(reference: string | false | undefined): string | undefined {
   if (reference === false || reference === undefined) return undefined
   const trimmed = String(reference).trim()
   if (!trimmed) return undefined
-  const match =
-    trimmed.match(/^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/) ?? trimmed.match(/^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$/)
+  const match = trimmed.match(ENV_REFERENCE) ?? trimmed.match(BRACED_ENV_REFERENCE)
   if (!match) {
     throw new Error(`unsupported apiKey reference '${trimmed}' (use "$ENV_VAR" or false)`)
   }
-  const name = match[1] ?? ''
-  const value = process.env[name]
+  return match[1] ?? ''
+}
+
+export function resolveKey(reference: string | false | undefined, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const name = keyReferenceName(reference)
+  if (!name) return undefined
+  const value = env[name]
   return value && value.length > 0 ? value : undefined
+}
+
+/** Parse the small dotenv subset Sabi needs without evaluating the file as shell code. */
+export function parseEnvFile(text: string): Record<string, string> {
+  const values: Record<string, string> = {}
+  for (const rawLine of text.split(/\r?\n/)) {
+    let line = rawLine.trim()
+    if (!line || line.startsWith('#')) continue
+    line = line.replace(/^export\s+/, '')
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/)
+    if (!match) continue
+    let value = match[2]?.trim() ?? ''
+    if (!value.startsWith('"') && !value.startsWith("'")) value = value.replace(/\s+#.*$/, '').trim()
+    if (value.length >= 2 && value[0] === value[value.length - 1] && (value[0] === '"' || value[0] === "'")) {
+      if (value[0] === '"') {
+        try {
+          value = JSON.parse(value) as string
+        } catch {
+          value = value.slice(1, -1)
+        }
+      } else {
+        value = value.slice(1, -1)
+      }
+    }
+    values[match[1] as string] = value
+  }
+  return values
+}
+
+function secretNamesFor(name: string): string[] {
+  const names = [name, name.toLowerCase()]
+  const provider = name.replace(/_API_KEY$/, '').replace(/_KEY$/, '')
+  if (provider && provider !== name) {
+    names.push(provider.toLowerCase(), `${provider.toLowerCase()}_api_key`)
+  }
+  return [...new Set(names)]
+}
+
+function configuredKeyNames(config: SabiConfig): string[] {
+  const references = [
+    ...Object.values(config.upstreams).filter((upstream) => upstream.enabled !== false).map((upstream) => upstream.apiKey),
+    ...(config.judge?.enabled ? [config.judge.apiKey] : []),
+  ]
+  const names: string[] = []
+  for (const reference of references) {
+    try {
+      const name = keyReferenceName(reference)
+      if (name && !names.includes(name)) names.push(name)
+    } catch {
+      // Keep the existing unsupported-reference diagnostic in the startup credential check.
+    }
+  }
+  return names
+}
+
+/** Load only configured credential references; never copy unrelated workspace secrets into env. */
+export function loadConfiguredSecrets(config: SabiConfig, options: SecretLoadOptions = {}): SecretLoadResult {
+  const env = options.env ?? process.env
+  const names = configuredKeyNames(config)
+  if (!names.length) return { loaded: [] }
+
+  const file = (options.file?.trim() || secretSearchPaths(options).find((candidate) => existsSync(candidate)))
+  if (!file) return { loaded: [] }
+
+  let values: Record<string, string>
+  try {
+    values = parseEnvFile(readFileSync(file, 'utf8'))
+  } catch (error) {
+    return { file, loaded: [], error: `could not read ${file}: ${(error as Error).message}` }
+  }
+
+  const loaded: string[] = []
+  for (const name of names) {
+    if (env[name]) continue
+    const value = secretNamesFor(name).map((candidate) => values[candidate]).find((candidate) => candidate)
+    if (value) {
+      env[name] = value
+      loaded.push(name)
+    }
+  }
+  return { file, loaded }
 }

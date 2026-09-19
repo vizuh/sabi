@@ -91,8 +91,6 @@ cmd -p "Read package.json and reply with only the value of its name field." \
 
 ```bash
 npm install
-export OPENROUTER_API_KEY=...    # upstream model credentials
-export TYPESAFE_API_KEY=...      # Jev judge (optional; set judge.enabled false to skip)
 npm start                        # http://127.0.0.1:8787/v1
 
 npm run connect:command-code     # writes/updates the "sabi" provider in ~/.commandcode/providers.json
@@ -103,12 +101,14 @@ npm run connect:opencode         # OpenCode: merges the "sabi" provider into ~/.
 
 之后在 `/model` 里选择 `sabi/sabi-code`（或 `--model sabi/sabi-code`）。用于对照的固定基线别名：`sabi-cheap`、`sabi-mid`、`sabi-strong`。`sabi-local` 指向 Ollama，默认不暴露——其 32k 窗口对 harness 提示来说太小。其他客户端——OpenCode 与 Hermes，以及它们能得到与得不到什么——见 [docs/install.md](docs/install.md#clients-other-than-command-code)。
 
-Sabi 是前台进程，不是服务：如果不运行，harness 内每个 `sabi/*` 请求都会以 `ECONNREFUSED 127.0.0.1:8787` 失败。在这台机器上，两把密钥都来自工作区的 secrets 文件：
-
-```bash
-export OPENROUTER_API_KEY="$(grep -E '^OPENROUTER_API_KEY=' ../../../secrets/.env | cut -d= -f2-)"
-export TYPESAFE_API_KEY="$(grep -E '^typesafe=' ../../../secrets/.env | cut -d= -f2-)"
-```
+Sabi 是前台进程，不是服务：如果不运行，harness 内每个 `sabi/*` 请求都会以
+`ECONNREFUSED 127.0.0.1:8787` 失败。启动时，代理只读取当前配置引用的凭据名称。已经存在的
+环境变量优先，其次是 `SABI_SECRETS_FILE`、最近的 workspace `secrets/.env`，最后是
+`~/.config/sabi/secrets.env` 或 `~/.config/sabi/.env`。dotenv 文件可以使用
+`OPENROUTER_API_KEY=...` 和 `TYPESAFE_API_KEY=...`；HugoOS workspace 中现有的 `typesafe=...`
+名称也可用于 TypeSafe。密钥不会复制到 harness 配置、终端、worktree、日志或 Git。Command
+Code mod 仍然不需要密钥；OpenCode、Hermes、Kilo 和其他 OpenAI 兼容客户端只需指向本地代理，
+它们自己的账户凭据仍由 harness 管理。
 
 ## Sabi 在哪里找到配置
 
