@@ -499,6 +499,31 @@ name, versioning rule and live-host acceptance evidence before the release workf
 When those four inputs exist, add the controller package to a deliberate release lane; do not broaden
 the current npm workflow implicitly.
 
+## [2026-09-19] Public installation is a separate controller release lane
+
+### Decision
+
+Treat `npm link` and workspace dependencies as development-only. Publish the controller as a bundled
+`@vizuh/sabi-controller` package with its own release workflow, user-level daemon lifecycle and
+verified host integrations. Keep `@vizuh/sabi` as the existing Command Code adapter package.
+
+### Why
+
+A user opening an Orca worktree must not need a checkout, `node_modules`, an interactive `PATH` or a
+per-worktree install. The current source bridge cannot satisfy that contract, and combining it with
+the existing adapter artifact would silently change the public package boundary.
+
+### Tradeoffs
+
+There are two release lanes to maintain, and each harness still needs an installed-contract proof.
+The first public release may support only Claude, Codex and OpenCode, with Orca inventory/dispatch
+marked partial until its plugin installation and universal event contract are verified.
+
+### Revisit later?
+
+Only expand the support matrix after a clean-machine install and live terminal receipt for that
+harness. An executable discovered on `PATH` is never enough evidence.
+
 ## [2026-09-19] Design evidence is optional and local
 
 ### Decision

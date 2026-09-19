@@ -16,6 +16,7 @@ Sabi is a Vizuh product: adaptive inference scheduling for AI agents — per-rou
 - `docs/decisions.md` — running decision log (template: `www/_shared/templates/workflow/docs/decisions.md`)
 - `docs/handoff.md` — current status; update at the end of meaningful work
 - `docs/research/` — verified external research (prior art, harness capabilities)
+- `docs/research/public-installation-plan.md` — public CLI, daemon, host integration and release gates
 - `log.md` — append-only change log; one entry per meaningful change set
 - Current code groups: `packages/core`, `packages/server`, `packages/controller`, `packages/evals`, and `packages/adapters/{command-code,orca,opencode,prime-agent}`.
 

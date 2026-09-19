@@ -20,6 +20,12 @@ after its package version is merged, then creates the matching GitHub Release. I
 the private controller or Orca bridge. Do not create a new package release for controller-only source
 changes until a publishable controller artifact and versioning contract are defined.
 
+The next product phase is documented in [the public installation plan](research/public-installation-plan.md).
+`npm link` is not a user-installation solution. The target is a bundled `@vizuh/sabi-controller`
+package, a user-level daemon/service, consented host integrations and clean-machine acceptance across
+supported harnesses. “Spawn candidate” and “executable on PATH” remain weaker than an integrated,
+receipt-producing adapter.
+
 ## Provider-neutral secret loading — 2026-09-19
 
 The proxy now loads only credential references used by the active configuration. Precedence is
