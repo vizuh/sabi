@@ -2,11 +2,71 @@
 
 ## Current status
 
-`main` includes PR #22, merged as `4c88fdb`, with the user-level controller daemon, Claude/Codex hooks, the OpenCode bridge, trace schema v1 and read-only replay. The source/test boundary is validated; installed user-config mutation, live OpenCode plugin activation inside Orca, and real cross-terminal execution remain separate evidence gates. The current latest package release is `v0.1.2` at `35560c0` and publishes only `@vizuh/sabi` (the Command Code adapter). The root controller and Orca bridge are not in that npm artifact, so controller-only changes continue through source PRs rather than an artificial package tag.
+`main` includes PR #22, merged as `4c88fdb`, with the user-level controller daemon, Claude/Codex hooks, the OpenCode bridge, trace schema v1 and read-only replay. The source/test boundary is validated; installed user-config mutation, live OpenCode plugin activation inside Orca, and real cross-terminal execution remain separate evidence gates. The current latest package release is `v0.1.2` at `35560c0` and publishes only `@vizuh/sabi` (the Command Code adapter). The current controller implementation branch adds the separate `@vizuh/sabi-controller` bundle and release lane, but it is not published or merged yet.
 
 ## Last meaningful update
 
 2026-09-19
+
+## Public controller package — 2026-09-19
+
+Built the first no-checkout installation boundary. `packages/controller/pack.mjs` bundles the CLI,
+daemon, hooks, OpenCode plugin and Orca bridge resources into `packages/controller/pkg`; the generated
+manifest is `@vizuh/sabi-controller` and the `controller-v*` workflow publishes it independently of
+the existing `@vizuh/sabi` Command Code package. Hook commands use the installed Node/CLI paths, so
+they do not depend on an interactive `PATH`.
+
+Verification: `npm run build:controller`, `node --test scripts/test/controller-package.test.ts`,
+`npm run typecheck` and the full suite remain the required gates. The package test performs a real
+`npm pack`, installs into a clean temporary prefix, and runs the installed CLI without the checkout's
+`node_modules`. No npm publication, macOS/Windows service, or universal Orca activation is claimed by
+this local branch.
+
+## Global Orca inventory and cross-worktree handoff — 2026-09-19
+
+The controller inventory no longer discards idle Orca terminals solely because their worktree differs
+from the request `cwd`. It keeps the terminal's real worktree/branch and can select it when the route
+has a valid delegation path. Cross-worktree dispatch sends a bounded structured handoff containing the
+objective, original request, source session, repository/worktree/branch, changed files, tests/results,
+diff summary, unresolved work and next suggested step. The `2 + 2` regression remains deterministic
+`CONTINUE` in the current session.
+
+Verification: global inventory fixture and structured-handoff test pass; typecheck remains clean. This
+does not yet create a persistent registry for harnesses outside Orca or prove a live cross-terminal
+receipt against a paid/interactive session.
+
+## Linux user service and integration inventory — 2026-09-19
+
+`sabi setup` now attempts an idempotent `systemd --user` unit on Linux using the installed Node and
+CLI paths, with `Restart=on-failure` and no root requirement. If the user systemd bus is unavailable,
+the result explicitly records a lazy detached fallback. `sabi integrations list|repair` reports
+detected executables as `executable-only` and keeps the verified controller bridge list separate;
+finding Hermes, Pi, OMP or an Orca binary does not promote them to supported adapters.
+
+Verification: service template and disabled-host tests pass, and the full suite remains green. The
+macOS/Windows service paths, uninstall/rollback, persistent non-Orca session registry and universal
+Orca prompt events remain unverified.
+
+## Authenticated daemon transport — 2026-09-19
+
+The loopback daemon now creates a random per-user bearer token in the mode-0600 daemon info file;
+daemon clients send it on health, plan, status and route requests. OpenCode reads only that local
+token (or an explicit `SABI_CONTROLLER_TOKEN`) and remains fail-open when the daemon is absent. A
+request with the wrong token is rejected with 401. This is still a loopback transport, not a remote
+service contract.
+
+The generated scoped package now declares `publishConfig.access=public`, and the controller release
+workflow passes `--access public`; the clean-package test asserts that manifest contract.
+
+## Inventory context redaction — 2026-09-19
+
+Live Orca inventory exposed that terminal previews can contain reset URLs or credentials. The
+controller now redacts common query-token, API-key, bearer and password/secret assignments before
+context reaches status, routing telemetry or handoff candidates. Raw screen text is still used only
+inside the bounded capacity classifier and is not returned as a descriptor.
+
+Live check against Orca 1.4.201 observed 34 worktrees and 12 sessions; a safe-pattern scan of the
+returned descriptors found zero raw reset-token, bearer, API-key or password-assignment matches.
 
 ## Controller host hooks and release boundary — 2026-09-19
 

@@ -551,3 +551,65 @@ are recorded. A failed or unauthorized study must fail open to the existing rout
 Add a generic evidence-provider contract only when a second provider or a real routing consumer needs
 it. At that point validate the signals, redaction boundary and replay behavior with local fixtures
 before adding any provider package or model-specific default.
+
+## [2026-09-19] Bundle the controller without widening the adapter release
+
+### Decision
+
+Keep `packages/controller` private inside the workspace, but build its public boundary as a bundled
+`@vizuh/sabi-controller` staging package. Release it only from `controller-v*`; leave the existing
+`v*` workflow and `@vizuh/sabi` Command Code package unchanged.
+
+### Why
+
+The controller imports private workspace code and cannot be installed safely from a clean machine as
+raw TypeScript. Bundling removes that runtime dependency and gives users one global CLI while keeping
+the existing adapter's package contract stable.
+
+### Evidence and limits
+
+The local package test builds, packs and installs the tarball into a temporary npm prefix, then runs
+the installed CLI and `doctor` without the checkout's `node_modules`. This proves packaging, not npm
+publication, login-service persistence, universal Orca activation or cross-terminal execution.
+
+### Revisit later?
+
+Only publish a `controller-v*` tag after the clean-machine and Phase E live host gates pass. Add
+platform service installers and broader harness claims as separate evidence-backed changes.
+
+## [2026-09-19] Linux user service is the first ambient-runtime backend
+
+### Decision
+
+Have `sabi setup` attempt a per-user `systemd --user` unit on Linux, using absolute installed paths,
+and report a lazy detached fallback when the user bus is unavailable. Keep macOS and Windows service
+installation unsupported until each is validated on its own platform.
+
+### Why
+
+The daemon must survive a terminal closing and should not require root or a worktree-local process.
+Linux is the current verified host, while pretending that a PATH executable or an untested service
+template works on every OS would make the public support claim false.
+
+### Revisit later?
+
+Add LaunchAgent/Windows user-service implementations only with platform tests covering install,
+restart, status, upgrade and uninstall rollback.
+
+## [2026-09-19] Redact Orca preview context at the inventory boundary
+
+### Decision
+
+Treat Orca terminal titles/previews as untrusted bounded text. Redact common reset/access token,
+API-key, bearer and password/secret patterns before exposing context in inventory, routing telemetry
+or handoffs. Keep raw screen text in-process only for capacity classification.
+
+### Why
+
+Real live inventory showed that an otherwise idle terminal preview can contain a password-reset URL.
+Session discovery must not turn that into `sabi status` output or a persisted candidate descriptor.
+
+### Revisit later?
+
+Expand the redaction canary corpus when a new provider/harness exposes a credential format; never
+replace it with storing full terminal transcripts.

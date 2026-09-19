@@ -48,7 +48,11 @@ function writeObject(file: string, value: JsonObject): string | undefined {
 }
 
 function commandFor(env: NodeJS.ProcessEnv, harness: HookHarness): string {
-  const executable = env.SABI_HOOK_COMMAND?.trim() || 'sabi'
+  const configured = env.SABI_HOOK_COMMAND?.trim()
+  const quote = (value: string): string => process.platform === 'win32'
+    ? `"${value.replaceAll('"', '\\"')}"`
+    : `'${value.replaceAll("'", "'\\''")}'`
+  const executable = configured || (process.argv[1] ? `${quote(process.execPath)} ${quote(path.resolve(process.argv[1]))}` : 'sabi')
   return `${executable} hook ${harness}`
 }
 
@@ -88,7 +92,15 @@ function openCodeConfigPath(env: NodeJS.ProcessEnv): string {
 }
 
 function openCodeSourcePath(env: NodeJS.ProcessEnv): string {
-  return env.SABI_OPENCODE_HOOK_SOURCE?.trim() || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../adapters/opencode/src/sabi-hook.mjs')
+  if (env.SABI_OPENCODE_HOOK_SOURCE?.trim()) return env.SABI_OPENCODE_HOOK_SOURCE.trim()
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url))
+  for (const bundled of [
+    path.resolve(moduleDir, '../resources/opencode/sabi-hook.mjs'),
+    path.resolve(moduleDir, 'resources/opencode/sabi-hook.mjs'),
+  ]) {
+    if (existsSync(bundled)) return bundled
+  }
+  return path.resolve(moduleDir, '../../adapters/opencode/src/sabi-hook.mjs')
 }
 
 function installClaude(env: NodeJS.ProcessEnv): HookInstallResult {

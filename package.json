@@ -17,6 +17,7 @@
     "setup": "node scripts/setup.ts",
     "backtest": "node packages/evals/src/backtest.ts",
     "controller": "node packages/controller/src/cli.ts",
+    "build:controller": "node packages/controller/pack.mjs",
     "connect:command-code": "node packages/adapters/command-code/src/connect.ts",
     "connect:opencode": "node packages/adapters/opencode/src/connect.ts",
     "mod": "cmd --mod ./packages/adapters/command-code/mod/sabi.ts"

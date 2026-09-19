@@ -386,3 +386,50 @@ dependency. Raw reports, Design DNA, screenshots, assets and URLs stay under ign
 state; a future routing consumer may accept only bounded evidence flags and a soft model-affinity
 prior. Kimi K3 remains a local hypothesis for reference-driven visual work, not a hard-coded public
 route. No URL was studied and no TokenScout dependency or site artifact was added.
+
+## [2026-09-19] feat | Public controller package boundary
+
+Added the first external-installation slice for the controller. `npm run build:controller` creates a
+self-contained `@vizuh/sabi-controller` staging package with the CLI, daemon, hooks and integration
+resources; `controller-v*` has a separate release workflow from the existing `@vizuh/sabi` adapter.
+Hook commands resolve the installed entrypoint absolutely. The clean-prefix test builds, packs,
+installs and executes the generated tarball without the source checkout. No registry publication,
+login service, universal Orca activation or cross-terminal execution is claimed yet.
+
+## [2026-09-19] feat | Global Orca candidates and structured handoff
+
+Orca inventory now retains eligible idle sessions from other visible worktrees instead of filtering
+everything to the caller's `cwd`. Cross-worktree dispatch includes a bounded JSON handoff with objective,
+source context, changed files, tests/results, diff and next step. Added regression coverage for global
+inventory and the permanent `2 + 2` smallest-route rule. Persistent non-Orca session registration and
+live cross-terminal receipts remain separate gates.
+
+## [2026-09-19] feat | Linux user service boundary
+
+Added a minimal `systemd --user` installer behind `sabi setup`: absolute Node/CLI paths, user-scoped
+state, restart-on-failure and explicit lazy fallback when the user bus is unavailable. Added
+`sabi integrations list|repair` so PATH discovery is labelled `executable-only` rather than treated
+as proof of a controller adapter. macOS/Windows service installation and uninstall rollback remain
+unvalidated.
+
+## [2026-09-19] security | Authenticate local daemon clients
+
+Added a random per-user bearer token to the daemon info record and require it for loopback requests;
+OpenCode reads the same user-scoped token and sends it without handling provider credentials. Wrong
+tokens receive 401, missing daemon/token still fails open in the harness hook. No remote bind is
+enabled.
+
+## [2026-09-19] security | Redact terminal preview context
+
+Live global inventory showed that terminal previews may contain reset URLs or credential-like values.
+Added boundary redaction for common query tokens, API keys, bearer values and password/secret
+assignments before previews become session context; raw screen text remains internal to capacity
+classification and is not persisted as a candidate descriptor.
+The live post-fix scan observed 34 worktrees/12 sessions and zero unredacted credential-pattern
+matches in returned descriptors.
+
+## [2026-09-19] release | Make the scoped controller package public
+
+The generated `@vizuh/sabi-controller` manifest now declares public access and the tag workflow passes
+`--access public`. The clean-prefix package test asserts the generated publish contract before any
+registry publication.

@@ -1,6 +1,6 @@
 {
   "name": "@sabi/controller",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -9,7 +9,13 @@
   "exports": {
     ".": "./src/cli.ts"
   },
+  "scripts": {
+    "build:pkg": "node pack.mjs"
+  },
   "dependencies": {
     "@sabi/core": "*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
   }
 }

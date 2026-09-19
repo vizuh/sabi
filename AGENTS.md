@@ -33,5 +33,5 @@ Sabi is a Vizuh product: adaptive inference scheduling for AI agents — per-rou
 
 - `sabi setup --hooks` and `sabi hooks install` install the experimental Claude, Codex and OpenCode controller bridges. They fail open when Sabi is unavailable and do not switch paid subscriptions or harness-selected models.
 - `sabi replay --last=<n>` is read-only telemetry aggregation; it does not re-run historical tasks or compile policy lessons.
-- The root controller and Orca bridge are private monorepo source. The `@vizuh/sabi` tag release currently publishes only the packaged Command Code adapter; a controller-only change does not justify a package tag.
+- The root controller remains a private monorepo workspace, while `npm run build:controller` produces the separate `@vizuh/sabi-controller` public-package staging artifact. The `@vizuh/sabi` tag release still publishes only the packaged Command Code adapter; do not claim the controller package is published until a `controller-v*` tag and registry proof exist.
 - Report controller support as separate evidence layers: source/tests, merged GitHub state, installed-config mutation, live host activation, and real cross-terminal execution. Do not promote one layer into another.

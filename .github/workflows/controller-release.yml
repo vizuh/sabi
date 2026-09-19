@@ -1,0 +1,55 @@
+name: controller-release
+
+# The controller has its own public package and release lane. The existing v* workflow publishes
+# only @vizuh/sabi, the Command Code adapter.
+on:
+  push:
+    tags: ['controller-v*']
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Build controller package
+        run: npm run build:controller
+        env:
+          SABI_CONTROLLER_VERSION: ${{ github.ref_name }}
+      - name: Publish @vizuh/sabi-controller
+        id: publish
+        run: |
+          version="${GITHUB_REF_NAME#controller-v}"
+          if npm view "@vizuh/sabi-controller@$version" version >/dev/null 2>&1; then
+            echo "state=already" >> "$GITHUB_OUTPUT"
+            echo "@vizuh/sabi-controller@$version is already published — skipping."
+          else
+            npm publish ./packages/controller/pkg --access public --provenance
+            echo "state=fresh" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: GitHub Release
+        run: |
+          version="${GITHUB_REF_NAME#controller-v}"
+          mkdir -p dist
+          if [ "${{ steps.publish.outputs.state }}" = "fresh" ]; then
+            npm pack ./packages/controller/pkg --pack-destination dist
+          else
+            npm pack "@vizuh/sabi-controller@$version" --pack-destination dist
+          fi
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" dist/*.tgz --generate-notes --title "Sabi controller $version"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
