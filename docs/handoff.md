@@ -309,3 +309,26 @@ harness. This is the first replay/evaluation surface; it does not yet re-run a p
 historical inventory or synthesize lessons.
 
 Verification: focused controller tests pass, including a CLI replay test and daemon trace assertions.
+
+## Public controller installation phase 2 — 2026-09-20
+
+PR #28 (`feat/global-installation-phase2`) is open against `main`. The controller package now treats
+`sabi setup` as the explicit user-consent point: it detects real executable harnesses, installs only
+the supported Claude/Codex/OpenCode bridges that are present, preserves existing configuration, and
+passes the current host session identity through planning. A hook can therefore keep a trivial
+request such as `2 + 2` in the current session even when the daemon also sees other Orca worktrees.
+Sessions registered by an adapter remain bounded, hashed and non-dispatchable until that adapter
+proves prompt delivery and outcome receipts.
+
+The clean public-package path is verified without this checkout: the package is bundled, packed,
+installed into a temporary npm prefix, and run with an isolated user state directory. CI run
+`35475422114` passed `npm ci`, typecheck, all 351 tests, and the clean-prefix package test. The
+portable harness-detection fixtures use temporary executable stubs only inside tests; production
+still requires the real harness command to be present.
+
+This phase is not a universal-installation claim. `@vizuh/sabi-controller` has not been published or
+tagged, macOS/Windows user-service installers are not validated, and the installed Orca 1.4.201
+surface has no verified universal prompt interception or plugin-install command. The next release
+gate is a consented live host test with two worktrees and two real harnesses that proves terminal
+receipt, execution, outcome and rerouting; only after that may a `controller-v*` tag publish the
+package.

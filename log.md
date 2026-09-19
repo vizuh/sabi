@@ -433,3 +433,12 @@ matches in returned descriptors.
 The generated `@vizuh/sabi-controller` manifest now declares public access and the tag workflow passes
 `--access public`. The clean-prefix package test asserts the generated publish contract before any
 registry publication.
+
+## [2026-09-20] verify | Global setup and clean-install CI
+
+PR #28 (`feat/global-installation-phase2`) now detects real installed host sessions, preserves the
+current hook session identity, and keeps the global registry bounded and hashed. The package test
+proves the generated controller runs from a clean npm prefix; harness-detection tests use isolated
+temporary executables so CI does not depend on which tools happen to be installed on the runner.
+CI run `35475422114` passed typecheck, 351 tests, and the clean-prefix package test. No npm
+publication, controller tag, universal Orca activation or live cross-terminal execution is claimed.
