@@ -17,6 +17,9 @@ The first packaging slice is now implemented in the controller workstream:
   installed CLI and `doctor` without the repository or its `node_modules`;
 - Linux setup attempts an authenticated, user-scoped `systemd --user` daemon and the Orca inventory
   retains idle sessions across visible worktrees with structured cross-worktree handoff;
+- the authenticated daemon now accepts bounded adapter session register/heartbeat/outcome events;
+  `sabi sessions` exposes hash-based identities while registered sessions remain non-dispatchable
+  until an adapter proves its transport;
 - no registry publication is claimed until the release tag, npm package and clean-machine proof all
   exist.
 
@@ -55,8 +58,8 @@ gets its own public package and release lane so the existing adapter contract is
 - `packages/adapters/orca` is a source bridge, not an installed Orca integration. Orca plugin API v1
   exposes focused worktree/terminal calls and bounded status events, not a universal prompt hook.
 - Orca terminal discovery now includes idle sessions across its visible worktrees and sends a
-  structured handoff when delegation crosses worktrees. A persistent registry/heartbeat contract for
-  non-Orca harnesses is still missing.
+  structured handoff when delegation crosses worktrees. The persistent registry/heartbeat contract
+  exists, but non-Orca dispatch and outcome receipts still require adapter-specific proof.
 - Hooks exist for Claude, Codex and OpenCode. Other harnesses are spawn candidates or proxy clients,
   not controller integrations.
 
@@ -154,6 +157,10 @@ machine → host → repo → worktree → harness → session → terminal
 Store only bounded descriptors: stable session id, harness identity, worktree, branch, lifecycle,
 capabilities, context availability, quota/rate-limit class and last observed status. Do not merge
 sessions by shared path or prompt, and do not persist raw terminal transcripts by default.
+
+The current v1 storage is user-scoped `sessions.json`, authenticated through the daemon bearer token,
+with hash-derived session ids, ten-minute heartbeat expiry and no dispatch permission. An adapter must
+promote itself through the contract above before its registered session can become a route target.
 
 The route request uses the current session as context but may choose eligible sessions in other
 worktrees only when the adapter supplies an explicit handoff/dispatch contract.

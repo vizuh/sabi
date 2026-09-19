@@ -249,6 +249,13 @@ function promptFrom(input: JsonObject): string | undefined {
   return undefined
 }
 
+function sessionIdFrom(input: JsonObject): string | undefined {
+  for (const key of ['session_id', 'sessionId', 'conversation_id', 'conversationId']) {
+    if (typeof input[key] === 'string' && input[key].trim()) return input[key].trim()
+  }
+  return undefined
+}
+
 export async function routeHookPrompt(
   harness: HookHarness,
   event: string,
@@ -256,12 +263,20 @@ export async function routeHookPrompt(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<JsonObject> {
   const request = promptFrom(input)
-  if (!request || event !== 'UserPromptSubmit') return {}
   const stateDir = controllerStateDir(env)
   if (!hasControllerPreferences(stateDir)) return {}
   try {
     const info = await startControllerDaemon({ stateDir })
     const cwd = typeof input.cwd === 'string' && input.cwd.trim() ? path.resolve(input.cwd) : process.cwd()
+    const sessionId = sessionIdFrom(input)
+    if (sessionId) {
+      await requestControllerDaemon('/v1/sessions/register', {
+        info,
+        method: 'POST',
+        body: { sessionId, adapter: harness, harness, worktree: cwd, lifecycle: event === 'SessionEnd' ? 'dead' : 'active' },
+      })
+    }
+    if (!request || event !== 'UserPromptSubmit') return {}
     const plan = await requestControllerDaemon('/plan', {
       info,
       method: 'POST',

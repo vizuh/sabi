@@ -16,8 +16,9 @@ test('OpenCode chat.message plans first and replaces the submitted parts after d
     const hooks = await SabiOpenCodePlugin({ directory: '/tmp/sabi-opencode-test', worktree: '/tmp/sabi-opencode-test' })
     const output = { parts: [{ type: 'text', text: 'review this change' }] }
     await hooks['chat.message']({ sessionID: 'opencode-session-1' }, output)
-    assert.deepEqual(requests.map((request) => new URL(request.url).pathname), ['/plan', '/route'])
-    assert.deepEqual(requests[1].body.override, { sessionId: 'session:claude-1' })
+    assert.deepEqual(requests.map((request) => new URL(request.url).pathname), ['/v1/sessions/register', '/plan', '/route', '/v1/sessions/outcome'])
+    assert.equal(requests[0].body.adapter, 'opencode')
+    assert.deepEqual(requests[2].body.override, { sessionId: 'session:claude-1' })
     assert.equal(output.parts.length, 1)
     assert.match(output.parts[0].text, /delegated/i)
   } finally {

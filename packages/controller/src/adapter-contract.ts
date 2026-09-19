@@ -74,7 +74,7 @@ const BUILTIN_ADAPTERS: HarnessAdapterManifest[] = [
     status: 'partial',
     consent: 'required',
     operations: {
-      detect: 'native', install: 'hook', 'identify-session': 'missing', 'receive-prompt': 'hook',
+      detect: 'native', install: 'hook', 'identify-session': 'hook', 'receive-prompt': 'hook',
       dispatch: 'cli', 'observe-outcome': 'cli', uninstall: 'hook',
     },
   },
@@ -86,7 +86,7 @@ const BUILTIN_ADAPTERS: HarnessAdapterManifest[] = [
     status: 'partial',
     consent: 'required',
     operations: {
-      detect: 'native', install: 'hook', 'identify-session': 'missing', 'receive-prompt': 'hook',
+      detect: 'native', install: 'hook', 'identify-session': 'hook', 'receive-prompt': 'hook',
       dispatch: 'cli', 'observe-outcome': 'cli', uninstall: 'hook',
     },
   },
@@ -98,7 +98,7 @@ const BUILTIN_ADAPTERS: HarnessAdapterManifest[] = [
     status: 'partial',
     consent: 'required',
     operations: {
-      detect: 'native', install: 'hook', 'identify-session': 'missing', 'receive-prompt': 'hook',
+      detect: 'native', install: 'hook', 'identify-session': 'hook', 'receive-prompt': 'hook',
       dispatch: 'cli', 'observe-outcome': 'cli', uninstall: 'hook',
     },
   },

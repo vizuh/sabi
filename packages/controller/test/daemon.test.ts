@@ -50,6 +50,34 @@ test('daemon serves health, live inventory and controller routing over loopback'
       body: { request: 'what is 2 + 2?', cwd },
     })
     assert.equal(plan?.execution && (plan.execution as Record<string, unknown>).status, 'not-started')
+
+    const registered = await requestControllerDaemon('/v1/sessions/register', {
+      info: daemon.info,
+      method: 'POST',
+      body: { sessionId: 'session-secret', adapter: 'claude', harness: 'claude', worktree: cwd, context: 'read-only session' },
+    })
+    assert.equal(registered?.ok, true)
+    assert.match(String((registered?.session as Record<string, unknown>).id), /^registry:claude:/)
+    assert.equal(String((registered?.session as Record<string, unknown>).id).includes('session-secret'), false)
+
+    const heartbeat = await requestControllerDaemon('/v1/sessions/heartbeat', {
+      info: daemon.info,
+      method: 'POST',
+      body: { sessionId: 'session-secret', adapter: 'claude', harness: 'claude', worktree: cwd, lifecycle: 'idle' },
+    })
+    assert.equal((heartbeat?.session as Record<string, unknown>).lifecycle, 'idle')
+    const outcome = await requestControllerDaemon('/v1/sessions/outcome', {
+      info: daemon.info,
+      method: 'POST',
+      body: { sessionId: 'session-secret', adapter: 'claude', harness: 'claude', worktree: cwd, outcome: 'completed' },
+    })
+    assert.equal((outcome?.session as Record<string, unknown>).lastOutcome, 'completed')
+    const invalid = await requestControllerDaemon('/v1/sessions/register', {
+      info: daemon.info,
+      method: 'POST',
+      body: { adapter: 'claude' },
+    })
+    assert.equal(invalid?.error, 'sessionId is required')
   } finally {
     await daemon.close()
     if (previousOrca === undefined) delete process.env.ORCA_CLI_COMMAND

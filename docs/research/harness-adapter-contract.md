@@ -20,13 +20,19 @@ Each adapter reports a manifest with:
 and whether all operations are present. `ready: false` is expected until the adapter has an explicit
 session identity and a real prompt/outcome receipt.
 
+Adapters may register bounded session state through the authenticated daemon endpoints
+`/v1/sessions/register`, `/v1/sessions/heartbeat` and `/v1/sessions/outcome`. Sabi stores a hashed
+session identity, not the provider's raw id, and expires entries after ten minutes without a
+heartbeat. Registered sessions are observable with `sabi sessions`; they are not dispatch targets
+until the adapter supplies and proves a dispatch transport.
+
 Current boundary:
 
 | Adapter | Status | Missing proof |
 |---|---|---|
-| Claude Code | partial | stable session identity and clean-machine live receipt |
-| Codex | partial | stable session identity and clean-machine live receipt |
-| OpenCode | partial | stable session identity and clean-machine live receipt |
+| Claude Code | partial | clean-machine consent and live prompt/outcome receipt |
+| Codex | partial | clean-machine consent and live prompt/outcome receipt |
+| OpenCode | partial | clean-machine consent and live prompt/outcome receipt |
 | Orca | inventory-only | official consented plugin install and universal prompt event |
 | Command Code | inference-only | controller prompt/dispatch contract |
 | Hermes, Prime Agent, Pi, OMP | unsupported | installed runtime contract and end-to-end adapter |

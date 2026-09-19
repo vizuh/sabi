@@ -65,6 +65,24 @@ export async function SabiOpenCodePlugin(context) {
     'chat.message': async (input, output) => {
       const request = textFromParts(output?.parts)
       if (!request) return
+      const sessionId = typeof input?.sessionID === 'string'
+        ? input.sessionID
+        : typeof input?.sessionId === 'string'
+          ? input.sessionId
+          : typeof context.sessionID === 'string'
+            ? context.sessionID
+            : typeof context.sessionId === 'string'
+              ? context.sessionId
+              : undefined
+      if (sessionId) {
+        await post(controllerURL, '/v1/sessions/register', {
+          sessionId,
+          adapter: 'opencode',
+          harness: 'opencode',
+          worktree: cwd,
+          lifecycle: 'active',
+        })
+      }
       const plan = await post(controllerURL, '/plan', { request, cwd })
       const action = typeof plan?.action === 'string' ? plan.action : ''
       if (!['DELEGATE', 'SPAWN', 'ORCHESTRATE'].includes(action)) return
@@ -76,6 +94,16 @@ export async function SabiOpenCodePlugin(context) {
         orchestrate: action === 'ORCHESTRATE',
         ...(override ? { override } : {}),
       })
+      if (sessionId && result?.execution?.status) {
+        const status = result.execution.status === 'failed' ? 'failed' : accepted(result) ? 'completed' : 'unverifiable'
+        await post(controllerURL, '/v1/sessions/outcome', {
+          sessionId,
+          adapter: 'opencode',
+          harness: 'opencode',
+          worktree: cwd,
+          outcome: status,
+        })
+      }
       if (!accepted(result)) return
       // chat.message exposes the mutable parts list, so the current session does not execute the
       // same request after the controller has dispatched it elsewhere.

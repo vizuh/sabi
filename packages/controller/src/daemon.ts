@@ -5,6 +5,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { inventorySnapshot, dispatchControllerRequest } from './runtime.ts'
+import { heartbeatSession, recordSessionOutcome, registerSession } from './registry.ts'
 
 const PROTOCOL = 1
 const DEFAULT_PORT = 7433
@@ -168,6 +169,25 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, info: Co
         execute: url.pathname === '/route',
       })
       sendJson(res, 200, record)
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/v1/sessions/register') {
+      const body = await readJson(req)
+      sendJson(res, 200, { ok: true, session: registerSession(info.stateDir, body) })
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/v1/sessions/heartbeat') {
+      const body = await readJson(req)
+      sendJson(res, 200, { ok: true, session: heartbeatSession(info.stateDir, body) })
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/v1/sessions/outcome') {
+      const body = await readJson(req)
+      const outcome = body.outcome
+      if (outcome !== 'started' && outcome !== 'completed' && outcome !== 'failed' && outcome !== 'unverifiable') {
+        throw new Error('outcome must be started, completed, failed or unverifiable')
+      }
+      sendJson(res, 200, { ok: true, session: recordSessionOutcome(info.stateDir, { ...body, outcome }) })
       return
     }
     sendJson(res, 404, { error: 'not found' })

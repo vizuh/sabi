@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { registerSession } from '../src/registry.ts'
 
 const cliPath = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
 
@@ -225,6 +226,18 @@ test('setup reports the detached fallback when the user service backend is disab
   const stopped = run(['daemon', '--stop', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
   assert.equal(stopped.status, 0)
   assert.equal(JSON.parse(stopped.stdout).stopped, true)
+})
+
+test('sessions lists bounded adapter registrations without exposing raw identities', () => {
+  const cwd = workspace()
+  const stateDir = path.join(cwd, 'controller-state')
+  registerSession(stateDir, { sessionId: 'raw-session-id', adapter: 'claude', harness: 'claude', worktree: cwd })
+  const result = run(['sessions', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
+  assert.equal(result.status, 0)
+  const record = JSON.parse(result.stdout)
+  assert.equal(record.sessions.length, 1)
+  assert.match(record.sessions[0].id, /^registry:claude:/)
+  assert.equal(record.sessions[0].id.includes('raw-session-id'), false)
 })
 
 test('setup --hooks installs all host bridges in isolated config paths', () => {
