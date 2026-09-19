@@ -193,6 +193,15 @@ export interface TelemetryConfig {
   captureChars?: number
 }
 
+export interface ControllerHarnessConfig {
+  preferredModels?: string[]
+}
+
+export interface ControllerConfig {
+  preferredHarnesses?: string[]
+  harnesses?: Record<string, ControllerHarnessConfig>
+}
+
 export interface SabiConfig {
   provenance?: string
   server?: { host?: string; port?: number }
@@ -203,6 +212,7 @@ export interface SabiConfig {
   compatibility?: CompatibilityConfig
   judge?: JudgeConfig
   telemetry?: TelemetryConfig
+  controller?: ControllerConfig
   harness?: {
     provenance?: string
     tiers: Record<string, CatalogTier>

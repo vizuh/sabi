@@ -1,0 +1,64 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { heartbeatSession, readSessionRegistry, recordSessionOutcome, registerSession, registryPath } from '../src/registry.ts'
+
+function workspace(): string {
+  return mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-registry-'))
+}
+
+test('registry stores bounded identities without raw session ids and expires stale entries', () => {
+  const stateDir = workspace()
+  try {
+    const first = registerSession(stateDir, {
+      sessionId: 'provider-secret-session-id',
+      adapter: 'claude',
+      harness: 'claude',
+      worktree: stateDir,
+      context: 'Frontend session token=secret-value',
+    }, 100_000)
+    assert.match(first.id, /^registry:claude:/)
+    assert.equal(first.id.includes('provider-secret-session-id'), false)
+    assert.equal(first.dispatchable, false)
+    assert.equal(first.context, 'Frontend session token=[redacted]')
+    heartbeatSession(stateDir, {
+      sessionId: 'provider-secret-session-id',
+      adapter: 'claude',
+      harness: 'claude',
+      worktree: stateDir,
+      lifecycle: 'idle',
+    }, 100_001)
+    const outcome = recordSessionOutcome(stateDir, {
+      sessionId: 'provider-secret-session-id',
+      adapter: 'claude',
+      harness: 'claude',
+      worktree: stateDir,
+      lifecycle: 'idle',
+      outcome: 'completed',
+    }, 100_002)
+    assert.equal(outcome.lastOutcome, 'completed')
+    assert.equal(readSessionRegistry(stateDir, 100_003).length, 1)
+    assert.equal(readSessionRegistry(stateDir, 100_003 + 10 * 60_000 + 1).length, 0)
+    assert.equal(readFileSync(registryPath(stateDir), 'utf8').includes('provider-secret-session-id'), false)
+    assert.equal(existsSync(registryPath(stateDir)), true)
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true })
+  }
+})
+
+test('registry rejects malformed registration fields', () => {
+  const stateDir = workspace()
+  try {
+    assert.throws(() => registerSession(stateDir, {
+      sessionId: '', adapter: 'claude', harness: 'claude', worktree: stateDir,
+    }), /sessionId is required/)
+    assert.throws(() => registerSession(stateDir, {
+      sessionId: 'id', adapter: 'claude', harness: 'claude', worktree: stateDir,
+      capacity: { status: 'bad' as never },
+    }), /unsupported capacity status/)
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true })
+  }
+})

@@ -14,6 +14,8 @@ import {
   writeControllerPreferences,
 } from './daemon.ts'
 import { configuredHarnesses } from './inventory.ts'
+import { adapterReady, builtInAdapterManifests, commandAvailable } from './adapter-contract.ts'
+import { readSessionRegistry } from './registry.ts'
 import { defaultControllerLogPath, readControllerDecisions, summarizeControllerReplay } from './log.ts'
 import { dispatchControllerRequest, inventorySnapshot } from './runtime.ts'
 import { installUserService, type UserServiceResult } from './service.ts'
@@ -21,9 +23,9 @@ import { uninstallController, upgradeController } from './lifecycle.ts'
 import { installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'upgrade' | 'uninstall'
+type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'upgrade' | 'uninstall'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'doctor', 'config', 'logs', 'replay', 'setup', 'daemon', 'hooks', 'hook', 'integrations', 'upgrade', 'uninstall'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'daemon', 'hooks', 'hook', 'integrations', 'upgrade', 'uninstall'])
 const CLI_VERSION = process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
 
 function flagValue(argv: string[], name: string): string | undefined {
@@ -42,6 +44,7 @@ function printStatus(snapshot: Record<string, unknown>, heading = 'Sabi status')
   const active = snapshot.active as { agent: string; id: string; available: boolean; lifecycle?: string }
   const sessions = snapshot.sessions as Array<{ agent: string; id: string; available: boolean; lifecycle?: string }>
   const candidates = snapshot.spawnCandidates as Array<{ agent: string; available: boolean }>
+  const registered = snapshot.registeredSessions as Array<{ id: string; harness: string; lifecycle: string }> | undefined
   const runtime = snapshot.runtime as { mode: string; daemon: string }
   console.log(heading)
   console.log(`cwd: ${snapshot.cwd}`)
@@ -49,6 +52,7 @@ function printStatus(snapshot: Record<string, unknown>, heading = 'Sabi status')
   console.log(`Orca: ${orca.available ? 'available' : `unavailable${orca.errorCode ? ` (${orca.errorCode})` : ''}`} · worktrees ${orca.worktreeCount}`)
   console.log(`active: ${active.agent} · ${active.id} · ${active.available ? active.lifecycle ?? 'available' : 'unavailable'}`)
   console.log(`sessions: ${sessions.length ? sessions.map((session) => `${session.agent}=${session.available ? session.lifecycle ?? 'available' : 'unavailable'}`).join(', ') : 'none'}`)
+  if (registered) console.log(`registered adapters: ${registered.length}`)
   console.log(`spawn candidates: ${candidates.length ? candidates.map((candidate) => `${candidate.agent}${candidate.available ? '' : ' (unavailable)'}`).join(', ') : 'none'}`)
 }
 
@@ -57,6 +61,7 @@ function printHelp(): void {
   sabi route "<request>" [--cwd=<path>] [--json]
   sabi status [--cwd=<path>] [--json]
   sabi agents [--cwd=<path>] [--json]
+  sabi sessions [--json]
   sabi doctor [--cwd=<path>] [--json]
   sabi config [--cwd=<path>] [--json]
   sabi logs [--cwd=<path>] [--tail=<n>] [--json]
@@ -129,9 +134,23 @@ async function runStatus(command: 'status' | 'agents', argv: string[]): Promise<
   const cwd = resolvedCwd(argv)
   const daemon = await inspectControllerDaemon()
   const remote = daemon.state === 'running' ? await requestControllerDaemon(`/status?cwd=${encodeURIComponent(cwd)}`, { info: daemon.info }) : undefined
-  const snapshot = remote ?? inventorySnapshot(cwd, { mode: 'local-cli', daemon: daemon.state })
+  const snapshot = {
+    ...(remote ?? inventorySnapshot(cwd, { mode: 'local-cli', daemon: daemon.state })),
+    registeredSessions: readSessionRegistry(controllerStateDir()),
+  }
   if (jsonRequested(argv)) console.log(JSON.stringify(snapshot, null, 2))
   else printStatus(snapshot, command === 'agents' ? 'Sabi agents' : 'Sabi status')
+}
+
+function runSessions(argv: string[]): void {
+  const stateDir = controllerStateDir()
+  const result = { stateDir, sessions: readSessionRegistry(stateDir) }
+  if (jsonRequested(argv)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log(`Sabi registered sessions: ${result.sessions.length}`)
+  for (const session of result.sessions) console.log(`${session.id} · ${session.harness} · ${session.lifecycle} · ${session.worktree}`)
 }
 
 async function runDoctor(argv: string[]): Promise<void> {
@@ -221,11 +240,18 @@ async function runIntegrations(argv: string[]): Promise<void> {
   const repaired = action === 'repair' && repairTargets.length > 0
     ? installHooks({ harnesses: repairTargets })
     : undefined
+  const manifests = builtInAdapterManifests().map((manifest) => ({
+    ...manifest,
+    detected: manifest.command ? commandAvailable(manifest.command) : false,
+    ready: adapterReady(manifest),
+  }))
   const result = {
     action,
     detected: detected.map(({ agent, command }) => ({ agent, command, status: 'executable-only' })),
-    supported: ['claude', 'codex', 'opencode'],
-    unsupported: ['orca-universal', 'hermes', 'prime-agent', 'pi', 'omp'],
+    adapters: manifests,
+    supported: manifests.filter(({ ready }) => ready).map(({ id }) => id),
+    partial: manifests.filter(({ status }) => status === 'partial').map(({ id }) => id),
+    unsupported: manifests.filter(({ status }) => status === 'unsupported').map(({ id }) => id),
     ...(action === 'repair'
       ? { repaired: repaired !== undefined, hooks: repaired ?? [], detail: repaired ? 'supported user hooks repaired' : 'no detected supported harness to repair' }
       : {}),
@@ -234,7 +260,8 @@ async function runIntegrations(argv: string[]): Promise<void> {
   else {
     console.log('Sabi integrations')
     for (const item of result.detected) console.log(`○ ${item.agent}: ${item.status}`)
-    console.log(`supported controller bridges: ${result.supported.join(', ')}`)
+    console.log(`supported controller adapters: ${result.supported.join(', ') || 'none'}`)
+    console.log(`partial adapters: ${result.partial.join(', ') || 'none'}`)
     console.log(`not controller-integrated: ${result.unsupported.join(', ')}`)
     if (action === 'repair') console.log(result.detail)
   }
@@ -388,6 +415,7 @@ async function main(): Promise<void> {
   }
   const { command, args } = commandAndArgs(argv)
   if (command === 'status' || command === 'agents') return runStatus(command, args)
+  if (command === 'sessions') return runSessions(args)
   if (command === 'doctor') return runDoctor(args)
   if (command === 'integrations') return runIntegrations(args)
   if (command === 'config') return runConfig(args)

@@ -70,6 +70,13 @@
     "captureSnippets": false,
     "captureChars": 800
   },
+  "controller": {
+    "preferredHarnesses": ["opencode", "command-code", "claude", "codex", "hermes"],
+    "harnesses": {
+      "command-code": { "preferredModels": ["moonshotai/kimi-k3"] },
+      "opencode": { "preferredModels": ["opencode-go/kimi-k3"] }
+    }
+  },
   "judge": {
     "enabled": true,
     "baseURL": "https://api.typesafe.ai/v1",

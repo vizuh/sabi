@@ -18,4 +18,6 @@ and `sabi replay --last=1000` to inspect the local state. `sabi upgrade --versio
 an exact controller version, and `sabi uninstall` restores hook backups while archiving user state.
 
 The first public release supports only the harness adapters listed by `sabi doctor`. An executable
-being present on `PATH` is not, by itself, proof that a harness is controller-integrated.
+being present on `PATH` is not, by itself, proof that a harness is controller-integrated. Use
+`sabi sessions --json` to inspect bounded adapter registrations; registered sessions are not route
+targets until their adapter proves a dispatch transport.

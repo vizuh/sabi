@@ -433,3 +433,13 @@ matches in returned descriptors.
 The generated `@vizuh/sabi-controller` manifest now declares public access and the tag workflow passes
 `--access public`. The clean-prefix package test asserts the generated publish contract before any
 registry publication.
+
+## [2026-09-19] feat | Route across local Command Code and OpenCode plans
+
+Added controller preferences for `opencode` then `command-code`, exact local model-catalog checks,
+and Orca capacity-aware fallback across `opencode`, `command-code`, `claude`, `codex` and optional
+`hermes`. `cmd --list-models` and `opencode models` are local setup checks;
+they are combined with live quota/session state, so the current quota-exhausted Command Code Sabi
+session selects the available OpenCode Sabi session. New terminals carry the verified model through
+`--model`; existing sessions are not silently switched. Verification: 348 Node tests and typecheck
+passed; live status and a pure routing proof ran read-only, with no paid task dispatched.

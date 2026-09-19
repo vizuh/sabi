@@ -3,7 +3,14 @@ import assert from 'node:assert/strict'
 import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { discoverAgents } from '../src/inventory.ts'
+import { discoverAgents, parseModelList, selectPreferredModel } from '../src/inventory.ts'
+
+test('local harness model catalog matching stays exact and provider-free', () => {
+  const output = 'opencode-go/kimi-k3\nopencode-go/gpt-5.6-luna\nAvailable models · 2 models'
+  assert.deepEqual(parseModelList(output), ['opencode-go/kimi-k3', 'opencode-go/gpt-5.6-luna'])
+  assert.equal(selectPreferredModel(output, ['opencode-go/kimi-k3']), 'opencode-go/kimi-k3')
+  assert.equal(selectPreferredModel(output, ['moonshotai/kimi-k3']), undefined)
+})
 
 function fakeOrca(cwd: string): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-inventory-'))
@@ -95,5 +102,21 @@ test('inventory includes eligible idle sessions from other Orca worktrees', () =
     else process.env.ORCA_CLI_COMMAND = previousCommand
     if (previousHandle === undefined) delete process.env.ORCA_TERMINAL_HANDLE
     else process.env.ORCA_TERMINAL_HANDLE = previousHandle
+  }
+})
+
+test('a harness hook can identify the current host session without an Orca terminal handle', () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-host-session-'))
+  const previousCommand = process.env.ORCA_CLI_COMMAND
+  process.env.ORCA_CLI_COMMAND = fakeOrca(cwd)
+  try {
+    const inventory = discoverAgents(cwd, { currentSession: 'provider-session-1', currentHarness: 'claude' })
+    assert.equal(inventory.active.agent, 'claude')
+    assert.equal(inventory.active.available, true)
+    assert.equal(inventory.active.handle, undefined)
+    assert.match(inventory.active.id, /^session:host:/)
+  } finally {
+    if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
+    else process.env.ORCA_CLI_COMMAND = previousCommand
   }
 })
