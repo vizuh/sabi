@@ -10,11 +10,16 @@ export function orcaBin(): string {
 /**
  * One subcommand call. Always fail-open: any failure returns `{ok:false, errorCode}`, never
  * throws — Orca is an external, third-party binary that may not even be installed, and a
- * documented lifecycle-reporting bug (2026-08-03 postmortem) means its output must be treated as
- * best-effort, never a hard dependency for a routing decision.
+ * documented lifecycle-reporting bug (`context/Hugo OS/postmortems/2026-08-03-orca-br-skill-legacy-read-only.md`,
+ * sourced against `stablyai/orca#12034`/`#11993`/`#10406`/`#11582`) means its output must be
+ * treated as best-effort, never a hard dependency for a routing decision.
  */
-export function runOrca(args: string[], opts: { bin?: string; timeoutMs?: number } = {}): OrcaQueryResult {
+export function runOrca(
+  args: string[],
+  opts: { bin?: string; timeoutMs?: number; field?: 'worktrees' | 'terminals' } = {},
+): OrcaQueryResult {
   const bin = opts.bin ?? orcaBin()
+  const field = opts.field ?? 'worktrees'
   const result = spawnSync(bin, args, { timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, encoding: 'utf8' })
 
   // Check error.code explicitly before falling through to a generic branch — checking
@@ -38,13 +43,13 @@ export function runOrca(args: string[], opts: { bin?: string; timeoutMs?: number
   // `unrecognized-shape` stays its own code, distinct from "queried fine, found nothing", so a
   // parse-shape bug can never be silently read as "no match" in signals.ts.
   if (!Array.isArray(parsed)) return { ok: false, errorCode: 'unrecognized-shape' }
-  return { ok: true, worktrees: parsed }
+  return { ok: true, [field]: parsed }
 }
 
 export function queryOrcaWorktrees(opts?: { bin?: string; timeoutMs?: number }): OrcaQueryResult {
-  return runOrca(['worktree', 'ps', '--json'], opts)
+  return runOrca(['worktree', 'ps', '--json'], { ...opts, field: 'worktrees' })
 }
 
 export function queryOrcaTerminals(opts?: { bin?: string; timeoutMs?: number }): OrcaQueryResult {
-  return runOrca(['terminal', 'list', '--json'], opts)
+  return runOrca(['terminal', 'list', '--json'], { ...opts, field: 'terminals' })
 }

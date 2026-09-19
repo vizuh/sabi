@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { chmodSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runOrca } from '../src/orca.ts'
+import { queryOrcaTerminals, queryOrcaWorktrees, runOrca } from '../src/orca.ts'
 
 const fixturesDir = fileURLToPath(new URL('./fixtures/', import.meta.url))
 function fixture(name: string): string {
@@ -46,4 +46,18 @@ test('a call that exceeds the timeout -> timeout, not a hang', () => {
   const result = runOrca(['--json'], { bin: fixture('orca-slow.js'), timeoutMs: 200 })
   assert.equal(result.ok, false)
   assert.equal(result.errorCode, 'timeout')
+})
+
+test('queryOrcaWorktrees populates the worktrees field', () => {
+  const result = queryOrcaWorktrees({ bin: fixture('orca-ok.js') })
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.worktrees, [{ path: '/tmp/example', branch: 'main' }])
+  assert.equal(result.terminals, undefined)
+})
+
+test('queryOrcaTerminals populates the terminals field, not worktrees', () => {
+  const result = queryOrcaTerminals({ bin: fixture('orca-ok.js') })
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.terminals, [{ path: '/tmp/example', branch: 'main' }])
+  assert.equal(result.worktrees, undefined)
 })
