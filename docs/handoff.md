@@ -197,4 +197,12 @@ Added a real `sabi` bin to the root and controller package manifests. The local 
 
 This is the first installable UX slice, not the daemon claim: output explicitly reports `runtime: local-cli` and `daemon: not-configured`. No automatic Claude/Codex hooks, user service, or Orca plugin auto-install was added without a verified host contract. `npm link`/workspace linking can now expose `sabi`; packaging a public `@sabi/controller` release remains a separate delivery decision.
 
-Verification: CLI tests 9/9, full suite 324/324, typecheck clean, and offline eval completed. The offline eval remains a measurement rather than a release gate.
+Verification: CLI tests 10/10, daemon tests 2/2, full suite 327/327, typecheck clean, and offline eval completed. The offline eval remains a measurement rather than a release gate.
+
+## User-level controller daemon — 2026-09-19
+
+Added the first ambient-runtime slice. `sabi setup` writes non-secret controller preferences under the user state directory (`~/.local/state/sabi` on Unix, `%LOCALAPPDATA%/sabi` on Windows, or `SABI_CONTROLLER_HOME` for tests) and starts a detached loopback daemon. `sabi route` uses that daemon when setup state exists and falls back to the same local controller path if the daemon cannot answer. `sabi status` and `sabi agents` query the daemon when it is running; `sabi daemon --status|--stop` manages its lifecycle.
+
+The daemon exposes only `/health`, `/status`, and `/route` for now. It reuses the existing live Orca inventory and execution code; it does not create a second controller, database, model registry, Laya adapter, or empirical bandit. The loopback endpoint has no auth by design; `ponytail: keep it loopback-only, add per-user authentication before any non-local bind.`
+
+`setup` detects installed harness executables and reports rules/Jev/Laya state, but deliberately reports harness hooks as `not-installed`. No Claude/Codex/OpenCode/Hermes hook or login/system-service integration was added without a verified host contract. The next evidence gate is one real post-setup route through the daemon into an Orca terminal, followed by one verified host adapter; model observatory work starts only after durable outcome signals exist.

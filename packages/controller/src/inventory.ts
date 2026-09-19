@@ -116,7 +116,7 @@ function executableExists(command: string): boolean {
   }
 }
 
-function configuredHarnesses(): Array<{ agent: string; command: string }> {
+export function configuredHarnesses(): Array<{ agent: string; command: string }> {
   const configured = process.env.SABI_CONTROLLER_HARNESSES?.split(',').map((value) => value.trim()).filter(Boolean)
   if (!configured?.length) return DEFAULT_HARNESSES.filter(({ command }) => executableExists(command))
   return configured.map((agent) => ({ agent, command: agent })).filter(({ command }) => executableExists(command))

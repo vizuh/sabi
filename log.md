@@ -331,3 +331,14 @@ Added `sabi` bin entries to the root and controller manifests and exposed `route
 and explicit `--cwd`; they report `local-cli`/`daemon not-configured` rather than implying a
 background service. Hardened the controller log reader against parsed non-object rows. Focused
 CLI tests: 9/9; full suite: 324/324; typecheck clean; offline eval completed as measurement. Automatic user daemon and harness hooks remain unimplemented.
+
+## [2026-09-19] feat | User-level controller daemon slice
+
+Added `packages/controller/src/daemon.ts` and the shared controller runtime. `sabi setup` persists
+non-secret user preferences and can start a detached loopback daemon; `sabi route` uses it after
+setup and safely falls back locally; `status`/`agents` query its live inventory; `daemon --status`
+and `daemon --stop` manage it. The daemon exposes `/health`, `/status`, and `/route` and reuses the
+existing Orca execution path. Added isolated daemon startup/protocol tests and setup coverage.
+No host hooks, system login service, Laya adapter, model registry, or outcome-learning store was
+added; those need verified host contracts and durable outcome evidence first.
+Validation: 327/327 Node tests, typecheck, and offline eval completed; eval remains a measurement.

@@ -2,15 +2,25 @@
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { defaultConfigPath } from '@sabi/core'
-import { runController } from './controller.ts'
-import { discoverAgents } from './inventory.ts'
-import { appendControllerDecision, defaultControllerLogPath, readControllerDecisions } from './log.ts'
-import { gatherSignals } from './signals.ts'
-import type { AgentHarness, AgentSession, ControllerDecisionRecord, ControllerOverride } from './types.ts'
+import {
+  controllerPreferencesPath,
+  controllerStateDir,
+  hasControllerPreferences,
+  inspectControllerDaemon,
+  requestControllerDaemon,
+  runForegroundControllerDaemon,
+  startControllerDaemon,
+  stopControllerDaemon,
+  writeControllerPreferences,
+} from './daemon.ts'
+import { configuredHarnesses } from './inventory.ts'
+import { defaultControllerLogPath, readControllerDecisions } from './log.ts'
+import { dispatchControllerRequest, inventorySnapshot } from './runtime.ts'
+import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'doctor' | 'config' | 'logs'
+type Command = 'route' | 'status' | 'agents' | 'doctor' | 'config' | 'logs' | 'setup' | 'daemon'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'doctor', 'config', 'logs'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'doctor', 'config', 'logs', 'setup', 'daemon'])
 
 function flagValue(argv: string[], name: string): string | undefined {
   return argv.find((a) => a.startsWith(`${name}=`))?.slice(name.length + 1)
@@ -23,46 +33,15 @@ function commandAndArgs(argv: string[]): { command: Command; args: string[] } {
   return { command: candidate as Command, args: argv.filter((_, position) => position !== index) }
 }
 
-function summarizeAgent(agent: AgentSession | AgentHarness): Record<string, unknown> {
-  return {
-    id: agent.id,
-    agent: agent.agent,
-    harness: agent.harness,
-    available: agent.available,
-    capacity: agent.capacity,
-    worktree: agent.worktree,
-    branch: agent.branch,
-    context: agent.context,
-    ...(agent.kind === 'session'
-      ? { kind: agent.kind, handle: agent.handle, lifecycle: agent.lifecycle, authenticated: agent.authenticated }
-      : { kind: agent.kind, command: agent.command }),
-  }
-}
-
-function inventorySnapshot(cwd: string): Record<string, unknown> {
-  const inventory = discoverAgents(cwd)
-  return {
-    cwd,
-    runtime: { mode: 'local-cli', daemon: 'not-configured' },
-    orca: {
-      available: inventory.orcaAvailable,
-      ...(inventory.errorCode ? { errorCode: inventory.errorCode } : {}),
-      worktreeCount: inventory.worktreeCount,
-    },
-    active: summarizeAgent(inventory.active),
-    sessions: inventory.existingSessions.map(summarizeAgent),
-    spawnCandidates: inventory.spawnCandidates.map(summarizeAgent),
-  }
-}
-
 function printStatus(snapshot: Record<string, unknown>, heading = 'Sabi status'): void {
   const orca = snapshot.orca as { available: boolean; errorCode?: string; worktreeCount: number }
   const active = snapshot.active as { agent: string; id: string; available: boolean; lifecycle?: string }
   const sessions = snapshot.sessions as Array<{ agent: string; id: string; available: boolean; lifecycle?: string }>
   const candidates = snapshot.spawnCandidates as Array<{ agent: string; available: boolean }>
+  const runtime = snapshot.runtime as { mode: string; daemon: string }
   console.log(heading)
   console.log(`cwd: ${snapshot.cwd}`)
-  console.log('runtime: local CLI (daemon not configured)')
+  console.log(`runtime: ${runtime.mode} (daemon ${runtime.daemon})`)
   console.log(`Orca: ${orca.available ? 'available' : `unavailable${orca.errorCode ? ` (${orca.errorCode})` : ''}`} · worktrees ${orca.worktreeCount}`)
   console.log(`active: ${active.agent} · ${active.id} · ${active.available ? active.lifecycle ?? 'available' : 'unavailable'}`)
   console.log(`sessions: ${sessions.length ? sessions.map((session) => `${session.agent}=${session.available ? session.lifecycle ?? 'available' : 'unavailable'}`).join(', ') : 'none'}`)
@@ -77,9 +56,11 @@ function printHelp(): void {
   sabi doctor [--cwd=<path>] [--json]
   sabi config [--cwd=<path>] [--json]
   sabi logs [--cwd=<path>] [--tail=<n>] [--json]
+  sabi setup [--no-start] [--json]
+  sabi daemon [--status|--stop|--foreground] [--json]
 
 The current CLI uses live Orca state when available. A user daemon and automatic
-harness hooks are not installed by this package yet.`)
+harness hooks are not installed by this package yet; run sabi setup to enable the daemon.`)
 }
 
 function resolvedCwd(argv: string[]): string {
@@ -105,23 +86,23 @@ async function runRoute(argv: string[]): Promise<void> {
   const requestParts = argv.filter((a) => !a.startsWith('--'))
   const requestText = requestParts.length > 0 ? requestParts.join(' ') : undefined
 
-  const signals = gatherSignals(cwd, requestText, orchestrateFlag)
-  const result = await runController(requestText ?? '', cwd, signals, override, Number.isFinite(waitMs) && waitMs >= 0 ? waitMs : 5000)
-  const record: ControllerDecisionRecord = {
-    action: result.selection.action,
-    rule: result.selection.rule,
-    reason: result.selection.reason,
-    ts: new Date().toISOString(),
-    cwd,
-    signals,
-    ...(requestText ? { request: requestText } : {}),
-    ...(override ? { override } : {}),
-    handoff: result.handoff,
-    target: result.selection.target,
-    routing: result.routing,
-    execution: result.execution,
+  const request = requestText ?? ''
+  let record: ControllerDecisionRecord | undefined
+  const stateDir = controllerStateDir()
+  if (!argv.includes('--local') && hasControllerPreferences(stateDir)) {
+    try {
+      const info = await startControllerDaemon({ stateDir })
+      const remote = await requestControllerDaemon('/route', {
+        info,
+        method: 'POST',
+        body: { request, cwd, orchestrate: orchestrateFlag, override, waitMs },
+      })
+      if (remote && typeof remote.action === 'string' && remote.execution !== null && typeof remote.execution === 'object') record = remote as unknown as ControllerDecisionRecord
+    } catch {
+      // The local path remains a safe fallback when the user daemon cannot start or answer.
+    }
   }
-  appendControllerDecision(record, defaultControllerLogPath(cwd))
+  record ??= await dispatchControllerRequest({ request, cwd, orchestrate: orchestrateFlag, override, waitMs })
 
   if (asJson) {
     console.log(JSON.stringify(record, null, 2))
@@ -131,23 +112,28 @@ async function runRoute(argv: string[]): Promise<void> {
     console.log(`execution: ${record.execution?.status ?? 'unknown'}`)
   }
 
-  if (result.execution.status === 'failed') process.exitCode = 1
+  if (record.execution?.status === 'failed') process.exitCode = 1
 }
 
-function runStatus(command: 'status' | 'agents', argv: string[]): void {
-  const snapshot = inventorySnapshot(resolvedCwd(argv))
+async function runStatus(command: 'status' | 'agents', argv: string[]): Promise<void> {
+  const cwd = resolvedCwd(argv)
+  const daemon = await inspectControllerDaemon()
+  const remote = daemon.state === 'running' ? await requestControllerDaemon(`/status?cwd=${encodeURIComponent(cwd)}`, { info: daemon.info }) : undefined
+  const snapshot = remote ?? inventorySnapshot(cwd, { mode: 'local-cli', daemon: daemon.state })
   if (jsonRequested(argv)) console.log(JSON.stringify(snapshot, null, 2))
   else printStatus(snapshot, command === 'agents' ? 'Sabi agents' : 'Sabi status')
 }
 
-function runDoctor(argv: string[]): void {
+async function runDoctor(argv: string[]): Promise<void> {
   const cwd = resolvedCwd(argv)
-  const snapshot = inventorySnapshot(cwd)
+  const daemon = await inspectControllerDaemon()
+  const snapshot = inventorySnapshot(cwd, { mode: 'local-cli', daemon: daemon.state })
   const nodeMajor = Number(process.versions.node.split('.')[0])
   const orca = snapshot.orca as { available: boolean; errorCode?: string }
   const candidates = snapshot.spawnCandidates as unknown[]
   const checks = [
     { name: 'node', ok: nodeMajor >= 22, detail: `${process.versions.node} (requires >=22)` },
+    { name: 'daemon', ok: daemon.state === 'running', detail: daemon.state },
     { name: 'orca', ok: orca.available, detail: orca.available ? 'live inventory available' : orca.errorCode ?? 'unavailable' },
     { name: 'harness inventory', ok: candidates.length > 0, detail: candidates.length ? `${candidates.length} spawn candidate(s)` : 'requires a healthy Orca inventory' },
   ]
@@ -160,14 +146,89 @@ function runDoctor(argv: string[]): void {
   }
 }
 
+async function runSetup(argv: string[]): Promise<void> {
+  const stateDir = controllerStateDir()
+  const detected = configuredHarnesses()
+  const preferencesPath = writeControllerPreferences({
+    version: 1,
+    autoRoute: true,
+    decisionEngine: 'rules',
+    integrations: Object.fromEntries(detected.map(({ agent }) => [agent, true])),
+    hooks: 'not-installed',
+  }, stateDir)
+  let daemon: Awaited<ReturnType<typeof inspectControllerDaemon>>
+  if (argv.includes('--no-start')) daemon = await inspectControllerDaemon(stateDir)
+  else {
+    try {
+      const info = await startControllerDaemon({ stateDir })
+      daemon = { state: 'running', info }
+    } catch (error) {
+      throw new Error(`setup saved preferences but could not start the daemon: ${(error as Error).message}`)
+    }
+  }
+  const result = {
+    stateDir,
+    preferencesPath,
+    automaticRouting: true,
+    daemon: daemon.state,
+    decisionEngines: { rules: 'available', jev: process.env.TYPESAFE_API_KEY ? 'configured' : 'not-configured', laya: 'not-configured' },
+    detectedHarnesses: detected.map(({ agent, command }) => ({ agent, command })),
+    integrations: 'not-installed',
+  }
+  if (jsonRequested(argv)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log('Sabi setup')
+  console.log(`state: ${stateDir}`)
+  console.log(`daemon: ${daemon.state}`)
+  console.log('automatic routing: ON')
+  console.log(`decision engines: rules ✓ · Jev ${result.decisionEngines.jev} · Laya not-configured`)
+  console.log(`harnesses: ${detected.length ? detected.map(({ agent }) => `${agent} ✓`).join(' · ') : 'none detected'}`)
+  console.log('hooks: not installed — host-specific contracts remain explicit')
+  console.log(`preferences: ${preferencesPath}`)
+}
+
+async function runDaemon(argv: string[]): Promise<void> {
+  const stateDir = controllerStateDir()
+  if (argv.includes('--foreground')) {
+    await runForegroundControllerDaemon({ stateDir })
+    return
+  }
+  if (argv.includes('--stop')) {
+    const stopped = await stopControllerDaemon(stateDir)
+    const result = { stateDir, stopped }
+    if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
+    else console.log(stopped ? 'Sabi daemon stopped' : 'Sabi daemon was not running')
+    return
+  }
+  if (argv.includes('--status')) {
+    const result = { stateDir, ...(await inspectControllerDaemon(stateDir)) }
+    if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
+    else console.log(`Sabi daemon: ${result.state}`)
+    return
+  }
+  try {
+    const info = await startControllerDaemon({ stateDir })
+    const result = { stateDir, state: 'running', info }
+    if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
+    else console.log(`Sabi daemon running on http://${info.host}:${info.port}`)
+  } catch (error) {
+    throw new Error(`could not start Sabi daemon: ${(error as Error).message}`)
+  }
+}
+
 function runConfig(argv: string[]): void {
   const cwd = resolvedCwd(argv)
   const configPath = defaultConfigPath({ cwd })
+  const stateDir = controllerStateDir()
   const result = {
     cwd,
     configPath,
     configExists: existsSync(configPath),
     controllerLogPath: defaultControllerLogPath(cwd),
+    controllerStateDir: stateDir,
+    controllerPreferencesPath: controllerPreferencesPath(stateDir),
   }
   if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
   else {
@@ -206,6 +267,8 @@ async function main(): Promise<void> {
   if (command === 'doctor') return runDoctor(args)
   if (command === 'config') return runConfig(args)
   if (command === 'logs') return runLogs(args)
+  if (command === 'setup') return runSetup(args)
+  if (command === 'daemon') return runDaemon(args)
   await runRoute(args)
 }
 

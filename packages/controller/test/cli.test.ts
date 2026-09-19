@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -180,4 +180,21 @@ test('doctor and config report local boundaries without reading secrets', () => 
   const configRecord = JSON.parse(config.stdout)
   assert.equal(configRecord.cwd, cwd)
   assert.match(configRecord.controllerLogPath, /controller-decisions\.jsonl$/)
+})
+
+test('setup writes user-level preferences without pretending to install harness hooks', () => {
+  const cwd = workspace()
+  const stateDir = path.join(cwd, 'controller-state')
+  const setup = run(['setup', '--no-start', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
+  assert.equal(setup.status, 0)
+  const record = JSON.parse(setup.stdout)
+  assert.equal(record.stateDir, stateDir)
+  assert.equal(record.automaticRouting, true)
+  assert.equal(record.daemon, 'stopped')
+  assert.equal(record.integrations, 'not-installed')
+  assert.equal(existsSync(record.preferencesPath), true)
+
+  const status = run(['status', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
+  assert.equal(status.status, 0)
+  assert.equal(JSON.parse(status.stdout).runtime.daemon, 'stopped')
 })
