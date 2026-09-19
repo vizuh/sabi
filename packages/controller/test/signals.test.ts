@@ -156,6 +156,17 @@ test('stuck session: a top-level non-object row (null/number/array/string) does 
   }
 })
 
+test('stuck session: state as an array (not null, not an object literal) does not crash, reports not stuck', () => {
+  // Discriminates isPlainRecord()'s Array.isArray exclusion specifically — a plain `typeof ===
+  // 'object' && !== null` check alone would let an array-shaped `state` through.
+  const cwd = workspace()
+  const malformed = JSON.stringify({ ts: new Date().toISOString(), outcome: 'ok', state: [] })
+  writeLog(cwd, [malformed])
+  const signals = gatherSignals(cwd, 'do something', false)
+  assert.equal(signals.stuckSession, false)
+  assert.equal(signals.sabiLogSampled, 1)
+})
+
 test('stuck session: a row with a non-string ts does not crash, is not sampled', () => {
   const cwd = workspace()
   writeLog(cwd, [JSON.stringify({ ts: 12345, outcome: 'ok', state: { failure: 'hard' } })])

@@ -13,7 +13,10 @@ export function appendControllerDecision(record: ControllerDecisionRecord, logFi
   appendFileSync(logFile, `${JSON.stringify(record)}\n`)
 }
 
-/** One JSON object per line, malformed lines skipped. Missing file returns an empty array. */
+/** One JSON object per line, malformed lines skipped. Missing file returns an empty array.
+ * Unused today (no caller in this repo) — only guards JSON.parse failure, not row shape, same
+ * gap `stuckSessionSignal()` had before it was root-caused. Guard shape here too before wiring
+ * a real reader (e.g. a future `controller history` subcommand) against this. */
 export function readControllerDecisions(logFile: string): ControllerDecisionRecord[] {
   if (!existsSync(logFile)) return []
   const rows: ControllerDecisionRecord[] = []
