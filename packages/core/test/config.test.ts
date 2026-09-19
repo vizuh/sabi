@@ -185,6 +185,18 @@ test('telemetry config is validated', () => {
   assert.throws(() => validateConfig({ ...base, telemetry: { captureChars: -1 } }), /captureChars/)
 })
 
+test('controller harness model preferences are validated', () => {
+  assert.doesNotThrow(() => validateConfig({
+    ...minimal,
+    controller: {
+      preferredHarnesses: ['opencode', 'command-code'],
+      harnesses: { opencode: { preferredModels: ['opencode-go/kimi-k3'] } },
+    },
+  }))
+  assert.throws(() => validateConfig({ ...minimal, controller: { preferredHarnesses: ['opencode', 'opencode'] } }), /must not contain duplicates/)
+  assert.throws(() => validateConfig({ ...minimal, controller: { harnesses: { opencode: { preferredModels: [''] } } } }), /preferredModels/)
+})
+
 
 test('compatibility mode is explicit and strict metadata omissions remain unknown until a route is checked', () => {
   assert.equal(validateConfig(minimal).compatibility, undefined)

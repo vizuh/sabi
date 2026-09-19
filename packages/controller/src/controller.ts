@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
+import type { ControllerConfig } from '@sabi/core'
 import { planAgentRoute } from './agents.ts'
 import { chooseActionWithJev } from './jev.ts'
 import {
@@ -158,15 +159,21 @@ function capacityRank(status: AgentSession['capacity']['status']): number {
   return status === 'available' ? 0 : status === 'degraded' ? 1 : status === 'rate_limited' ? 2 : status === 'quota_exhausted' ? 3 : 4
 }
 
-function bestSession(sessions: AgentSession[]): AgentSession | undefined {
-  return [...sessions]
-    .filter((session) => session.available && session.lifecycle === 'idle')
-    .sort((left, right) => capacityRank(left.capacity.status) - capacityRank(right.capacity.status) || (right.lastOutputAt ?? 0) - (left.lastOutputAt ?? 0) || left.id.localeCompare(right.id))[0]
+function preferenceRank(agent: AgentSession | AgentHarness, preferred: string[] | undefined): number {
+  if (!preferred?.length) return 0
+  const index = preferred.indexOf(agent.harness)
+  return index < 0 ? preferred.length : index
 }
 
-function bestHarness(harnesses: AgentHarness[]): AgentHarness | undefined {
+function bestSession(sessions: AgentSession[], preferred?: string[]): AgentSession | undefined {
+  return [...sessions]
+    .filter((session) => session.available && session.lifecycle === 'idle')
+    .sort((left, right) => capacityRank(left.capacity.status) - capacityRank(right.capacity.status) || preferenceRank(left, preferred) - preferenceRank(right, preferred) || (right.lastOutputAt ?? 0) - (left.lastOutputAt ?? 0) || left.id.localeCompare(right.id))[0]
+}
+
+function bestHarness(harnesses: AgentHarness[], preferred?: string[]): AgentHarness | undefined {
   return [...harnesses].filter((harness) => harness.available)
-    .sort((left, right) => capacityRank(left.capacity.status) - capacityRank(right.capacity.status) || left.id.localeCompare(right.id))[0]
+    .sort((left, right) => capacityRank(left.capacity.status) - capacityRank(right.capacity.status) || preferenceRank(left, preferred) - preferenceRank(right, preferred) || left.id.localeCompare(right.id))[0]
 }
 
 function handoffForAction(plan: AgentRoutePlan, action: ControllerAction, target: AgentSession | AgentHarness | undefined): AgentRoutePlan {
@@ -187,6 +194,7 @@ function candidateState(inventory: AgentInventory): Record<string, unknown> {
     branch: candidate.branch,
     lifecycle: candidate.kind === 'session' ? candidate.lifecycle : undefined,
     context: candidate.context,
+    model: candidate.model,
   })
   return {
     active: describe(inventory.active),
@@ -208,6 +216,7 @@ function candidateTelemetry(inventory: AgentInventory): ControllerCandidateTelem
     capacity: candidate.capacity,
     lifecycle: candidate.kind === 'session' ? candidate.lifecycle : undefined,
     context: candidate.context,
+    model: candidate.model,
   })
   // ponytail: cap the trace at 32 candidates; add paged inventory storage if large Orca pools appear.
   return [
@@ -224,6 +233,7 @@ export async function selectRoute(
   inventory: AgentInventory,
   handoff: HandoffSnapshot,
   override: ControllerOverride | undefined,
+  controller?: ControllerConfig,
 ): Promise<RouteSelection> {
   const costs = {
     handoffMs: 10_000,
@@ -238,6 +248,7 @@ export async function selectRoute(
     requiredCapabilities: ['coding'],
     costs,
     handoff,
+    preferredHarnesses: controller?.preferredHarnesses,
   })
   const noJev: JevDecisionTelemetry = { status: 'not-consulted', validActions: [] }
 
@@ -277,7 +288,7 @@ export async function selectRoute(
   }
 
   if (signals.multiScope) {
-    const target = bestHarness(inventory.spawnCandidates)
+    const target = bestHarness(inventory.spawnCandidates, controller?.preferredHarnesses)
     if (!target) {
       return { action: 'ASK', rule: 'no-orchestration-target', reason: 'request requires orchestration but no available Orca harness can be selected safely', plan: { ...basePlan, action: 'ASK' }, validActions: ['ASK'], decisionSource: 'deterministic', jev: { ...noJev, validActions: ['ASK'] } }
     }
@@ -293,8 +304,8 @@ export async function selectRoute(
     return { action: 'CONTINUE', rule: 'trivial-current-session', reason: 'trivial request stays in the current healthy session', target: inventory.active, plan: basePlan, validActions: ['CONTINUE'], decisionSource: 'deterministic', jev: { ...noJev, validActions: ['CONTINUE'] } }
   }
 
-  const session = bestSession(inventory.existingSessions)
-  const harness = bestHarness(inventory.spawnCandidates)
+  const session = bestSession(inventory.existingSessions, controller?.preferredHarnesses)
+  const harness = bestHarness(inventory.spawnCandidates, controller?.preferredHarnesses)
   if (requestsFreshHarness(request) && harness) {
     const plan = handoffForAction(basePlan, 'SPAWN', harness)
     return { action: 'SPAWN', rule: 'fresh-harness-request', reason: `request explicitly asks for a fresh harness; spawn ${harness.agent}`, target: harness, plan, validActions: ['SPAWN'], decisionSource: 'deterministic', jev: { ...noJev, validActions: ['SPAWN'] } }
@@ -396,7 +407,7 @@ function sessionExecution(
 }
 
 function executeSpawn(target: AgentHarness, cwd: string, request: string, waitMs: number): ControllerExecution {
-  const created = createOrcaTerminal(cwd, target.command, `sabi-controller:${target.agent}`)
+  const created = createOrcaTerminal(cwd, target.launchCommand ?? target.command, `sabi-controller:${target.agent}`)
   if (!created.ok) return { status: 'failed', targetId: target.id, operation: 'terminal-spawn', error: created.detail ?? created.errorCode }
   const handle = findString(created.result, ['handle'])
   if (!handle) return { status: 'failed', targetId: target.id, operation: 'terminal-spawn', error: 'spawn-receipt-missing-handle' }
@@ -412,7 +423,7 @@ function executeSpawn(target: AgentHarness, cwd: string, request: string, waitMs
 
 function orchestrationAgent(target: AgentSession | AgentHarness | undefined): string {
   const value = target?.agent
-  if (value && ['codex', 'claude', 'opencode', 'omp', 'pi', 'grok'].includes(value)) return value
+  if (value && ['codex', 'claude', 'opencode', 'command-code', 'hermes', 'omp', 'pi', 'grok'].includes(value)) return value
   return 'codex'
 }
 
@@ -451,8 +462,8 @@ function executeSelection(selection: RouteSelection, inventory: AgentInventory, 
   return sessionExecution(target.handle, target.id, request, 'terminal-send', waitMs, handoff, target.worktree)
 }
 
-function fallbackTarget(inventory: AgentInventory, failedTargetId: string | undefined): AgentSession | undefined {
-  return bestSession(inventory.existingSessions.filter((session) => session.id !== failedTargetId)) ??
+function fallbackTarget(inventory: AgentInventory, failedTargetId: string | undefined, preferred?: string[]): AgentSession | undefined {
+  return bestSession(inventory.existingSessions.filter((session) => session.id !== failedTargetId), preferred) ??
     (inventory.active.id !== failedTargetId && inventory.active.available ? inventory.active : undefined)
 }
 
@@ -470,17 +481,20 @@ export async function runController(
   override?: ControllerOverride,
   waitMs = DEFAULT_WAIT_MS,
   execute = true,
+  controller?: ControllerConfig,
+  currentSession?: string,
+  currentHarness?: string,
 ): Promise<ControllerRunResult> {
-  const inventory = discoverAgents(cwd, { stuckSession: signals.stuckSession })
+  const inventory = discoverAgents(cwd, { stuckSession: signals.stuckSession, controller, currentSession, currentHarness })
   const handoff = buildHandoff(cwd, request, inventory.active, signals.stuckSession)
-  const selection = await selectRoute(request, cwd, signals, inventory, handoff, override)
+  const selection = await selectRoute(request, cwd, signals, inventory, handoff, override, controller)
   let execution: ControllerExecution = execute
     ? executeSelection(selection, inventory, cwd, request, handoff, waitMs)
     : { status: 'not-started' }
 
   if (execute && execution.status === 'failed' && selection.action !== 'ASK' && selection.action !== 'ORCHESTRATE' && selection.decisionSource !== 'override') {
-    const refreshed = discoverAgents(cwd, { stuckSession: signals.stuckSession })
-    const fallback = fallbackTarget(refreshed, execution.targetId)
+    const refreshed = discoverAgents(cwd, { stuckSession: signals.stuckSession, controller, currentSession, currentHarness })
+    const fallback = fallbackTarget(refreshed, execution.targetId, controller?.preferredHarnesses)
     if (fallback?.handle) {
       const retry = sessionExecution(fallback.handle, fallback.id, request, 'terminal-send', waitMs, handoff, fallback.worktree)
       execution = { ...retry, status: retry.status === 'failed' ? 'failed' : 'rerouted', reroutedFrom: execution.targetId }

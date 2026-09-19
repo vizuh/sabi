@@ -119,10 +119,18 @@ function capacityRank(agent: AgentDescriptor): number {
   }
 }
 
-function best<T extends AgentSession | AgentHarness>(agents: T[], required: string[]): T | undefined {
+function preferenceRank(agent: AgentDescriptor, preferred: string[] | undefined): number {
+  if (!preferred?.length) return 0
+  const index = preferred.indexOf(agent.harness)
+  return index < 0 ? preferred.length : index
+}
+
+function best<T extends AgentSession | AgentHarness>(agents: T[], required: string[], preferred?: string[]): T | undefined {
   return [...agents].sort((left, right) => {
     const rank = capacityRank(left) - capacityRank(right)
     if (rank !== 0) return rank
+    const preference = preferenceRank(left, preferred) - preferenceRank(right, preferred)
+    if (preference !== 0) return preference
     const leftExtra = left.capabilities.filter((capability) => !required.includes(capability)).length
     const rightExtra = right.capabilities.filter((capability) => !required.includes(capability)).length
     return leftExtra - rightExtra || (right.lastOutputAt ?? 0) - (left.lastOutputAt ?? 0) || left.id.localeCompare(right.id)
@@ -155,7 +163,7 @@ export function planAgentRoute(input: AgentRoutingInput): AgentRoutePlan {
     }
   }
 
-  const target = best(sessionCandidates, input.requiredCapabilities)
+  const target = best(sessionCandidates, input.requiredCapabilities, input.preferredHarnesses)
   if (target) {
     return {
       action: 'DELEGATE',
@@ -171,7 +179,7 @@ export function planAgentRoute(input: AgentRoutingInput): AgentRoutePlan {
     }
   }
 
-  const harness = best(harnessCandidates, input.requiredCapabilities)
+  const harness = best(harnessCandidates, input.requiredCapabilities, input.preferredHarnesses)
   if (harness) {
     return {
       action: 'SPAWN',

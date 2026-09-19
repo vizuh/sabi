@@ -43,6 +43,8 @@ export interface AgentDescriptor {
   branch?: string
   /** Bounded, non-transcript context such as an Orca title or harness identity. */
   context?: string
+  /** Selected/launch model when the local harness catalog made it explicit. */
+  model?: string
   lastOutputAt?: number
 }
 
@@ -57,6 +59,8 @@ export interface AgentSession extends AgentDescriptor {
 export interface AgentHarness extends AgentDescriptor {
   kind: 'harness'
   command: string
+  /** Command with a verified local model selection, when configured. */
+  launchCommand?: string
 }
 
 export interface HandoffSnapshot {
@@ -89,6 +93,7 @@ export interface AgentRoutingInput {
   active: AgentSession
   existingSessions: AgentSession[]
   spawnCandidates: AgentHarness[]
+  preferredHarnesses?: string[]
   requiredCapabilities: string[]
   costs: AgentRoutingCosts
   handoff: HandoffSnapshot
@@ -162,6 +167,7 @@ export interface ControllerCandidateTelemetry {
   capacity: AgentCapacity
   lifecycle?: AgentLifecycle
   context?: string
+  model?: string
 }
 
 export interface ControllerRoutingTelemetry {
