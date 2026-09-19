@@ -113,6 +113,9 @@ npm install --global @vizuh/sabi-controller
 sabi setup --hooks               # writes user state, starts daemon and installs host hooks
 sabi status
 sabi route "review this change"
+sabi integrations list
+sabi upgrade --version=0.1.0    # exact-version rollback is also supported
+sabi uninstall                   # restores Sabi hook backups and archives Sabi state
 sabi replay --last=1000         # read-only decision/outcome summary
 ```
 

@@ -149,6 +149,61 @@ export function installHooks(options: { harnesses?: InstalledHook[]; stateDir?: 
   })
 }
 
+export interface RestoredHookResult {
+  harness: InstalledHook
+  path: string
+  restored: boolean
+}
+
+export function restoreHookBackups(options: { harnesses?: InstalledHook[]; env?: NodeJS.ProcessEnv } = {}): RestoredHookResult[] {
+  const env = options.env ?? process.env
+  const harnesses = options.harnesses ?? ['claude', 'codex', 'opencode']
+  const paths: Record<InstalledHook, string> = {
+    claude: claudeSettingsPath(env),
+    codex: codexHooksPath(env),
+    opencode: openCodeConfigPath(env),
+  }
+  return harnesses.map((harness) => {
+    const file = paths[harness]
+    const backup = `${file}.sabi-backup`
+    if (!existsSync(backup)) return { harness, path: file, restored: false }
+    if (!existsSync(file)) {
+      copyFileSync(backup, file)
+      return { harness, path: file, restored: true }
+    }
+    try {
+      const current = readObject(file, {})
+      let changed = false
+      if (harness === 'opencode') {
+        const plugins = current.plugin
+        if (Array.isArray(plugins)) {
+          const installed = path.resolve(controllerStateDir(env), 'hooks', 'opencode.mjs')
+          const filtered = plugins.filter((plugin) => plugin !== installed)
+          changed = filtered.length !== plugins.length
+          if (changed) current.plugin = filtered
+        }
+      } else {
+        const hooks = current.hooks
+        if (hooks && typeof hooks === 'object' && !Array.isArray(hooks)) {
+          for (const [event, entries] of Object.entries(hooks as JsonObject)) {
+            if (!Array.isArray(entries)) continue
+            const filtered = entries.filter((entry) => !JSON.stringify(entry).includes(`hook ${harness}`))
+            if (filtered.length !== entries.length) {
+              changed = true
+              if (filtered.length) (hooks as JsonObject)[event] = filtered
+              else delete (hooks as JsonObject)[event]
+            }
+          }
+        }
+      }
+      if (changed) writeFileSync(file, `${JSON.stringify(current, null, 2)}\n`, { mode: 0o600 })
+      return { harness, path: file, restored: changed }
+    } catch {
+      return { harness, path: file, restored: false }
+    }
+  })
+}
+
 function recordTarget(record: unknown): JsonObject | undefined {
   return objectValue(record, 'controller record').target as JsonObject | undefined
 }

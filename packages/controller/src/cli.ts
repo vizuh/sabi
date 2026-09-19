@@ -17,12 +17,13 @@ import { configuredHarnesses } from './inventory.ts'
 import { defaultControllerLogPath, readControllerDecisions, summarizeControllerReplay } from './log.ts'
 import { dispatchControllerRequest, inventorySnapshot } from './runtime.ts'
 import { installUserService, type UserServiceResult } from './service.ts'
+import { uninstallController, upgradeController } from './lifecycle.ts'
 import { installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'daemon' | 'hooks' | 'hook' | 'integrations'
+type Command = 'route' | 'status' | 'agents' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'upgrade' | 'uninstall'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'doctor', 'config', 'logs', 'replay', 'setup', 'daemon', 'hooks', 'hook', 'integrations'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'doctor', 'config', 'logs', 'replay', 'setup', 'daemon', 'hooks', 'hook', 'integrations', 'upgrade', 'uninstall'])
 const CLI_VERSION = process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
 
 function flagValue(argv: string[], name: string): string | undefined {
@@ -62,6 +63,8 @@ function printHelp(): void {
   sabi replay [--cwd=<path>] [--last=<n>] [--json]
   sabi setup [--no-start] [--hooks] [--json]
   sabi integrations [list|repair] [--json]
+  sabi upgrade [--version=<semver>|latest] [--json]
+  sabi uninstall [--keep-config] [--json]
   sabi daemon [--status|--stop|--foreground] [--json]
   sabi hooks install [--claude] [--codex] [--opencode] [--json]
   sabi hook <claude|codex> [--event=UserPromptSubmit]
@@ -237,6 +240,35 @@ async function runIntegrations(argv: string[]): Promise<void> {
   }
 }
 
+async function runUpgrade(argv: string[]): Promise<void> {
+  const version = flagValue(argv, '--version') ?? 'latest'
+  const result = upgradeController(version)
+  if (result.status === 0 && hasControllerPreferences()) {
+    const stateDir = controllerStateDir()
+    await stopControllerDaemon(stateDir)
+    try {
+      await startControllerDaemon({ stateDir })
+      result.restarted = true
+    } catch (error) {
+      result.error = `package upgraded but daemon restart failed: ${(error as Error).message}`
+    }
+  }
+  if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
+  else console.log(result.status === 0 ? `Sabi upgraded to ${result.version}${result.restarted ? ' and daemon restarted' : ''}` : `Sabi upgrade failed (${result.status})`)
+  if (result.status !== 0 || result.error) process.exitCode = 1
+}
+
+async function runUninstall(argv: string[]): Promise<void> {
+  const result = await uninstallController({ restore: !argv.includes('--keep-config') })
+  if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
+  else {
+    console.log('Sabi uninstalled')
+    console.log(`state: ${result.archivedState ?? 'not present'}`)
+    console.log(`hooks: ${result.restored.filter(({ restored }) => restored).map(({ harness }) => harness).join(', ') || 'no backups restored'}`)
+    console.log(`service: ${result.service.installed ? 'still installed' : 'removed or unavailable'}`)
+  }
+}
+
 async function runHooks(argv: string[]): Promise<void> {
   const action = argv.find((arg) => !arg.startsWith('--')) ?? 'install'
   if (action !== 'install') throw new Error(`unsupported hooks action '${action}'`)
@@ -365,6 +397,8 @@ async function main(): Promise<void> {
   if (command === 'daemon') return runDaemon(args)
   if (command === 'hooks') return runHooks(args)
   if (command === 'hook') return runHook(args)
+  if (command === 'upgrade') return runUpgrade(args)
+  if (command === 'uninstall') return runUninstall(args)
   await runRoute(args)
 }
 
