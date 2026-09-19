@@ -105,6 +105,7 @@ export function installUserService(options: { entrypoint?: string; stateDir: str
 
 export function removeUserService(options: { env?: NodeJS.ProcessEnv } = {}): UserServiceResult {
   const env = options.env ?? process.env
+  if (env.SABI_SERVICE_MODE?.trim() === 'disabled') return { backend: 'unsupported', installed: false, running: false, detail: 'disabled by environment' }
   if (process.platform === 'linux') return removeSystemd(env)
   if (process.platform === 'darwin') return { backend: 'launch-agent', installed: existsSync(launchAgentPath()), running: false, path: launchAgentPath(), detail: 'launch-agent removal not yet validated on this host' }
   return { backend: 'unsupported', installed: false, running: false, detail: `no user service installer for ${process.platform}` }

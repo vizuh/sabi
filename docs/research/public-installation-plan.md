@@ -35,9 +35,11 @@ sabi setup
 sabi doctor
 ```
 
-`setup` detects the machine's host and harnesses, asks for consent before changing their user
-configuration, installs the user-level daemon/service and reports exactly which integrations are
-supported, partial or unavailable. Opening a new Orca worktree must not require another Sabi install.
+`setup` detects the machine's host and harnesses, requires explicit flags for user-configuration
+changes, installs the user-level daemon/service and reports exactly which integrations are supported,
+partial or unavailable. `upgrade --version=<semver>` provides an exact-version rollback path, and
+`uninstall` restores hook backups while archiving Sabi state. Opening a new Orca worktree must not
+require another Sabi install.
 
 The existing public `@vizuh/sabi` package remains the Command Code inference adapter. The controller
 gets its own public package and release lane so the existing adapter contract is not silently changed.
@@ -48,8 +50,8 @@ gets its own public package and release lane so the existing adapter contract is
   been made yet.
 - Linux now has a `systemd --user` installer with an explicit lazy fallback when the user bus is
   unavailable; macOS LaunchAgent and Windows user-service installers remain unvalidated.
-- Setup is explicit but does not yet provide a full interactive consent/rollback/uninstall flow for
-  every host configuration.
+- Setup is explicit and backup-aware, but it does not yet provide a full interactive consent flow for
+  every host configuration; restore/uninstall is validated only for the current JSON hook paths.
 - `packages/adapters/orca` is a source bridge, not an installed Orca integration. Orca plugin API v1
   exposes focused worktree/terminal calls and bounded status events, not a universal prompt hook.
 - Orca terminal discovery now includes idle sessions across its visible worktrees and sends a
