@@ -22,9 +22,12 @@ test('daemon serves health, live inventory and controller routing over loopback'
   process.env.ORCA_CLI_COMMAND = '/nonexistent/sabi-daemon-test-orca'
   const daemon = await createControllerDaemon({ stateDir, host: '127.0.0.1', port: 0 })
   try {
+    assert.equal(daemon.info.token.length >= 64, true)
     const health = await requestControllerDaemon('/health', { info: daemon.info })
     assert.equal(health?.ok, true)
     assert.equal(health?.protocol, 1)
+    const unauthorized = await requestControllerDaemon('/health', { info: { ...daemon.info, token: 'x'.repeat(64) } })
+    assert.equal(unauthorized?.error, 'unauthorized')
 
     const status = await requestControllerDaemon(`/status?cwd=${encodeURIComponent(cwd)}`, { info: daemon.info })
     assert.equal(status?.runtime && (status.runtime as Record<string, unknown>).mode, 'daemon')

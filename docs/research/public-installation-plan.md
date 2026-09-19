@@ -15,11 +15,14 @@ The first packaging slice is now implemented in the controller workstream:
   inherits an interactive `PATH`;
 - an automated test builds, packs and installs the tarball into a clean npm prefix, then runs the
   installed CLI and `doctor` without the repository or its `node_modules`;
+- Linux setup attempts an authenticated, user-scoped `systemd --user` daemon and the Orca inventory
+  retains idle sessions across visible worktrees with structured cross-worktree handoff;
 - no registry publication is claimed until the release tag, npm package and clean-machine proof all
   exist.
 
-This phase does not yet claim a system-login service, universal Orca prompt interception, or live
-cross-terminal execution. Those remain explicit host-integration gates below.
+This phase does not yet claim a cross-platform login service, universal Orca prompt interception, or
+live cross-terminal execution. Linux `systemd --user` is covered only as an implementation slice;
+the host-integration gates below remain required.
 
 ## Outcome
 
@@ -43,7 +46,10 @@ gets its own public package and release lane so the existing adapter contract is
 
 - The generated package and release workflow exist, but no `controller-v*` tag or npm publication has
   been made yet.
-- The daemon starts lazily from the CLI and has no user-login service installer.
+- Linux now has a `systemd --user` installer with an explicit lazy fallback when the user bus is
+  unavailable; macOS LaunchAgent and Windows user-service installers remain unvalidated.
+- Setup is explicit but does not yet provide a full interactive consent/rollback/uninstall flow for
+  every host configuration.
 - `packages/adapters/orca` is a source bridge, not an installed Orca integration. Orca plugin API v1
   exposes focused worktree/terminal calls and bounded status events, not a universal prompt hook.
 - Orca terminal discovery now includes idle sessions across its visible worktrees and sends a
@@ -90,13 +96,14 @@ they are not part of this public package or its telemetry.
 
 Add platform installers with idempotent status/repair/uninstall commands:
 
-- Linux: systemd user unit, `enable --now`, no root requirement;
+- Linux: systemd user unit, `enable --now`, no root requirement (implemented in the controller branch);
 - macOS: per-user LaunchAgent;
 - Windows: per-user startup/task mechanism;
 - fallback: lazy start from a verified absolute launcher, with a clear degraded status.
 
 Use a per-user Unix socket where available and an authenticated local transport on platforms without
-one. Preserve the loopback-only boundary; do not expose a network daemon by default.
+one. The current TCP loopback transport is bearer-token authenticated and remains loopback-only; do
+not expose a network daemon by default.
 
 Required commands:
 

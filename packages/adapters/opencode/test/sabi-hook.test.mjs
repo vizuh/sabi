@@ -37,3 +37,23 @@ test('OpenCode leaves a prompt alone when the controller keeps it local', async 
     globalThis.fetch = originalFetch
   }
 })
+
+test('OpenCode sends the daemon bearer token when configured', async () => {
+  const originalFetch = globalThis.fetch
+  const originalToken = process.env.SABI_CONTROLLER_TOKEN
+  const headers = []
+  process.env.SABI_CONTROLLER_TOKEN = 'test-controller-token'
+  globalThis.fetch = async (_url, options) => {
+    headers.push(options.headers)
+    return { ok: true, async json() { return { action: 'CONTINUE' } } }
+  }
+  try {
+    const hooks = await SabiOpenCodePlugin({ directory: '/tmp/sabi-opencode-test' })
+    await hooks['chat.message']({}, { parts: [{ type: 'text', text: 'what is 2 + 2?' }] })
+    assert.equal(headers[0].authorization, 'Bearer test-controller-token')
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalToken === undefined) delete process.env.SABI_CONTROLLER_TOKEN
+    else process.env.SABI_CONTROLLER_TOKEN = originalToken
+  }
+})

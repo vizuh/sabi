@@ -19,7 +19,7 @@ they do not depend on an interactive `PATH`.
 Verification: `npm run build:controller`, `node --test scripts/test/controller-package.test.ts`,
 `npm run typecheck` and the full suite remain the required gates. The package test performs a real
 `npm pack`, installs into a clean temporary prefix, and runs the installed CLI without the checkout's
-`node_modules`. No npm publication, system-login service or universal Orca activation is claimed by
+`node_modules`. No npm publication, macOS/Windows service, or universal Orca activation is claimed by
 this local branch.
 
 ## Global Orca inventory and cross-worktree handoff — 2026-09-19
@@ -34,6 +34,26 @@ diff summary, unresolved work and next suggested step. The `2 + 2` regression re
 Verification: global inventory fixture and structured-handoff test pass; typecheck remains clean. This
 does not yet create a persistent registry for harnesses outside Orca or prove a live cross-terminal
 receipt against a paid/interactive session.
+
+## Linux user service and integration inventory — 2026-09-19
+
+`sabi setup` now attempts an idempotent `systemd --user` unit on Linux using the installed Node and
+CLI paths, with `Restart=on-failure` and no root requirement. If the user systemd bus is unavailable,
+the result explicitly records a lazy detached fallback. `sabi integrations list|repair` reports
+detected executables as `executable-only` and keeps the verified controller bridge list separate;
+finding Hermes, Pi, OMP or an Orca binary does not promote them to supported adapters.
+
+Verification: service template and disabled-host tests pass, and the full suite remains green. The
+macOS/Windows service paths, uninstall/rollback, persistent non-Orca session registry and universal
+Orca prompt events remain unverified.
+
+## Authenticated daemon transport — 2026-09-19
+
+The loopback daemon now creates a random per-user bearer token in the mode-0600 daemon info file;
+daemon clients send it on health, plan, status and route requests. OpenCode reads only that local
+token (or an explicit `SABI_CONTROLLER_TOKEN`) and remains fail-open when the daemon is absent. A
+request with the wrong token is rejected with 401. This is still a loopback transport, not a remote
+service contract.
 
 ## Controller host hooks and release boundary — 2026-09-19
 

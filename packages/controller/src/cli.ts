@@ -16,12 +16,13 @@ import {
 import { configuredHarnesses } from './inventory.ts'
 import { defaultControllerLogPath, readControllerDecisions, summarizeControllerReplay } from './log.ts'
 import { dispatchControllerRequest, inventorySnapshot } from './runtime.ts'
+import { installUserService, type UserServiceResult } from './service.ts'
 import { installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'daemon' | 'hooks' | 'hook'
+type Command = 'route' | 'status' | 'agents' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'daemon' | 'hooks' | 'hook' | 'integrations'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'doctor', 'config', 'logs', 'replay', 'setup', 'daemon', 'hooks', 'hook'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'doctor', 'config', 'logs', 'replay', 'setup', 'daemon', 'hooks', 'hook', 'integrations'])
 const CLI_VERSION = process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
 
 function flagValue(argv: string[], name: string): string | undefined {
@@ -60,6 +61,7 @@ function printHelp(): void {
   sabi logs [--cwd=<path>] [--tail=<n>] [--json]
   sabi replay [--cwd=<path>] [--last=<n>] [--json]
   sabi setup [--no-start] [--hooks] [--json]
+  sabi integrations [list|repair] [--json]
   sabi daemon [--status|--stop|--foreground] [--json]
   sabi hooks install [--claude] [--codex] [--opencode] [--json]
   sabi hook <claude|codex> [--event=UserPromptSubmit]
@@ -163,11 +165,19 @@ async function runSetup(argv: string[]): Promise<void> {
     hooks: hooks ? 'installed' : 'not-installed',
   }, stateDir)
   let daemon: Awaited<ReturnType<typeof inspectControllerDaemon>>
-  if (argv.includes('--no-start')) daemon = await inspectControllerDaemon(stateDir)
-  else {
+  let service: UserServiceResult
+  if (argv.includes('--no-start')) {
+    daemon = await inspectControllerDaemon(stateDir)
+    service = { backend: 'unsupported', installed: false, running: false, detail: 'not requested (--no-start)' }
+  } else {
+    service = installUserService({ stateDir })
     try {
-      const info = await startControllerDaemon({ stateDir })
-      daemon = { state: 'running', info }
+      daemon = await inspectControllerDaemon(stateDir)
+      if (daemon.state !== 'running') {
+        const info = await startControllerDaemon({ stateDir })
+        daemon = { state: 'running', info }
+        if (!service.installed) service = { ...service, detail: `${service.detail ?? 'user service unavailable'}; using lazy detached fallback` }
+      }
     } catch (error) {
       throw new Error(`setup saved preferences but could not start the daemon: ${(error as Error).message}`)
     }
@@ -179,6 +189,7 @@ async function runSetup(argv: string[]): Promise<void> {
     daemon: daemon.state,
     decisionEngines: { rules: 'available', jev: process.env.TYPESAFE_API_KEY ? 'configured' : 'not-configured', laya: 'not-configured' },
     detectedHarnesses: detected.map(({ agent, command }) => ({ agent, command })),
+    service,
     integrations: 'not-installed',
     hooks: hooks ? hooks.map(({ harness, path: file }) => ({ harness, path: file })) : 'not-installed',
   }
@@ -189,11 +200,41 @@ async function runSetup(argv: string[]): Promise<void> {
   console.log('Sabi setup')
   console.log(`state: ${stateDir}`)
   console.log(`daemon: ${daemon.state}`)
+  console.log(`user service: ${service.installed ? `${service.backend} ✓` : `not installed (${service.detail ?? 'unsupported'})`}`)
   console.log('automatic routing: ON')
   console.log(`decision engines: rules ✓ · Jev ${result.decisionEngines.jev} · Laya not-configured`)
   console.log(`harnesses: ${detected.length ? detected.map(({ agent }) => `${agent} ✓`).join(' · ') : 'none detected'}`)
   console.log(hooks ? `hooks: installed — ${hooks.map(({ harness }) => harness).join(', ')}` : 'hooks: not installed — pass --hooks to install them')
   console.log(`preferences: ${preferencesPath}`)
+}
+
+async function runIntegrations(argv: string[]): Promise<void> {
+  const action = argv.find((arg) => !arg.startsWith('--')) ?? 'list'
+  if (action !== 'list' && action !== 'repair') throw new Error(`unsupported integrations action '${action}'`)
+  const detected = configuredHarnesses()
+  const repairTargets = detected
+    .map(({ agent }) => agent)
+    .filter((agent): agent is InstalledHook => agent === 'claude' || agent === 'codex' || agent === 'opencode')
+  const repaired = action === 'repair' && repairTargets.length > 0
+    ? installHooks({ harnesses: repairTargets })
+    : undefined
+  const result = {
+    action,
+    detected: detected.map(({ agent, command }) => ({ agent, command, status: 'executable-only' })),
+    supported: ['claude', 'codex', 'opencode'],
+    unsupported: ['orca-universal', 'hermes', 'prime-agent', 'pi', 'omp'],
+    ...(action === 'repair'
+      ? { repaired: repaired !== undefined, hooks: repaired ?? [], detail: repaired ? 'supported user hooks repaired' : 'no detected supported harness to repair' }
+      : {}),
+  }
+  if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
+  else {
+    console.log('Sabi integrations')
+    for (const item of result.detected) console.log(`○ ${item.agent}: ${item.status}`)
+    console.log(`supported controller bridges: ${result.supported.join(', ')}`)
+    console.log(`not controller-integrated: ${result.unsupported.join(', ')}`)
+    if (action === 'repair') console.log(result.detail)
+  }
 }
 
 async function runHooks(argv: string[]): Promise<void> {
@@ -316,6 +357,7 @@ async function main(): Promise<void> {
   const { command, args } = commandAndArgs(argv)
   if (command === 'status' || command === 'agents') return runStatus(command, args)
   if (command === 'doctor') return runDoctor(args)
+  if (command === 'integrations') return runIntegrations(args)
   if (command === 'config') return runConfig(args)
   if (command === 'logs') return runLogs(args)
   if (command === 'replay') return runReplay(args)

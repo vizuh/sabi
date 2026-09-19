@@ -14,6 +14,7 @@ test('controller bundle installs and runs from a clean npm prefix', () => {
   const installDir = path.join(tempRoot, 'install')
   const controllerHome = path.join(tempRoot, 'state')
   try {
+    const expectedVersion = (JSON.parse(readFileSync(path.join(repoRoot, 'packages/controller/package.json'), 'utf8')) as { version: string }).version
     execFileSync(process.execPath, ['packages/controller/pack.mjs'], { cwd: repoRoot, stdio: 'pipe' })
     mkdirSync(packDir, { recursive: true })
     const packOutput = execFileSync('npm', ['pack', 'packages/controller/pkg', '--pack-destination', packDir], {
@@ -33,7 +34,7 @@ test('controller bundle installs and runs from a clean npm prefix', () => {
 
     const installedCli = path.join(installDir, 'node_modules', '@vizuh', 'sabi-controller', 'dist', 'cli.mjs')
     assert.equal(existsSync(installedCli), true)
-    assert.equal(execFileSync(process.execPath, [installedCli, '--version'], { encoding: 'utf8' }).trim(), '0.1.0')
+    assert.equal(execFileSync(process.execPath, [installedCli, '--version'], { encoding: 'utf8' }).trim(), expectedVersion)
 
     const claudeSettings = path.join(tempRoot, 'claude', 'settings.json')
     const codexHooks = path.join(tempRoot, 'codex', 'hooks.json')

@@ -131,9 +131,12 @@ harness seguir normalmente se o Sabi estiver parado. Esses hooks roteiam a execu
 eles não trocam silenciosamente a assinatura paga nem o modelo selecionado dentro do harness.
 
 Para instalar ou reparar os hooks separadamente, rode `sabi hooks install` (ou selecione `--claude`,
-`--codex` ou `--opencode`). O daemon fica apenas em loopback e reutiliza o inventário real do Orca
-quando disponível. Um serviço de login do sistema e a ativação live do plugin OpenCode dentro do Orca
-continuam sendo integrações separadas.
+`--codex` ou `--opencode`). No Linux, `sabi setup` também tenta instalar um serviço `systemd --user`
+e reporta um fallback lazy detached quando o bus do usuário não está disponível. Instaladores de
+serviço para macOS e Windows continuam sem suporte até serem validados. Use `sabi integrations list`
+para distinguir um executável de um harness realmente integrado ao controller. O daemon fica apenas
+em loopback e reutiliza o inventário real do Orca quando disponível; a ativação universal live do
+OpenCode/Orca continua sendo um gate separado.
 
 Os registros do controller usam o schema de trace v1: candidatos bounded, conjunto fechado de ações
 válidas, rota escolhida, status da execução e duração. `sabi replay` lê o JSONL sem chamar nenhum

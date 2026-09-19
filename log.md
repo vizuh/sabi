@@ -403,3 +403,18 @@ everything to the caller's `cwd`. Cross-worktree dispatch includes a bounded JSO
 source context, changed files, tests/results, diff and next step. Added regression coverage for global
 inventory and the permanent `2 + 2` smallest-route rule. Persistent non-Orca session registration and
 live cross-terminal receipts remain separate gates.
+
+## [2026-09-19] feat | Linux user service boundary
+
+Added a minimal `systemd --user` installer behind `sabi setup`: absolute Node/CLI paths, user-scoped
+state, restart-on-failure and explicit lazy fallback when the user bus is unavailable. Added
+`sabi integrations list|repair` so PATH discovery is labelled `executable-only` rather than treated
+as proof of a controller adapter. macOS/Windows service installation and uninstall rollback remain
+unvalidated.
+
+## [2026-09-19] security | Authenticate local daemon clients
+
+Added a random per-user bearer token to the daemon info record and require it for loopback requests;
+OpenCode reads the same user-scoped token and sends it without handling provider credentials. Wrong
+tokens receive 401, missing daemon/token still fails open in the harness hook. No remote bind is
+enabled.

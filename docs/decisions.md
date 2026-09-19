@@ -576,3 +576,22 @@ publication, login-service persistence, universal Orca activation or cross-termi
 
 Only publish a `controller-v*` tag after the clean-machine and Phase E live host gates pass. Add
 platform service installers and broader harness claims as separate evidence-backed changes.
+
+## [2026-09-19] Linux user service is the first ambient-runtime backend
+
+### Decision
+
+Have `sabi setup` attempt a per-user `systemd --user` unit on Linux, using absolute installed paths,
+and report a lazy detached fallback when the user bus is unavailable. Keep macOS and Windows service
+installation unsupported until each is validated on its own platform.
+
+### Why
+
+The daemon must survive a terminal closing and should not require root or a worktree-local process.
+Linux is the current verified host, while pretending that a PATH executable or an untested service
+template works on every OS would make the public support claim false.
+
+### Revisit later?
+
+Add LaunchAgent/Windows user-service implementations only with platform tests covering install,
+restart, status, upgrade and uninstall rollback.

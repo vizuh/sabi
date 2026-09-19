@@ -212,6 +212,21 @@ test('setup writes user-level preferences without pretending to install harness 
   assert.equal(JSON.parse(status.stdout).runtime.daemon, 'stopped')
 })
 
+test('setup reports the detached fallback when the user service backend is disabled', () => {
+  const cwd = workspace()
+  const stateDir = path.join(cwd, 'controller-state')
+  const setup = run(['setup', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir, SABI_SERVICE_MODE: 'disabled' })
+  assert.equal(setup.status, 0)
+  const record = JSON.parse(setup.stdout)
+  assert.equal(record.daemon, 'running')
+  assert.equal(record.service.installed, false)
+  assert.match(record.service.detail, /fallback/)
+
+  const stopped = run(['daemon', '--stop', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
+  assert.equal(stopped.status, 0)
+  assert.equal(JSON.parse(stopped.stdout).stopped, true)
+})
+
 test('setup --hooks installs all host bridges in isolated config paths', () => {
   const cwd = workspace()
   const stateDir = path.join(cwd, 'controller-state')

@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
@@ -17,6 +18,7 @@ export interface ControllerDaemonInfo {
   port: number
   startedAt: string
   stateDir: string
+  token: string
 }
 
 export interface ControllerDaemon {
@@ -90,7 +92,7 @@ export function readDaemonInfo(stateDir = controllerStateDir()): ControllerDaemo
     const value = parsed as Record<string, unknown>
     if (value.protocol !== PROTOCOL || typeof value.pid !== 'number' || !Number.isSafeInteger(value.pid) ||
         typeof value.host !== 'string' || typeof value.port !== 'number' || !Number.isSafeInteger(value.port) ||
-        typeof value.startedAt !== 'string' || typeof value.stateDir !== 'string') return undefined
+        typeof value.startedAt !== 'string' || typeof value.stateDir !== 'string' || typeof value.token !== 'string' || value.token.length < 32) return undefined
     return {
       protocol: PROTOCOL,
       pid: value.pid,
@@ -98,6 +100,7 @@ export function readDaemonInfo(stateDir = controllerStateDir()): ControllerDaemo
       port: value.port,
       startedAt: value.startedAt,
       stateDir: value.stateDir,
+      token: value.token,
     }
   } catch {
     return undefined
@@ -140,6 +143,10 @@ function controllerOverride(value: unknown): { sessionId?: string; harness?: str
 async function handleRequest(req: IncomingMessage, res: ServerResponse, info: ControllerDaemonInfo): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${info.host}:${info.port}`)
   try {
+    if (req.headers.authorization !== `Bearer ${info.token}`) {
+      sendJson(res, 401, { error: 'unauthorized' })
+      return
+    }
     if (req.method === 'GET' && url.pathname === '/health') {
       sendJson(res, 200, { ok: true, service: 'sabi-controller', protocol: PROTOCOL, pid: info.pid, startedAt: info.startedAt })
       return
@@ -176,7 +183,8 @@ export async function createControllerDaemon(options: DaemonOptions = {}): Promi
   const requestedPort = options.port ?? configuredNumber(process.env.SABI_CONTROLLER_PORT, DEFAULT_PORT)
   mkdirSync(stateDir, { recursive: true, mode: 0o700 })
 
-  // ponytail: loopback-only IPC without auth; add per-user authentication before any non-local bind.
+  // ponytail: keep the authenticated IPC loopback-only; add a Unix socket only when cross-platform
+  // client support no longer needs the current TCP transport.
   let info: ControllerDaemonInfo | undefined
   const server = createServer((req, res) => {
     if (!info) {
@@ -213,6 +221,7 @@ export async function createControllerDaemon(options: DaemonOptions = {}): Promi
     port: address.port,
     startedAt: new Date().toISOString(),
     stateDir,
+    token: randomBytes(32).toString('hex'),
   }
   writeFileSync(daemonInfoPath(stateDir), `${JSON.stringify(info, null, 2)}\n`, { mode: 0o600 })
   let closed = false
@@ -264,9 +273,12 @@ export async function requestControllerDaemon(
       path: pathname,
       method,
       timeout: timeoutMs,
-      headers: body === undefined ? undefined : {
-        'content-type': 'application/json',
-        'content-length': Buffer.byteLength(body),
+      headers: {
+        authorization: `Bearer ${info.token}`,
+        ...(body === undefined ? {} : {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(body),
+        }),
       },
     }, (response) => {
       const chunks: Buffer[] = []

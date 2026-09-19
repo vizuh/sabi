@@ -1,10 +1,32 @@
+import { readFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
 const DEFAULT_CONTROLLER_URL = 'http://127.0.0.1:7433'
+
+function controllerToken() {
+  if (process.env.SABI_CONTROLLER_TOKEN) return process.env.SABI_CONTROLLER_TOKEN
+  const stateHome = process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state')
+  const stateDir = process.env.SABI_CONTROLLER_HOME || (process.platform === 'win32'
+    ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'sabi')
+    : path.join(stateHome, 'sabi'))
+  try {
+    const value = JSON.parse(readFileSync(path.join(stateDir, 'daemon.json'), 'utf8'))
+    return typeof value?.token === 'string' ? value.token : undefined
+  } catch {
+    return undefined
+  }
+}
 
 async function post(controllerURL, pathname, body) {
   try {
+    const token = controllerToken()
     const response = await fetch(`${controllerURL}${pathname}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(10_000),
     })
