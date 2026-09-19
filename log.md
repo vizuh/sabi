@@ -468,3 +468,10 @@ they are combined with live quota/session state, so the current quota-exhausted 
 session selects the available OpenCode Sabi session. New terminals carry the verified model through
 `--model`; existing sessions are not silently switched. Verification: 348 Node tests and typecheck
 passed; live status and a pure routing proof ran read-only, with no paid task dispatched.
+
+## [2026-09-20] feat | Add cross-platform user service lifecycle
+
+Added idempotent user-service implementations for macOS LaunchAgent and Windows Task Scheduler beside
+the existing Linux `systemd --user` path. All service launchers use absolute packaged entrypoints and
+user-scoped state; install/remove command paths and rendered service definitions are tested without
+touching a real foreign OS. Live macOS/Windows startup remains an explicit release gate.

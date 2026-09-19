@@ -351,6 +351,15 @@ preserves the host-native `CONTINUE` boundary, while uninstall removes only entr
 structural hook marker instead of matching arbitrary command text. The public package remains gated
 on real runtime receipt tests and publication approval.
 
+## Cross-platform user-service implementations — 2026-09-20
+
+The user-level daemon lifecycle now has native service implementations for Linux `systemd --user`,
+macOS LaunchAgent and Windows Task Scheduler. Each uses an absolute packaged entrypoint, user-owned
+state, idempotent install/remove commands and no root/admin escalation; Linux retains the detached
+lazy fallback when the user bus is unavailable. Renderer and command-path tests cover all three
+platform contracts from the Linux checkout. Live service startup still requires one validation run
+on macOS and Windows before those platforms are called release-verified.
+
 ## Plan-aware Orca routing — 2026-09-19
 
 The controller now reads optional `controller.preferredHarnesses` and per-harness

@@ -136,11 +136,11 @@ so opening a harness still works if Sabi is stopped. These hooks route controlle
 not silently switch a paid subscription or the model selected inside a harness.
 
 To install or repair hooks separately, run `sabi hooks install` (or select `--claude`, `--codex`, or
-`--opencode`). On Linux, `sabi setup` also attempts a per-user `systemd --user` service and reports a
-lazy detached fallback when the user bus is unavailable. macOS and Windows service installers remain
-unsupported until validated. Use `sabi integrations list` to distinguish an executable from a
-controller-integrated harness. The daemon is loopback-only and reuses live Orca inventory when Orca
-is available; live universal OpenCode/Orca activation remains a separate gate.
+`--opencode`). `sabi setup` installs a per-user service where the platform contract is available:
+Linux `systemd --user`, macOS LaunchAgent, or Windows Task Scheduler; Linux also reports a lazy
+detached fallback when the user bus is unavailable. Use `sabi integrations list` to distinguish an
+executable from a controller-integrated harness. The daemon is loopback-only and reuses live Orca
+inventory when Orca is available; live universal OpenCode/Orca activation remains a separate gate.
 
 The controller can also route by the plans actually visible on this machine. Configure
 `controller.preferredHarnesses` and per-harness `preferredModels` in `sabi.config.json`; it checks

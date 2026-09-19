@@ -15,16 +15,18 @@ The first packaging slice is now implemented in the controller workstream:
   inherits an interactive `PATH`;
 - an automated test builds, packs and installs the tarball into a clean npm prefix, then runs the
   installed CLI and `doctor` without the repository or its `node_modules`;
-- Linux setup attempts an authenticated, user-scoped `systemd --user` daemon and the Orca inventory
-  retains idle sessions across visible worktrees with structured cross-worktree handoff;
+- Linux setup attempts an authenticated, user-scoped `systemd --user` daemon; macOS LaunchAgent and
+  Windows Task Scheduler installers now share the same user-level lifecycle contract, with renderer
+  and command-path tests; the Orca inventory retains idle sessions across visible worktrees with
+  structured cross-worktree handoff;
 - the authenticated daemon now accepts bounded adapter session register/heartbeat/outcome events;
   `sabi sessions` exposes hash-based identities while registered sessions remain non-dispatchable
   until an adapter proves its transport;
 - no registry publication is claimed until the release tag, npm package and clean-machine proof all
   exist.
 
-This phase does not yet claim a cross-platform login service, universal Orca prompt interception, or
-live cross-terminal execution. Linux `systemd --user` is covered only as an implementation slice;
+This phase does not yet claim live cross-platform service validation, universal Orca prompt
+interception, or live cross-terminal execution. The platform installers are implementation slices;
 the host-integration gates below remain required.
 
 ## Outcome
@@ -52,8 +54,9 @@ gets its own public package and release lane so the existing adapter contract is
 
 - The generated package and release workflow exist, but no `controller-v*` tag or npm publication has
   been made yet.
-- Linux now has a `systemd --user` installer with an explicit lazy fallback when the user bus is
-  unavailable; macOS LaunchAgent and Windows user-service installers remain unvalidated.
+- Linux has a `systemd --user` installer with an explicit lazy fallback when the user bus is
+  unavailable; macOS LaunchAgent and Windows Task Scheduler installers are implemented and
+  contract-tested, but still require one live validation run on each operating system.
 - Setup is explicit and backup-aware, but it does not yet provide a full interactive consent flow for
   every host configuration; restore/uninstall is validated only for the current JSON hook paths.
 - `packages/adapters/orca` is a source bridge, not an installed Orca integration. Orca plugin API v1
@@ -103,8 +106,8 @@ they are not part of this public package or its telemetry.
 Add platform installers with idempotent status/repair/uninstall commands:
 
 - Linux: systemd user unit, `enable --now`, no root requirement (implemented in the controller branch);
-- macOS: per-user LaunchAgent;
-- Windows: per-user startup/task mechanism;
+- macOS: per-user LaunchAgent with `launchctl bootstrap`/`bootout` (implemented and contract-tested);
+- Windows: per-user Task Scheduler task with a user-owned launcher (implemented and contract-tested);
 - fallback: lazy start from a verified absolute launcher, with a clear degraded status.
 
 Use a per-user Unix socket where available and an authenticated local transport on platforms without
@@ -194,8 +197,8 @@ Bundle the controller and private workspace dependencies, add `--version`, packa
 ### Phase B — daemon lifecycle and recovery
 
 Add service installers, secure per-user IPC, `doctor`, repair, uninstall and upgrade. Prove restart,
-stale daemon recovery, permissions, rollback and no-secret logging on Linux first; add macOS/Windows
-templates only with platform checks.
+stale daemon recovery, permissions, rollback and no-secret logging on Linux first; run the same
+acceptance on macOS and Windows before calling the lifecycle cross-platform.
 
 ### Phase C — user-level harness integrations
 
