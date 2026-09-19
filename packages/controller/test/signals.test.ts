@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { gatherSignals } from '../src/signals.ts'
@@ -46,6 +46,20 @@ function writeLog(cwd: string, lines: string[]): void {
   const dir = path.join(cwd, '.sabi')
   mkdirSync(dir, { recursive: true })
   writeFileSync(path.join(dir, 'decisions.jsonl'), `${lines.join('\n')}\n`)
+}
+
+/** A one-off orca-ide stand-in emitting the real, observed envelope shape
+ * (`{ ok, result: { worktrees/terminals: [...] } }`), reporting the given cwd as its one entry. */
+function fakeOrca(matchCwd: string | null): string {
+  const scriptDir = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-fake-orca-'))
+  const scriptPath = path.join(scriptDir, 'orca-ide.js')
+  const entry = matchCwd ? JSON.stringify({ path: matchCwd, worktreePath: matchCwd, branch: '' }) : 'null'
+  writeFileSync(
+    scriptPath,
+    `#!/usr/bin/env node\nconst entry = ${entry}\nconsole.log(JSON.stringify({ id: 'x', ok: true, result: { worktrees: entry ? [entry] : [], terminals: entry ? [entry] : [] } }))\n`,
+  )
+  chmodSync(scriptPath, 0o755)
+  return scriptPath
 }
 
 // Isolate from both the real environment's SABI_LOG (would override --cwd) and any real
@@ -147,6 +161,25 @@ test('orca unavailable (missing binary) never crashes and reports orcaAvailable 
   const signals = gatherSignals(cwd, 'fix the login bug', false)
   assert.equal(signals.orcaAvailable, false)
   assert.equal(signals.orcaErrorCode, 'binary-not-found')
+  assert.equal(signals.matchingWorktree, false)
+  assert.equal(signals.matchingTerminal, false)
+})
+
+test('orca available, a worktree/terminal already on this exact cwd -> matchingWorktree/matchingTerminal true', () => {
+  const cwd = workspace()
+  process.env.ORCA_CLI_COMMAND = fakeOrca(cwd)
+  const signals = gatherSignals(cwd, 'fix the login bug', false)
+  assert.equal(signals.orcaAvailable, true)
+  assert.equal(signals.matchingWorktree, true)
+  assert.equal(signals.matchingTerminal, true)
+})
+
+test('orca available but no entry matches this cwd -> no match, DELEGATE stays unreachable', () => {
+  const cwd = workspace()
+  const otherCwd = workspace()
+  process.env.ORCA_CLI_COMMAND = fakeOrca(otherCwd)
+  const signals = gatherSignals(cwd, 'fix the login bug', false)
+  assert.equal(signals.orcaAvailable, true)
   assert.equal(signals.matchingWorktree, false)
   assert.equal(signals.matchingTerminal, false)
 })

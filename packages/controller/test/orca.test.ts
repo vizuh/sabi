@@ -12,7 +12,7 @@ function fixture(name: string): string {
   return full
 }
 
-test('a well-formed JSON array on stdout -> ok true', () => {
+test('a well-formed envelope (ok:true, result.worktrees array) -> ok true', () => {
   const result = runOrca(['--json'], { bin: fixture('orca-ok.js') })
   assert.equal(result.ok, true)
   assert.deepEqual(result.worktrees, [{ path: '/tmp/example', branch: 'main' }])
@@ -30,8 +30,20 @@ test('malformed JSON stdout -> invalid-json', () => {
   assert.equal(result.errorCode, 'invalid-json')
 })
 
-test('valid JSON that is not an array -> unrecognized-shape, distinct from a real "no match"', () => {
+test('valid JSON missing the result envelope -> unrecognized-shape, distinct from a real "no match"', () => {
   const result = runOrca(['--json'], { bin: fixture('orca-not-array.js') })
+  assert.equal(result.ok, false)
+  assert.equal(result.errorCode, 'unrecognized-shape')
+})
+
+test('a bare JSON array (the old, disproven assumption) -> unrecognized-shape, not silently accepted', () => {
+  const result = runOrca(['--json'], { bin: fixture('orca-bare-array.js') })
+  assert.equal(result.ok, false)
+  assert.equal(result.errorCode, 'unrecognized-shape')
+})
+
+test('a real orca-ide error envelope (ok:false) -> unrecognized-shape, not treated as a success with no data', () => {
+  const result = runOrca(['--json'], { bin: fixture('orca-envelope-error.js') })
   assert.equal(result.ok, false)
   assert.equal(result.errorCode, 'unrecognized-shape')
 })
@@ -58,6 +70,6 @@ test('queryOrcaWorktrees populates the worktrees field', () => {
 test('queryOrcaTerminals populates the terminals field, not worktrees', () => {
   const result = queryOrcaTerminals({ bin: fixture('orca-ok.js') })
   assert.equal(result.ok, true)
-  assert.deepEqual(result.terminals, [{ path: '/tmp/example', branch: 'main' }])
+  assert.deepEqual(result.terminals, [{ worktreePath: '/tmp/example', branch: 'main' }])
   assert.equal(result.worktrees, undefined)
 })

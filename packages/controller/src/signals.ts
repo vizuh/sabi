@@ -59,17 +59,35 @@ function detectMultiScope(
   return hit ? { multiScope: true, trigger: hit.id } : { multiScope: false }
 }
 
+/** Narrows one array entry to "has a non-empty string at `field`" without claiming to know
+ * orca-ide's full entry shape — only the one field this predicate actually reads. */
+function stringField(entry: unknown, field: string): string | undefined {
+  if (typeof entry !== 'object' || entry === null) return undefined
+  const value = (entry as Record<string, unknown>)[field]
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+/** Path-only match, deliberately not branch-aware: a live query against orca-ide 1.4.201 on
+ * 2026-09-19 observed `branch: ""` on real worktree/terminal entries, so branch is not a reliable
+ * signal today. Compares `path.resolve()`'d paths, not realpath — a match can miss across a
+ * symlinked mount; accepted as a best-effort signal, same spirit as the recency-based
+ * stuck-session gate above. */
+function matchesCwd(entries: unknown[] | undefined, field: string, cwd: string): boolean {
+  if (!entries) return false
+  return entries.some((entry) => {
+    const value = stringField(entry, field)
+    return value !== undefined && path.resolve(value) === cwd
+  })
+}
+
 export function gatherSignals(cwd: string, requestText: string | undefined, orchestrateFlag: boolean): ControllerSignals {
   const { multiScope, trigger } = detectMultiScope(requestText, orchestrateFlag)
   const { stuck, sampled } = stuckSessionSignal(cwd)
   const worktrees = queryOrcaWorktrees()
   const terminals = queryOrcaTerminals()
   const orcaAvailable = worktrees.ok || terminals.ok
-
-  // TODO — ask Hugo: real match predicate needs orca-ide's actual field names (see orca.ts).
-  // Placeholder always reports no match until that shape is confirmed — never a fabricated match.
-  const matchingWorktree = false
-  const matchingTerminal = false
+  const matchingWorktree = worktrees.ok && matchesCwd(worktrees.worktrees, 'path', cwd)
+  const matchingTerminal = terminals.ok && matchesCwd(terminals.terminals, 'worktreePath', cwd)
 
   return {
     cwd,

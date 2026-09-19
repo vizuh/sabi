@@ -38,12 +38,18 @@ export function runOrca(
     return { ok: false, errorCode: 'invalid-json' }
   }
 
-  // Shape is NOT verified against a real orca-ide install in this pass — TODO: confirm the real
-  // `orca-ide worktree ps --json` / `terminal list --json` field names before trusting this.
-  // `unrecognized-shape` stays its own code, distinct from "queried fine, found nothing", so a
-  // parse-shape bug can never be silently read as "no match" in signals.ts.
-  if (!Array.isArray(parsed)) return { ok: false, errorCode: 'unrecognized-shape' }
-  return { ok: true, [field]: parsed }
+  // Real shape, observed live against orca-ide 1.4.201 on 2026-09-19 (not a published, stable
+  // contract — orca-ide is third-party; re-verify against `orca-ide --version` if this ever stops
+  // matching): `{ id, ok, result: { worktrees: [...] } }` / `{ id, ok, result: { terminals: [...] } }`,
+  // NOT a bare array. `unrecognized-shape` stays its own code, distinct from "queried fine, found
+  // nothing", so an envelope drift can never be silently read as "no match" in signals.ts.
+  const envelope = parsed as { ok?: unknown; result?: Record<string, unknown> } | null
+  if (typeof envelope !== 'object' || envelope === null || envelope.ok !== true) {
+    return { ok: false, errorCode: 'unrecognized-shape' }
+  }
+  const items = envelope.result?.[field]
+  if (!Array.isArray(items)) return { ok: false, errorCode: 'unrecognized-shape' }
+  return { ok: true, [field]: items }
 }
 
 export function queryOrcaWorktrees(opts?: { bin?: string; timeoutMs?: number }): OrcaQueryResult {
