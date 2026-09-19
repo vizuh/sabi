@@ -14,6 +14,7 @@ import {
   writeControllerPreferences,
 } from './daemon.ts'
 import { configuredHarnesses } from './inventory.ts'
+import { adapterReady, builtInAdapterManifests, commandAvailable } from './adapter-contract.ts'
 import { defaultControllerLogPath, readControllerDecisions, summarizeControllerReplay } from './log.ts'
 import { dispatchControllerRequest, inventorySnapshot } from './runtime.ts'
 import { installUserService, type UserServiceResult } from './service.ts'
@@ -221,11 +222,18 @@ async function runIntegrations(argv: string[]): Promise<void> {
   const repaired = action === 'repair' && repairTargets.length > 0
     ? installHooks({ harnesses: repairTargets })
     : undefined
+  const manifests = builtInAdapterManifests().map((manifest) => ({
+    ...manifest,
+    detected: manifest.command ? commandAvailable(manifest.command) : false,
+    ready: adapterReady(manifest),
+  }))
   const result = {
     action,
     detected: detected.map(({ agent, command }) => ({ agent, command, status: 'executable-only' })),
-    supported: ['claude', 'codex', 'opencode'],
-    unsupported: ['orca-universal', 'hermes', 'prime-agent', 'pi', 'omp'],
+    adapters: manifests,
+    supported: manifests.filter(({ ready }) => ready).map(({ id }) => id),
+    partial: manifests.filter(({ status }) => status === 'partial').map(({ id }) => id),
+    unsupported: manifests.filter(({ status }) => status === 'unsupported').map(({ id }) => id),
     ...(action === 'repair'
       ? { repaired: repaired !== undefined, hooks: repaired ?? [], detail: repaired ? 'supported user hooks repaired' : 'no detected supported harness to repair' }
       : {}),
@@ -234,7 +242,8 @@ async function runIntegrations(argv: string[]): Promise<void> {
   else {
     console.log('Sabi integrations')
     for (const item of result.detected) console.log(`○ ${item.agent}: ${item.status}`)
-    console.log(`supported controller bridges: ${result.supported.join(', ')}`)
+    console.log(`supported controller adapters: ${result.supported.join(', ') || 'none'}`)
+    console.log(`partial adapters: ${result.partial.join(', ') || 'none'}`)
     console.log(`not controller-integrated: ${result.unsupported.join(', ')}`)
     if (action === 'repair') console.log(result.detail)
   }
