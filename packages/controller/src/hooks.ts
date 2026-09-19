@@ -68,11 +68,23 @@ function hookEntry(env: NodeJS.ProcessEnv, harness: HookHarness, event: string, 
   }
 }
 
+function isSabiHookEntry(value: unknown, harness: HookHarness): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const entry = value as JsonObject
+  if (!Array.isArray(entry.hooks)) return false
+  return entry.hooks.some((hook) => {
+    if (hook === null || typeof hook !== 'object' || Array.isArray(hook)) return false
+    const value = hook as JsonObject
+    const command = value.command
+    return value.statusMessage === `Sabi ${harness} routing` && typeof command === 'string' && new RegExp(`(?:^|\\s)hook ${harness}(?:\\s|$)`).test(command)
+  })
+}
+
 function appendEvent(container: JsonObject, event: string, entry: JsonObject, label: string, harness: HookHarness): void {
   const current = container[event]
   if (current !== undefined && !Array.isArray(current)) throw new Error(`${label}.${event} must be an array`)
   const entries = (current as unknown[] | undefined) ?? []
-  if (entries.some((item) => JSON.stringify(item).includes(`hook ${harness}`))) return
+  if (entries.some((item) => isSabiHookEntry(item, harness))) return
   container[event] = [...entries, entry]
 }
 
@@ -187,7 +199,7 @@ export function restoreHookBackups(options: { harnesses?: InstalledHook[]; env?:
         if (hooks && typeof hooks === 'object' && !Array.isArray(hooks)) {
           for (const [event, entries] of Object.entries(hooks as JsonObject)) {
             if (!Array.isArray(entries)) continue
-            const filtered = entries.filter((entry) => !JSON.stringify(entry).includes(`hook ${harness}`))
+            const filtered = entries.filter((entry) => !isSabiHookEntry(entry, harness))
             if (filtered.length !== entries.length) {
               changed = true
               if (filtered.length) (hooks as JsonObject)[event] = filtered
