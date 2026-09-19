@@ -45,7 +45,13 @@ function stuckSessionSignal(cwd: string): { stuck: boolean; sampled: number } {
   const cutoff = Date.now() - STALE_AFTER_MS
   const recent = rows.filter((r) => new Date(r.ts).getTime() >= cutoff)
   const last = recent.at(-1)
-  const stuck = Boolean(last && last.outcome === 'ok' && last.state.failure === 'hard')
+  // `readDecisions()` only guards unparsable JSON lines, not row shape — a partially-written row
+  // from a crashed writer, or one hand-edited mid-debugging, can parse fine but lack `state`
+  // entirely. Every other signal source here is fail-open by design; this one wasn't, and a
+  // malformed row used to crash the whole CLI instead of degrading to "not stuck".
+  const stuck = Boolean(
+    last && typeof last === 'object' && last.outcome === 'ok' && last.state?.failure === 'hard',
+  )
   return { stuck, sampled: recent.length }
 }
 

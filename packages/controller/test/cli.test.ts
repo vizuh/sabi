@@ -37,6 +37,15 @@ test('no request, no history, no orca -> ASK, one well-formed log line, exit 0',
   assert.equal(JSON.parse(lines[0]!).action, 'ASK')
 })
 
+test('an unquoted multi-word request is joined, not truncated to its first token', () => {
+  const cwd = workspace()
+  const result = run(['please', 'coordinate', 'this', 'across', 'projects', '--json'], cwd)
+  assert.equal(result.status, 0)
+  const record = JSON.parse(result.stdout)
+  assert.equal(record.action, 'ORCHESTRATE')
+  assert.equal(record.signals.multiScopeTrigger, 'across-projects')
+})
+
 test('--orchestrate forces ORCHESTRATE regardless of request text', () => {
   const cwd = workspace()
   const result = run(['a single simple fix', '--orchestrate', '--json'], cwd)

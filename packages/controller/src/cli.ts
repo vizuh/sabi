@@ -14,7 +14,11 @@ function main(): void {
   const cwd = path.resolve(flagValue(argv, '--cwd') ?? process.cwd())
   const orchestrateFlag = argv.includes('--orchestrate')
   const asJson = argv.includes('--json')
-  const requestText = argv.find((a) => !a.startsWith('--'))
+  // Join every non-flag token instead of taking just the first — the documented invocation is a
+  // quoted string, but an unquoted multi-word request (a human typo, not an error) must not
+  // silently truncate to its first word.
+  const requestParts = argv.filter((a) => !a.startsWith('--'))
+  const requestText = requestParts.length > 0 ? requestParts.join(' ') : undefined
 
   const signals = gatherSignals(cwd, requestText, orchestrateFlag)
   const decision = decide(signals)

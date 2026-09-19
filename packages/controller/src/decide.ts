@@ -29,7 +29,7 @@ export function decide(s: ControllerSignals): ControllerDecision {
     return {
       action: 'DELEGATE',
       rule: 'existing-session-match',
-      reason: 'Orca reports an existing worktree/terminal already on this repo+branch — avoid duplicating work.',
+      reason: 'Orca reports an existing worktree/terminal already open on this exact path — avoid duplicating work.',
     }
   }
   if (!s.requestGiven && !s.orcaAvailable && s.sabiLogSampled === 0) {

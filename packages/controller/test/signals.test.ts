@@ -128,6 +128,24 @@ test('stuck session: a hard-failure row older than the recency window is not stu
   assert.equal(signals.sabiLogSampled, 0)
 })
 
+test('stuck session: a recent row missing state entirely does not crash, reports not stuck', () => {
+  const cwd = workspace()
+  const malformed = JSON.stringify({ ts: new Date().toISOString(), outcome: 'ok' })
+  writeLog(cwd, [malformed])
+  const signals = gatherSignals(cwd, 'do something', false)
+  assert.equal(signals.stuckSession, false)
+  assert.equal(signals.sabiLogSampled, 1)
+})
+
+test('stuck session: a recent row with state: null does not crash, reports not stuck', () => {
+  const cwd = workspace()
+  const malformed = JSON.stringify({ ts: new Date().toISOString(), outcome: 'ok', state: null })
+  writeLog(cwd, [malformed])
+  const signals = gatherSignals(cwd, 'do something', false)
+  assert.equal(signals.stuckSession, false)
+  assert.equal(signals.sabiLogSampled, 1)
+})
+
 test('stuck session: no log file -> not stuck, zero sampled', () => {
   const cwd = workspace()
   const signals = gatherSignals(cwd, 'do something', false)
