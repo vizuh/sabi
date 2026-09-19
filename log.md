@@ -351,3 +351,11 @@ delegation, spawning, or orchestration. Existing JSON config is merged with one 
 stays in the current harness and all hook failures fail open. Added `/plan` to keep planning separate
 from execution and focused tests for config preservation, idempotence, receipts, and OpenCode message
 mutation. No real user config, paid task, or live Orca plugin activation was changed.
+
+## [2026-09-19] feat | Controller traces and read-only replay
+
+Added trace schema v1 fields for bounded candidates and execution duration, while preserving the
+existing decision, handoff and receipt records. Added `sabi replay --last=<n>` as a read-only summary
+of recorded actions, rules and execution outcomes; it does not invoke Orca, a harness or a paid task.
+Added CLI and daemon regression coverage. Policy re-execution and automatic lesson compilation remain
+the next phase after enough real outcome data exists.

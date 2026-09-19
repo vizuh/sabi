@@ -221,3 +221,13 @@ subscription. Installed runtime evidence: Claude Code 2.1.278, Codex 0.155.1 wit
 OpenCode CLI 1.18.31 and local `@opencode-ai/plugin` types 1.18.4. Config merge and transport tests
 pass; live mutation of the user's harness configs and live OpenCode plugin activation remain
 unverified and were not performed.
+
+## Controller traces and replay — 2026-09-19
+
+The controller record now carries trace schema v1, bounded candidate descriptors, the valid action
+set, execution duration and the existing execution receipt. `sabi replay --last=<n>` reads the local
+controller JSONL and reports action, rule and execution distributions without calling Orca or a
+harness. This is the first replay/evaluation surface; it does not yet re-run a policy against a
+historical inventory or synthesize lessons.
+
+Verification: focused controller tests pass, including a CLI replay test and daemon trace assertions.

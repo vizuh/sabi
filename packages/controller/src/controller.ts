@@ -18,6 +18,7 @@ import type {
   AgentRoutePlan,
   AgentSession,
   ControllerAction,
+  ControllerCandidateTelemetry,
   ControllerExecution,
   ControllerOverride,
   ControllerRoutingTelemetry,
@@ -192,6 +193,28 @@ function candidateState(inventory: AgentInventory): Record<string, unknown> {
     existingSessions: inventory.existingSessions.map(describe),
     spawnCandidates: inventory.spawnCandidates.map(describe),
   }
+}
+
+function candidateTelemetry(inventory: AgentInventory): ControllerCandidateTelemetry[] {
+  const describe = (
+    action: ControllerCandidateTelemetry['action'],
+    candidate: AgentSession | AgentHarness,
+  ): ControllerCandidateTelemetry => ({
+    action,
+    id: candidate.id,
+    agent: candidate.agent,
+    kind: candidate.kind,
+    available: candidate.available,
+    capacity: candidate.capacity,
+    lifecycle: candidate.kind === 'session' ? candidate.lifecycle : undefined,
+    context: candidate.context,
+  })
+  // ponytail: cap the trace at 32 candidates; add paged inventory storage if large Orca pools appear.
+  return [
+    describe('CONTINUE', inventory.active),
+    ...inventory.existingSessions.map((candidate) => describe('DELEGATE', candidate)),
+    ...inventory.spawnCandidates.map((candidate) => describe('SPAWN', candidate)),
+  ].slice(0, 32)
 }
 
 export async function selectRoute(
@@ -443,6 +466,7 @@ export async function runController(
       activeSessionId: inventory.active.handle ? inventory.active.id : undefined,
     },
     validActions: selection.validActions,
+    candidates: candidateTelemetry(inventory),
     decisionSource: selection.decisionSource,
     deterministicRule: selection.rule,
     jev: selection.jev,

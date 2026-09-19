@@ -112,6 +112,7 @@ npm link                         # a partir deste checkout, para desenvolvimento
 sabi setup --hooks               # grava o estado, inicia o daemon e instala os hooks
 sabi status
 sabi route "revise esta mudança"
+sabi replay --last=1000         # resumo somente leitura das decisões/resultados
 ```
 
 `setup` detecta os harnesses instalados e habilita o roteamento automático pelo daemon. Com
@@ -126,6 +127,10 @@ Para instalar ou reparar os hooks separadamente, rode `sabi hooks install` (ou s
 `--codex` ou `--opencode`). O daemon fica apenas em loopback e reutiliza o inventário real do Orca
 quando disponível. Um serviço de login do sistema e a ativação live do plugin OpenCode dentro do Orca
 continuam sendo integrações separadas.
+
+Os registros do controller usam o schema de trace v1: candidatos bounded, conjunto fechado de ações
+válidas, rota escolhida, status da execução e duração. `sabi replay` lê o JSONL sem chamar nenhum
+harness, permitindo avaliar mudanças de política sobre tráfego observado antes de executar.
 
 Na subida, o proxy carrega somente os nomes de credencial referenciados pela configuração ativa.
 Variáveis já presentes no ambiente vencem; depois vêm `SABI_SECRETS_FILE`, o `secrets/.env` mais

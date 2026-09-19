@@ -167,6 +167,19 @@ test('route remains an explicit alias and logs can be read without exposing a da
   assert.equal(record.records[0].request, 'read this')
 })
 
+test('replay summarizes recorded decisions without executing another request', () => {
+  const cwd = workspace()
+  const routed = run(['route', 'read', 'this', '--json'], cwd)
+  assert.equal(routed.status, 0)
+  const replay = run(['replay', '--last=1', '--json'], cwd)
+  assert.equal(replay.status, 0)
+  const summary = JSON.parse(replay.stdout)
+  assert.equal(summary.sampleSize, 1)
+  assert.equal(summary.actions[JSON.parse(routed.stdout).action], 1)
+  assert.equal(summary.execution['awaiting-user'], 1)
+  assert.equal(typeof summary.averageDurationMs, 'number')
+})
+
 test('doctor and config report local boundaries without reading secrets', () => {
   const cwd = workspace()
   const doctor = run(['doctor', '--json'], cwd)

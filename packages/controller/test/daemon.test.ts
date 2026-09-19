@@ -36,6 +36,9 @@ test('daemon serves health, live inventory and controller routing over loopback'
       body: { request: '', cwd },
     })
     assert.equal(route?.action, 'ASK')
+    assert.equal(route?.traceVersion, 1)
+    assert.equal(Array.isArray(route?.routing && (route.routing as Record<string, unknown>).candidates), true)
+    assert.equal(typeof (route?.execution as Record<string, unknown>).durationMs, 'number')
     assert.equal(existsSync(path.join(cwd, '.sabi', 'controller-decisions.jsonl')), true)
 
     const plan = await requestControllerDaemon('/plan', {

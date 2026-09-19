@@ -330,6 +330,15 @@ The plugin asks the loopback controller for a plan, dispatches only `DELEGATE`, 
 not a subscription/model switch, and the installed OpenCode plugin surface still needs a live host
 activation check in the user's Orca instance.
 
+Controller traces use schema v1 and retain bounded candidates, valid actions, execution status and
+duration. Inspect the read-only aggregate with:
+
+```bash
+sabi replay --last=1000
+```
+
+This summarizes recorded traffic; it does not invoke a harness or replay a paid task.
+
 ### Hermes
 
 Hermes is served through the same proxy, plus an optional plugin that adds stable attribution. This

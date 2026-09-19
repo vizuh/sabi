@@ -14,14 +14,14 @@ import {
   writeControllerPreferences,
 } from './daemon.ts'
 import { configuredHarnesses } from './inventory.ts'
-import { defaultControllerLogPath, readControllerDecisions } from './log.ts'
+import { defaultControllerLogPath, readControllerDecisions, summarizeControllerReplay } from './log.ts'
 import { dispatchControllerRequest, inventorySnapshot } from './runtime.ts'
 import { installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'doctor' | 'config' | 'logs' | 'setup' | 'daemon' | 'hooks' | 'hook'
+type Command = 'route' | 'status' | 'agents' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'daemon' | 'hooks' | 'hook'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'doctor', 'config', 'logs', 'setup', 'daemon', 'hooks', 'hook'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'doctor', 'config', 'logs', 'replay', 'setup', 'daemon', 'hooks', 'hook'])
 
 function flagValue(argv: string[], name: string): string | undefined {
   return argv.find((a) => a.startsWith(`${name}=`))?.slice(name.length + 1)
@@ -57,6 +57,7 @@ function printHelp(): void {
   sabi doctor [--cwd=<path>] [--json]
   sabi config [--cwd=<path>] [--json]
   sabi logs [--cwd=<path>] [--tail=<n>] [--json]
+  sabi replay [--cwd=<path>] [--last=<n>] [--json]
   sabi setup [--no-start] [--hooks] [--json]
   sabi daemon [--status|--stop|--foreground] [--json]
   sabi hooks install [--claude] [--codex] [--opencode] [--json]
@@ -280,6 +281,27 @@ function runLogs(argv: string[]): void {
   for (const record of records) console.log(`${record.ts} ${record.action} ${record.request ?? '(no request)'}`)
 }
 
+function runReplay(argv: string[]): void {
+  const cwd = resolvedCwd(argv)
+  const logFile = defaultControllerLogPath(cwd)
+  const requestedLast = Number(flagValue(argv, '--last') ?? 1000)
+  const last = Number.isFinite(requestedLast) && requestedLast >= 0 ? Math.floor(requestedLast) : 1000
+  const allRecords = readControllerDecisions(logFile)
+  const records = last === 0 ? [] : allRecords.slice(-last)
+  const result = { logFile, ...summarizeControllerReplay(records) }
+  if (jsonRequested(argv)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log('Sabi controller replay')
+  console.log(`log: ${logFile}`)
+  console.log(`sample: ${result.sampleSize}`)
+  console.log(`actions: ${Object.entries(result.actions).filter(([, count]) => count > 0).map(([action, count]) => `${action}=${count}`).join(', ') || 'none'}`)
+  console.log(`execution: ${Object.entries(result.execution).map(([status, count]) => `${status}=${count}`).join(', ') || 'none'}`)
+  console.log(`accepted: ${result.acceptedExecutions} · completed: ${result.completedExecutions} · failed: ${result.failedExecutions}`)
+  if (result.averageDurationMs !== undefined) console.log(`average duration: ${result.averageDurationMs}ms`)
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2)
   if (argv.includes('--help') || argv.includes('-h')) {
@@ -291,6 +313,7 @@ async function main(): Promise<void> {
   if (command === 'doctor') return runDoctor(args)
   if (command === 'config') return runConfig(args)
   if (command === 'logs') return runLogs(args)
+  if (command === 'replay') return runReplay(args)
   if (command === 'setup') return runSetup(args)
   if (command === 'daemon') return runDaemon(args)
   if (command === 'hooks') return runHooks(args)

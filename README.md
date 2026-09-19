@@ -112,6 +112,7 @@ npm link                         # from this checkout, for local development
 sabi setup --hooks               # writes user state, starts daemon and installs host hooks
 sabi status
 sabi route "review this change"
+sabi replay --last=1000         # read-only decision/outcome summary
 ```
 
 `setup` detects installed harness executables and enables automatic controller routing through
@@ -126,6 +127,10 @@ To install or repair hooks separately, run `sabi hooks install` (or select `--cl
 `--opencode`). The controller daemon is loopback-only and reuses live Orca inventory when Orca is
 available. A system login service and live OpenCode plugin activation inside Orca remain separate
 integration work.
+
+Controller records use trace schema v1: bounded candidate descriptors, the closed valid-action set,
+the selected route, execution status and elapsed time. `sabi replay` reads those JSONL records without
+calling a harness, so policy changes can be evaluated against observed traffic before execution.
 
 At startup the proxy loads only the credential names referenced by the active config. Existing
 environment variables win, then `SABI_SECRETS_FILE`, the nearest workspace `secrets/.env`, and

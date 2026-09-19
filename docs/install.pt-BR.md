@@ -313,6 +313,15 @@ OpenCode. Falhas de transporte ou do daemon deixam o harness seguir normalmente.
 do controller, não troca de assinatura/modelo; a ativação live do plugin OpenCode na instância Orca
 do usuário ainda precisa de uma verificação própria.
 
+Os traces do controller usam o schema v1 e mantêm candidatos bounded, ações válidas, status e duração
+da execução. Veja o agregado somente leitura com:
+
+```bash
+sabi replay --last=1000
+```
+
+Isto resume o tráfego registrado; não chama harness nem repete uma tarefa paga.
+
 ### Hermes
 
 O Hermes é atendido pelo mesmo proxy, mais um plugin opcional que adiciona atribuição estável. Isto segue `packages/adapters/hermes/README.md`: o plugin e uma sonda Hermes → Sabi → mock estão verificados em isolamento, mas **nenhum perfil real do Hermes rodou contra o Sabi ainda** — trate como template, não como caminho certificado.
