@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
+import type { ControllerConfig } from '@sabi/core'
 import { queryOrcaTerminals, queryOrcaWorktrees, readOrcaTerminal, waitOrcaTerminal } from './orca.ts'
 import type { AgentHarness, AgentSession, AgentCapacity, OrcaErrorCode } from './types.ts'
 
@@ -36,9 +37,63 @@ const DEFAULT_HARNESSES: Array<{ agent: string; command: string }> = [
   { agent: 'claude', command: 'claude' },
   { agent: 'opencode', command: 'opencode' },
   { agent: 'command-code', command: 'cmd' },
+  { agent: 'hermes', command: 'hermes' },
   { agent: 'omp', command: 'omp' },
   { agent: 'pi', command: 'pi' },
 ]
+
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/
+const MODEL_LIST_HEADERS = new Set(['Available', 'Models', 'Open', 'Source', 'Built-in', 'Other'])
+const MODEL_CATALOG_TIMEOUT_MS = 10_000
+const MODEL_CATALOG_TTL_MS = 60_000
+// ponytail: a short process cache avoids two slow CLI probes per request; lower the TTL or add an
+// explicit refresh if plan changes need to be visible inside an already-running daemon.
+const localModelCache = new Map<string, { models: string[] | undefined; observedAt: number }>()
+
+export function parseModelList(output: string): string[] {
+  const models = new Set<string>()
+  for (const line of output.split(/\r?\n/)) {
+    const candidate = line.trim().split(/\s+/, 1)[0]
+    if (candidate && !MODEL_LIST_HEADERS.has(candidate) && MODEL_ID.test(candidate)) models.add(candidate)
+  }
+  return [...models]
+}
+
+export function selectPreferredModel(output: string, preferredModels: string[]): string | undefined {
+  const models = new Set(parseModelList(output))
+  return preferredModels.find((model) => models.has(model))
+}
+
+function localModels(agent: string, command: string): string[] | undefined {
+  const key = `${agent}:${command}`
+  const cached = localModelCache.get(key)
+  if (cached && Date.now() - cached.observedAt < MODEL_CATALOG_TTL_MS) return cached.models
+  const args = agent === 'opencode' ? ['models'] : ['--list-models']
+  try {
+    const output = execFileSync(command, args, {
+      encoding: 'utf8',
+      timeout: MODEL_CATALOG_TIMEOUT_MS,
+      maxBuffer: 2_000_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    const models = parseModelList(output)
+    localModelCache.set(key, { models, observedAt: Date.now() })
+    return models
+  } catch {
+    localModelCache.set(key, { models: undefined, observedAt: Date.now() })
+    return undefined
+  }
+}
+
+function preferredModel(agent: string, command: string, preferredModels: string[] | undefined): string | undefined {
+  if (!preferredModels?.length) return undefined
+  const models = localModels(agent, command)
+  return models === undefined ? undefined : preferredModels.find((model) => models.includes(model))
+}
+
+function launchCommand(command: string, model: string | undefined): string | undefined {
+  return model && MODEL_ID.test(model) ? `${command} --model ${model}` : undefined
+}
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
@@ -125,10 +180,27 @@ function executableExists(command: string): boolean {
   }
 }
 
-export function configuredHarnesses(): Array<{ agent: string; command: string }> {
+export function configuredHarnesses(controller?: ControllerConfig): Array<{
+  agent: string
+  command: string
+  model?: string
+  launchCommand?: string
+  modelRequired?: boolean
+}> {
   const configured = process.env.SABI_CONTROLLER_HARNESSES?.split(',').map((value) => value.trim()).filter(Boolean)
-  if (!configured?.length) return DEFAULT_HARNESSES.filter(({ command }) => executableExists(command))
-  return configured.map((agent) => ({ agent, command: agent })).filter(({ command }) => executableExists(command))
+  const definitions = !configured?.length
+    ? DEFAULT_HARNESSES
+    : configured.map((agent) => ({ agent, command: agent }))
+  return definitions.filter(({ command }) => executableExists(command)).map(({ agent, command }) => {
+    const preferredModels = controller?.harnesses?.[agent]?.preferredModels
+    const model = preferredModel(agent, command, preferredModels)
+    return {
+      agent,
+      command,
+      ...(model ? { model, launchCommand: launchCommand(command, model) } : {}),
+      ...(preferredModels?.length ? { modelRequired: true } : {}),
+    }
+  })
 }
 
 function makeSession(
@@ -212,7 +284,7 @@ function hostCurrentSession(cwd: string, sessionId: string, harness = 'current')
 
 export function discoverAgents(
   cwd: string,
-  options: { stuckSession?: boolean; now?: number; currentSession?: string; currentHarness?: string } = {},
+  options: { stuckSession?: boolean; now?: number; controller?: ControllerConfig; currentSession?: string; currentHarness?: string } = {},
 ): AgentInventory {
   const resolvedCwd = path.resolve(cwd)
   const now = options.now ?? Date.now()
@@ -250,16 +322,22 @@ export function discoverAgents(
     if (!previous || (!session.available && previous.available)) knownAgentState.set(session.agent, session)
   }
   const spawnCandidates: AgentHarness[] = orcaAvailable
-    ? configuredHarnesses().map(({ agent, command }) => ({
+    ? configuredHarnesses(options.controller).map(({ agent, command, model, launchCommand, modelRequired }) => ({
       id: `harness:${agent}`,
       agent,
       harness: agent,
       command,
+      ...(model ? { model } : {}),
+      ...(launchCommand ? { launchCommand } : {}),
       capabilities: ['coding'],
-      available: knownAgentState.get(agent)?.capacity.status === undefined
-        ? true
-        : knownAgentState.get(agent)!.available && knownAgentState.get(agent)!.capacity.status !== 'unavailable',
-      capacity: knownAgentState.get(agent)?.capacity ?? { status: 'available' },
+      available: modelRequired && !model
+        ? false
+        : knownAgentState.get(agent)?.capacity.status === undefined
+          ? true
+          : knownAgentState.get(agent)!.available && knownAgentState.get(agent)!.capacity.status !== 'unavailable',
+      capacity: modelRequired && !model
+        ? { status: 'unavailable' }
+        : knownAgentState.get(agent)?.capacity ?? { status: 'available' },
       kind: 'harness',
     }))
     : []

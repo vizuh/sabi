@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { defaultConfigPath, loadConfig } from '@sabi/core'
 import { appendControllerDecision, defaultControllerLogPath } from './log.ts'
 import { runController } from './controller.ts'
 import { gatherSignals } from './signals.ts'
@@ -31,15 +32,24 @@ function summarizeAgent(agent: AgentSession | AgentHarness): Record<string, unkn
     worktree: agent.worktree,
     branch: agent.branch,
     context: agent.context,
+    model: agent.model,
     ...(agent.kind === 'session' ? { dispatchable: agent.dispatchable } : {}),
     ...(agent.kind === 'session'
       ? { kind: agent.kind, handle: agent.handle, lifecycle: agent.lifecycle, authenticated: agent.authenticated }
-      : { kind: agent.kind, command: agent.command }),
+      : { kind: agent.kind, command: agent.command, launchCommand: agent.launchCommand }),
+  }
+}
+
+function controllerConfigFor(cwd: string) {
+  try {
+    return loadConfig(defaultConfigPath({ cwd })).controller
+  } catch {
+    return undefined
   }
 }
 
 export function inventorySnapshot(cwd: string, runtime: InventoryRuntime): Record<string, unknown> {
-  const inventory = discoverAgents(cwd)
+  const inventory = discoverAgents(cwd, { controller: controllerConfigFor(cwd) })
   return {
     cwd,
     runtime,
@@ -59,6 +69,7 @@ export async function dispatchControllerRequest(options: RouteDispatchOptions): 
   const request = options.request
   const orchestrate = options.orchestrate ?? false
   const waitMs = options.waitMs ?? 5000
+  const controller = controllerConfigFor(cwd)
   const signals = gatherSignals(cwd, request, orchestrate)
   const startedAt = Date.now()
   const result = await runController(
@@ -68,6 +79,7 @@ export async function dispatchControllerRequest(options: RouteDispatchOptions): 
     options.override,
     Number.isFinite(waitMs) && waitMs >= 0 ? waitMs : 5000,
     options.execute !== false,
+    controller,
     options.currentSession,
     options.currentHarness,
   )

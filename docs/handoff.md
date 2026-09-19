@@ -350,3 +350,23 @@ The follow-up hardening also marks hook-identified host sessions as `dispatchabl
 preserves the host-native `CONTINUE` boundary, while uninstall removes only entries carrying Sabi's
 structural hook marker instead of matching arbitrary command text. The public package remains gated
 on real runtime receipt tests and publication approval.
+
+## Plan-aware Orca routing — 2026-09-19
+
+The controller now reads optional `controller.preferredHarnesses` and per-harness
+`preferredModels` from `sabi.config.json`. It verifies model ids against the local harness CLIs
+(`cmd --list-models` and `opencode models`) and uses Orca's live terminal/session capacity as the
+second gate. The current host showed `moonshotai/kimi-k3` in Command Code and
+`opencode-go/kimi-k3` in OpenCode; the Command Code Sabi session was quota-exhausted while the
+OpenCode Sabi session was idle/available. A read-only planner proof selected the OpenCode session
+for delegation. The candidate set now covers `opencode`, `command-code`, `claude`, `codex` and
+optional `hermes`; Hermes is not installed on this host, so it does not appear as a live candidate.
+
+This is task-level controller routing: an existing OpenCode session keeps its current model, while
+a newly spawned target receives the verified model via `--model`. It does not query a provider API,
+copy credentials, switch an already-running native session, or claim per-inference cross-harness
+routing. The change is source-only on `feat/public-controller-package`; no task was dispatched,
+no terminal was spawned, and no merge or publication was performed.
+
+Verification: 348 Node tests passed, `npm run typecheck` passed, and live `sabi status --json` plus a
+pure `planAgentRoute()` check used the real Orca inventory without executing a request.

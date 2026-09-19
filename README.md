@@ -142,6 +142,17 @@ unsupported until validated. Use `sabi integrations list` to distinguish an exec
 controller-integrated harness. The daemon is loopback-only and reuses live Orca inventory when Orca
 is available; live universal OpenCode/Orca activation remains a separate gate.
 
+The controller can also route by the plans actually visible on this machine. Configure
+`controller.preferredHarnesses` and per-harness `preferredModels` in `sabi.config.json`; it checks
+`cmd --list-models` or `opencode models` locally, then combines that result with Orca's observed
+session capacity. For example, `opencode-go/kimi-k3` can be selected for a new OpenCode terminal
+while `moonshotai/kimi-k3` remains a Command Code candidate. A quota-exhausted Command Code session
+therefore falls back to an available OpenCode session or spawn candidate without a provider API call
+or credential transfer. The Orca fallback list also accepts `claude`, `codex` and `hermes`; a harness
+is eligible only when its executable/session is actually present. Existing sessions keep their
+currently selected model; exact model selection is guaranteed only for a controller-spawned terminal
+(`opencode --model ...` or `cmd --model ...`).
+
 Controller records use trace schema v1: bounded candidate descriptors, the closed valid-action set,
 the selected route, execution status and elapsed time. Raw requests, handoffs, diffs and terminal
 handles are omitted from persisted controller logs by default; the live handoff is sent only to the
@@ -201,6 +212,7 @@ Other Go-and-above candidates for `strong`: `moonshotai/kimi-k3`, `qwen/qwen3.8-
 - `aliases` — what the harness sees (`sabi-code` = `auto`, plus fixed baselines)
 - `policy` — rule → tier; `off` disables a rule
 - `judge` — endpoint, model, thresholds, cache TTL, state budget
+- `controller` — preferred harness order and local model ids used by the Orca controller
 - `harness.tiers` — the class-A tiers: Command Code catalog ids, reasoning effort, `minPlan`
 
 Model ids, context windows and prices were verified against the OpenRouter API on 2026-09-18; Jev's price ($0.042/Mtok input, output free) from the TypeSafe docs the same day; Command Code catalog ids and efforts from `cmd --list-models` and the bundled reference. All of it drifts — re-check before trusting cost math.

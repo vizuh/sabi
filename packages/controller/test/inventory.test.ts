@@ -3,7 +3,14 @@ import assert from 'node:assert/strict'
 import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { discoverAgents } from '../src/inventory.ts'
+import { discoverAgents, parseModelList, selectPreferredModel } from '../src/inventory.ts'
+
+test('local harness model catalog matching stays exact and provider-free', () => {
+  const output = 'opencode-go/kimi-k3\nopencode-go/gpt-5.6-luna\nAvailable models · 2 models'
+  assert.deepEqual(parseModelList(output), ['opencode-go/kimi-k3', 'opencode-go/gpt-5.6-luna'])
+  assert.equal(selectPreferredModel(output, ['opencode-go/kimi-k3']), 'opencode-go/kimi-k3')
+  assert.equal(selectPreferredModel(output, ['moonshotai/kimi-k3']), undefined)
+})
 
 function fakeOrca(cwd: string): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-inventory-'))

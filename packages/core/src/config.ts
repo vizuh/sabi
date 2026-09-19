@@ -331,6 +331,32 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
     }
   }
 
+  const controller = config.controller
+  if (controller !== undefined) {
+    if (!isObject(controller)) throw new Error(`Sabi config ${source}: controller must be an object`)
+    const controllerFields = new Set(['preferredHarnesses', 'harnesses'])
+    for (const field of Object.keys(controller)) {
+      if (!controllerFields.has(field)) throw new Error(`Sabi config ${source}: controller.${field} is not a supported field`)
+    }
+    const validateStrings = (value: unknown, label: string): void => {
+      if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !item.trim())) {
+        throw new Error(`Sabi config ${source}: ${label} must be an array of nonempty strings`)
+      }
+      if (new Set(value).size !== value.length) throw new Error(`Sabi config ${source}: ${label} must not contain duplicates`)
+    }
+    if (controller.preferredHarnesses !== undefined) validateStrings(controller.preferredHarnesses, 'controller.preferredHarnesses')
+    if (controller.harnesses !== undefined) {
+      if (!isObject(controller.harnesses)) throw new Error(`Sabi config ${source}: controller.harnesses must be an object`)
+      for (const [harnessName, settings] of Object.entries(controller.harnesses)) {
+        if (!isObject(settings)) throw new Error(`Sabi config ${source}: controller.harnesses.${harnessName} must be an object`)
+        for (const field of Object.keys(settings)) {
+          if (field !== 'preferredModels') throw new Error(`Sabi config ${source}: controller.harnesses.${harnessName}.${field} is not a supported field`)
+        }
+        if (settings.preferredModels !== undefined) validateStrings(settings.preferredModels, `controller.harnesses.${harnessName}.preferredModels`)
+      }
+    }
+  }
+
   const harness = config.harness
   if (harness !== undefined) {
     if (typeof harness !== 'object' || harness === null) {

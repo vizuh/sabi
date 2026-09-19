@@ -458,3 +458,13 @@ Marked hook-only current sessions `dispatchable: false` so the planner and execu
 request that remains with its native harness from a real Orca terminal dispatch. Uninstall now
 matches Sabi hook structure (`statusMessage` plus command) rather than a broad substring, preserving
 third-party hooks that happen to mention a harness. Full suite remains green at 354 tests.
+
+## [2026-09-19] feat | Route across local Command Code and OpenCode plans
+
+Added controller preferences for `opencode` then `command-code`, exact local model-catalog checks,
+and Orca capacity-aware fallback across `opencode`, `command-code`, `claude`, `codex` and optional
+`hermes`. `cmd --list-models` and `opencode models` are local setup checks;
+they are combined with live quota/session state, so the current quota-exhausted Command Code Sabi
+session selects the available OpenCode Sabi session. New terminals carry the verified model through
+`--model`; existing sessions are not silently switched. Verification: 348 Node tests and typecheck
+passed; live status and a pure routing proof ran read-only, with no paid task dispatched.

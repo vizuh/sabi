@@ -183,6 +183,36 @@ test('healthy capacity wins over a lower-priority fallback', () => {
   assert.equal(plan.target?.id, 'codex-warm')
 })
 
+test('preferred OpenCode plan wins when both replacement sessions are healthy', () => {
+  const plan = planAgentRoute(input({
+    active: active({ capacity: { status: 'quota_exhausted' } }),
+    existingSessions: [
+      session('command-code-warm', 'command-code', { harness: 'command-code' }),
+      session('opencode-warm', 'opencode', { harness: 'opencode' }),
+    ],
+    preferredHarnesses: ['opencode', 'command-code'],
+  }))
+
+  assert.equal(plan.action, 'DELEGATE')
+  assert.equal(plan.target?.id, 'opencode-warm')
+})
+
+test('the Orca fallback order can include every requested harness', () => {
+  const plan = planAgentRoute(input({
+    active: active({ capacity: { status: 'quota_exhausted' } }),
+    existingSessions: [],
+    spawnCandidates: [
+      harness('harness:claude', 'claude', { harness: 'claude' }),
+      harness('harness:codex', 'codex', { harness: 'codex' }),
+      harness('harness:hermes', 'hermes', { harness: 'hermes', command: 'hermes' }),
+    ],
+    preferredHarnesses: ['opencode', 'command-code', 'claude', 'codex', 'hermes'],
+  }))
+
+  assert.equal(plan.action, 'SPAWN')
+  assert.equal(plan.target?.agent, 'claude')
+})
+
 test('hard blockers are deterministic before any quality judgment', () => {
   const cases: Array<{ patch: Partial<AgentSession>; rule: string }> = [
     { patch: { lifecycle: 'dead' }, rule: 'process-dead' },
