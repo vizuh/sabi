@@ -404,6 +404,44 @@ The user wants routing weighed against something like `U(model,task) = P(success
 ### Revisit later?
 Once real judged traffic accumulates past `n = 30` on more tier/model pairs, re-run `npm run backtest` and check whether the declines it reports look right, not just whether the gate fired. Consider whether the recovery signal is worth exposing to the Class A mod path — `judge.ts` is proxy-only today; wiring Jev into the mod at all is a separate, larger change, not bundled here.
 
+---
+
+## [2026-09-19] Agent Controller: a new advisory-only surface, not a proxy-path feature
+
+### Decision
+A new package, `packages/controller` (`@sabi/controller`), adds a standalone CLI — `npm run controller -- "<request>" [--cwd=<path>] [--orchestrate] [--json]` — that recommends one of five actions for a request arriving *before* any harness session is chosen: CONTINUE, DELEGATE, SPAWN, ORCHESTRATE, or ASK. It is invoked separately from the inference-round proxy; nothing in `packages/server` calls it. V1 is advisory/shadow-mode only: `decide()` is a pure function over `ControllerSignals`, the CLI logs every call to `.sabi/controller-decisions.jsonl`, and it never itself executes DELEGATE, SPAWN, or ORCHESTRATE — those verbs describe what a human (or a later version) would still have to do by hand. The rubric is five branches, first match wins, built only from signals already available in this repo: an explicit `--orchestrate` flag or a small keyword allowlist → ORCHESTRATE; the current cwd's own `.sabi/decisions.jsonl`, most-recent-row-within-30-minutes showing `outcome==='ok' && state.failure==='hard'` → SPAWN; Orca's read-only `worktree ps --json`/`terminal list --json` reporting a worktree/terminal already open on this exact `cwd` → DELEGATE; no request text, no Orca, and zero recent log rows (a true conjunction) → ASK; otherwise → CONTINUE, with `git status --porcelain` cleanliness recorded in the reason string only, never as a gate.
+
+### Why
+A real controller genuinely operates above where Sabi sits today: the proxy only ever sees requests from an already-running, already-chosen harness session (this doc's "harness loop stays native" language, `docs/context.md`) — there is no earlier hook to wire into inside the live request path, so putting this logic in `packages/server` would be circular. Two Explore passes confirmed, before any design: no live "what's running" registry exists anywhere in Sabi (`DecisionRecord.sessionId` is a post-hoc analytics grouping, not a live identity); Orca (external, third-party `orca-ide` binary) does expose real read-only JSON commands, but `context/Hugo OS/postmortems/2026-08-03-orca-br-skill-legacy-read-only.md` (sources: `stablyai/orca#12034`, `#11993`, `#10406`, `#11582`) records a real worker-lifecycle delivery bug (`worker_done` rejected with `legacy_read_only`/`effectsApplied:false` on a run that wasn't actually legacy) — so it must be treated as best-effort, never a hard dependency, and it may not even be installed. The rubric reuses, rather than reinvents, this repo's own established signals: the exact `state.failure === 'hard'` predicate `recovery.ts` already established as the correct per-round failure signal, and `@sabi/core`'s own `readDecisions()` reader. No invented probabilities, benchmarks, or ML — same discipline as the recovery-rate tie-breaker above.
+
+### Alternatives considered
+- Wiring routing logic into the existing proxy request path — rejected; no hook exists before a harness session is already live.
+- Gating the stuck-session signal on `DecisionRecord.sessionKnown === true`, matching `recovery.ts` exactly — rejected for this feature; the recovery tie-breaker's own entry above records that a 550-row real backtest on this machine found zero `sessionKnown: true` rows, which would make SPAWN permanently unreachable here. Gated on recency (`STALE_AFTER_MS = 30min`, `packages/controller/src/signals.ts`) instead — an explicit, named tradeoff, not a silent substitution.
+- A learned/probabilistic classifier for multi-scope request detection — rejected; an explicit `--orchestrate` flag is the reliable signal, a five-phrase keyword regex is a deliberately coarse secondary heuristic.
+- Executing DELEGATE/SPAWN/ORCHESTRATE directly (actually invoking Orca or spawning a harness) — rejected for v1; the same conservative, decline-only-first-step discipline the recovery tie-breaker used for its first landing.
+
+### Tradeoffs
+- The `STALE_AFTER_MS` recency gate can mis-signal on very recent but unrelated activity (a different branch, a stray manual `.sabi` write) — it is a proxy for "current session" until Sabi has a real live session identity, which does not exist anywhere in the codebase today.
+- Orca's real `worktree ps --json`/`terminal list --json` output is an envelope, `{ id, ok, result: { worktrees/terminals: [...] } }`, not a bare array — confirmed by querying the live `orca-ide` 1.4.201 install on this machine directly (read-only) during this same PR's review pass. `runOrca()` now parses that real shape (`unrecognized-shape` still catches a genuinely wrong/future-drifted response, including the old bare-array assumption, regression-tested). `matchingWorktree`/`matchingTerminal` now do a real path-only comparison (`path.resolve(entry.path/worktreePath) === cwd`) — deliberately not branch-aware, because the live query observed `branch: ""` on real entries, making branch an unreliable signal today. Verified end to end against this machine's real state: `npm run controller -- "..." --cwd=<a repo orca already has a worktree open on>` returns `DELEGATE` for real, the first time this action has ever fired outside a synthetic fixture. This is still not a stable, published contract — `orca-ide` is third-party; re-verify if its version changes.
+- Multi-scope detection is a five-phrase keyword allowlist plus an explicit flag — real requests using different phrasing fall through to CONTINUE/ASK rather than ORCHESTRATE; the flag is the intended reliable path.
+- No caller in this repo invokes the controller yet — it is a standalone CLI a human (or a future harness wrapper) runs by hand; nothing in the live routing path depends on it.
+
+### Revisit later?
+Once Sabi has any live session identity (not just the post-hoc `sessionId` grouping), replace the recency-based stuck-session gate with a real per-session filter. If `orca-ide`'s real entries ever carry a non-empty `branch`, consider whether branch should join `path` in the match predicate, or stay path-only by design (a worktree is already a distinct path per branch in Orca's own model, so branch may be redundant, not just unreliable). Only after the shadow-mode log shows the recommendations look right on real usage should executing DELEGATE/SPAWN/ORCHESTRATE even be considered — a separate, larger decision, not bundled here.
+
+## [2026-09-19] Agent capacity is a deterministic gate before handoff judgment
+
+### Decision
+
+Keep capacity and session-health routing pure in `packages/controller/src/agents.ts`. An active session with `quota_exhausted` or a rate limit is not eligible for `CONTINUE` when its reset wait exceeds the explicit transfer-cost bound (`handoffMs + replacementExecutionMs`, with a separate rate-limit threshold). Once `resetAt` passes, the same session becomes eligible again. If it is not eligible, reuse a suitable existing session before selecting a suitable harness to spawn. Carry the task in a typed `HandoffSnapshot`; the planner never reconstructs or restarts the work.
+
+### Why
+
+A provider quota wall, dead process, unavailable authentication, repeated identical failure, explicit blocked/waiting state and missing required capability are observable eligibility facts, not Jev questions. The planner therefore removes the current route first and leaves model/agent preference among valid candidates as a later decision. Healthy capacity outranks a `lower_priority`/`cheaper_model` fallback, so an exhausted Claude session does not silently consume scarce fallback capacity while a healthy Codex session exists.
+
+### Tradeoffs
+
+The costs are supplied by the caller in milliseconds; no invented provider reset or execution estimate is stored in Sabi. This is still shadow-mode logic: no live agent inventory, automatic handoff, process spawn or Jev selection is wired. The next required adapter is a verified inventory source that can populate these descriptors and snapshots without exposing credentials or raw usage logs.
 ## [2026-09-19] Provider-neutral secret discovery at proxy startup
 
 ### Decision

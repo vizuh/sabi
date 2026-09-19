@@ -103,6 +103,22 @@ Then pick `sabi/sabi-code` in `/model` (or `--model sabi/sabi-code`). Fixed base
 
 Sabi is a foreground process, not a service: if it is not running, every `sabi/*` request fails with `ECONNREFUSED 127.0.0.1:8787` inside the harness.
 
+## Agent Controller daemon (experimental)
+
+The separate controller surface can run once per user rather than once per worktree:
+
+```bash
+npm link                         # from this checkout, for local development
+sabi setup                       # writes user state and starts the loopback daemon
+sabi status
+sabi route "review this change"
+```
+
+`setup` detects installed harness executables and enables automatic controller routing through
+the daemon. It does not yet install Claude/Codex/OpenCode/Hermes hooks or a login/system service;
+those integrations remain explicit until their host contracts are verified. The controller daemon
+is loopback-only and reuses live Orca inventory when Orca is available.
+
 At startup the proxy loads only the credential names referenced by the active config. Existing
 environment variables win, then `SABI_SECRETS_FILE`, the nearest workspace `secrets/.env`, and
 finally `~/.config/sabi/secrets.env` or `~/.config/sabi/.env`. A dotenv file can use
