@@ -7,12 +7,13 @@
   "scripts": {
     "start": "node packages/server/src/index.ts",
     "dev": "node --watch packages/server/src/index.ts",
-    "test": "node --test \"packages/core/test/*.test.ts\" \"packages/server/test/*.test.ts\" \"packages/adapters/*/test/*.test.ts\" \"packages/evals/test/*.test.ts\" \"scripts/test/*.test.ts\"",
+    "test": "node --test \"packages/core/test/*.test.ts\" \"packages/server/test/*.test.ts\" \"packages/adapters/*/test/*.test.ts\" \"packages/evals/test/*.test.ts\" \"packages/controller/test/*.test.ts\" \"scripts/test/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "report": "node packages/server/src/report.ts",
     "eval": "node packages/evals/src/run.ts",
     "setup": "node scripts/setup.ts",
     "backtest": "node packages/evals/src/backtest.ts",
+    "controller": "node packages/controller/src/cli.ts",
     "connect:command-code": "node packages/adapters/command-code/src/connect.ts",
     "connect:opencode": "node packages/adapters/opencode/src/connect.ts",
     "mod": "cmd --mod ./packages/adapters/command-code/mod/sabi.ts"
