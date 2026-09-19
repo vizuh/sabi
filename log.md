@@ -442,3 +442,12 @@ proves the generated controller runs from a clean npm prefix; harness-detection 
 temporary executables so CI does not depend on which tools happen to be installed on the runner.
 CI run `35475422114` passed typecheck, 351 tests, and the clean-prefix package test. No npm
 publication, controller tag, universal Orca activation or live cross-terminal execution is claimed.
+
+## [2026-09-20] security | Close global controller boundary findings
+
+The independent phase-2 review found that a configurable OpenCode URL could receive the daemon
+bearer token and that persisted controller records retained raw requests, handoffs, diffs and
+terminal handles. The daemon now rejects non-loopback hosts and metadata, the OpenCode bridge fails
+open for non-loopback URLs, and persisted/read controller logs omit those sensitive fields while
+retaining routing metadata and request length. Added focused regressions for both boundaries.
+Live per-runtime receipt evidence and universal Orca activation remain release gates.

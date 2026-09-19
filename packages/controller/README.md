@@ -22,3 +22,7 @@ The first public release supports only the harness adapters listed by `sabi doct
 being present on `PATH` is not, by itself, proof that a harness is controller-integrated. Use
 `sabi sessions --json` to inspect bounded adapter registrations; registered sessions are not route
 targets until their adapter proves a dispatch transport.
+
+The daemon binds to loopback only, and the OpenCode bridge refuses non-loopback controller URLs.
+Persisted controller traces omit raw requests, handoffs, diffs and terminal handles by default;
+those values are used only for the live dispatch that needs them.

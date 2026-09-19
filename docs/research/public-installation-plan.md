@@ -108,8 +108,9 @@ Add platform installers with idempotent status/repair/uninstall commands:
 - fallback: lazy start from a verified absolute launcher, with a clear degraded status.
 
 Use a per-user Unix socket where available and an authenticated local transport on platforms without
-one. The current TCP loopback transport is bearer-token authenticated and remains loopback-only; do
-not expose a network daemon by default.
+one. The current TCP loopback transport is bearer-token authenticated and remains loopback-only; the
+daemon rejects non-loopback bind hosts and the OpenCode bridge rejects non-loopback controller URLs.
+Do not expose a network daemon by default.
 
 Required commands:
 
@@ -124,6 +125,9 @@ sabi uninstall
 ```
 
 Setup must be safe to rerun, preserve one rollback copy per user config, and never print secrets.
+Persisted controller traces keep routing metadata and bounded outcomes, but omit raw requests,
+handoffs, diffs and terminal handles by default. Those values are used only for the live dispatch;
+raw capture would require a separately designed, explicit opt-in.
 
 ### 2. Harness adapter contract
 

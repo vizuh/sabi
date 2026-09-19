@@ -176,7 +176,9 @@ test('route remains an explicit alias and logs can be read without exposing a da
   assert.equal(logs.status, 0)
   const record = JSON.parse(logs.stdout)
   assert.equal(record.records.length, 1)
-  assert.equal(record.records[0].request, 'read this')
+  assert.equal(record.records[0].request, undefined)
+  assert.equal(record.records[0].requestLength, 9)
+  assert.equal(record.records[0].handoff, undefined)
 })
 
 test('replay summarizes recorded decisions without executing another request', () => {

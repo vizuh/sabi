@@ -4,6 +4,19 @@ import path from 'node:path'
 
 const DEFAULT_CONTROLLER_URL = 'http://127.0.0.1:7433'
 
+export function trustedControllerURL(value = process.env.SABI_CONTROLLER_URL) {
+  const candidate = (value || DEFAULT_CONTROLLER_URL).trim()
+  try {
+    const parsed = new URL(candidate)
+    const host = parsed.hostname.toLowerCase()
+    if (parsed.protocol !== 'http:' || parsed.username || parsed.password) return undefined
+    if (host !== 'localhost' && host !== '127.0.0.1' && host !== '[::1]' && host !== '::1') return undefined
+    return candidate.replace(/\/+$/, '')
+  } catch {
+    return undefined
+  }
+}
+
 function controllerToken() {
   if (process.env.SABI_CONTROLLER_TOKEN) return process.env.SABI_CONTROLLER_TOKEN
   const stateHome = process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state')
@@ -59,10 +72,11 @@ function accepted(record) {
 }
 
 export async function SabiOpenCodePlugin(context) {
-  const controllerURL = process.env.SABI_CONTROLLER_URL || DEFAULT_CONTROLLER_URL
+  const controllerURL = trustedControllerURL()
   const cwd = context.directory || context.worktree || process.cwd()
   return {
     'chat.message': async (input, output) => {
+      if (!controllerURL) return
       const request = textFromParts(output?.parts)
       if (!request) return
       const sessionId = typeof input?.sessionID === 'string'

@@ -208,6 +208,7 @@ export interface ControllerDecisionRecord extends ControllerDecision {
   cwd: string
   signals: ControllerSignals
   request?: string
+  requestLength?: number
   override?: ControllerOverride
   handoff?: HandoffSnapshot
   target?: AgentSession | AgentHarness

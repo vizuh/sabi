@@ -143,8 +143,10 @@ controller-integrated harness. The daemon is loopback-only and reuses live Orca 
 is available; live universal OpenCode/Orca activation remains a separate gate.
 
 Controller records use trace schema v1: bounded candidate descriptors, the closed valid-action set,
-the selected route, execution status and elapsed time. `sabi replay` reads those JSONL records without
-calling a harness, so policy changes can be evaluated against observed traffic before execution.
+the selected route, execution status and elapsed time. Raw requests, handoffs, diffs and terminal
+handles are omitted from persisted controller logs by default; the live handoff is sent only to the
+selected target. `sabi replay` reads those JSONL records without calling a harness, so policy changes
+can be evaluated against observed traffic before execution.
 
 The public `@vizuh/sabi` GitHub/npm release publishes the Command Code adapter, not the controller.
 The controller has its own `@vizuh/sabi-controller` package and release lane. A published controller

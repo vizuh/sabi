@@ -332,3 +332,16 @@ surface has no verified universal prompt interception or plugin-install command.
 gate is a consented live host test with two worktrees and two real harnesses that proves terminal
 receipt, execution, outcome and rerouting; only after that may a `controller-v*` tag publish the
 package.
+
+## Global controller security boundary — 2026-09-20
+
+The independent phase-2 review found two release blockers and they are now fixed on PR #28: daemon
+binding is loopback-only even when `SABI_CONTROLLER_HOST` is set, daemon metadata rejects non-loopback
+hosts, and the OpenCode bridge fails open without fetching a non-loopback `SABI_CONTROLLER_URL`.
+Persisted controller traces now omit raw request text, structured handoffs, diffs and terminal
+handles; `sabi logs` returns routing metadata plus request length instead of replaying prompt content.
+The live dispatch still carries the structured handoff to the selected terminal when required.
+
+Focused security regressions cover remote URL rejection, no-fetch fail-open behavior, non-loopback
+daemon refusal and log redaction. This closes the code-level P1 findings; it does not replace the
+remaining live receipt gate for Claude, Codex and OpenCode or prove universal Orca activation.

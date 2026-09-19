@@ -142,8 +142,10 @@ em loopback e reutiliza o inventário real do Orca quando disponível; a ativaç
 OpenCode/Orca continua sendo um gate separado.
 
 Os registros do controller usam o schema de trace v1: candidatos bounded, conjunto fechado de ações
-válidas, rota escolhida, status da execução e duração. `sabi replay` lê o JSONL sem chamar nenhum
-harness, permitindo avaliar mudanças de política sobre tráfego observado antes de executar.
+válidas, rota escolhida, status da execução e duração. Requests brutos, handoffs, diffs e handles de
+terminal não são persistidos por padrão; o handoff live é enviado somente ao alvo selecionado.
+`sabi replay` lê o JSONL sem chamar nenhum harness, permitindo avaliar mudanças de política sobre
+tráfego observado antes de executar.
 
 O controller tem seu próprio pacote `@vizuh/sabi-controller` e sua própria linha de release. A
 release pública `@vizuh/sabi` no GitHub/npm publica apenas o adaptador do Command Code. Uma release

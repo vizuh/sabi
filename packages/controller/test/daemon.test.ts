@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   createControllerDaemon,
+  isLoopbackControllerHost,
   requestControllerDaemon,
   startControllerDaemon,
   stopControllerDaemon,
@@ -83,6 +84,25 @@ test('daemon serves health, live inventory and controller routing over loopback'
     if (previousOrca === undefined) delete process.env.ORCA_CLI_COMMAND
     else process.env.ORCA_CLI_COMMAND = previousOrca
   }
+})
+
+test('daemon rejects non-loopback binding and daemon metadata', async () => {
+  assert.equal(isLoopbackControllerHost('127.0.0.1'), true)
+  assert.equal(isLoopbackControllerHost('localhost'), true)
+  assert.equal(isLoopbackControllerHost('0.0.0.0'), false)
+  await assert.rejects(() => createControllerDaemon({ stateDir: workspace(), host: '0.0.0.0', port: 0 }), /loopback-only/)
+  const response = await requestControllerDaemon('/health', {
+    info: {
+      protocol: 1,
+      pid: process.pid,
+      host: '192.0.2.1',
+      port: 7433,
+      startedAt: new Date().toISOString(),
+      stateDir: workspace(),
+      token: 'x'.repeat(64),
+    },
+  })
+  assert.equal(response, undefined)
 })
 
 test('setup state can start and stop an actual detached daemon process', async () => {

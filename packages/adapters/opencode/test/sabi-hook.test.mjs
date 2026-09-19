@@ -1,6 +1,33 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import SabiOpenCodePlugin from '../src/sabi-hook.mjs'
+import SabiOpenCodePlugin, { trustedControllerURL } from '../src/sabi-hook.mjs'
+
+test('OpenCode accepts only loopback controller URLs', () => {
+  assert.equal(trustedControllerURL('http://127.0.0.1:7433'), 'http://127.0.0.1:7433')
+  assert.equal(trustedControllerURL('http://localhost:7433/'), 'http://localhost:7433')
+  assert.equal(trustedControllerURL('http://198.51.100.10:7433'), undefined)
+  assert.equal(trustedControllerURL('https://127.0.0.1:7433'), undefined)
+})
+
+test('OpenCode fails open without fetching a remote controller URL', async () => {
+  const originalFetch = globalThis.fetch
+  const originalURL = process.env.SABI_CONTROLLER_URL
+  let calls = 0
+  process.env.SABI_CONTROLLER_URL = 'http://198.51.100.10:7433'
+  globalThis.fetch = async () => {
+    calls += 1
+    throw new Error('must not fetch')
+  }
+  try {
+    const hooks = await SabiOpenCodePlugin({ directory: '/tmp/sabi-opencode-test' })
+    await hooks['chat.message']({}, { parts: [{ type: 'text', text: 'do not send this remotely' }] })
+    assert.equal(calls, 0)
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalURL === undefined) delete process.env.SABI_CONTROLLER_URL
+    else process.env.SABI_CONTROLLER_URL = originalURL
+  }
+})
 
 test('OpenCode chat.message plans first and replaces the submitted parts after dispatch', async () => {
   const originalFetch = globalThis.fetch

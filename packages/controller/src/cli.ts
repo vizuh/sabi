@@ -391,7 +391,7 @@ function runLogs(argv: string[]): void {
     console.log('no controller decisions recorded')
     return
   }
-  for (const record of records) console.log(`${record.ts} ${record.action} ${record.request ?? '(no request)'}`)
+  for (const record of records) console.log(`${record.ts} ${record.action} ${record.rule} ${record.requestLength === undefined ? '(request omitted)' : `(request omitted; ${record.requestLength} chars)`}`)
 }
 
 function runReplay(argv: string[]): void {
