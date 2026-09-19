@@ -323,3 +323,11 @@ Updated EN/PT-BR/ZH README and install/harness docs for users of OpenRouter, Oll
 Hermes, Kilo, Command Code and other clients; the proxy remains the shared boundary and Orca is
 not required. No secret file was changed. Validation: 262 Node tests, focused config tests 17/17,
 typecheck, and a no-provider-call startup with shell keys unset loaded 2 configured keys.
+
+## [2026-09-19] feat | Installable Sabi CLI boundary
+
+Added `sabi` bin entries to the root and controller manifests and exposed `route`, `status`,
+`agents`, `doctor`, `config`, and `logs`. Status commands use the existing live Orca inventory
+and explicit `--cwd`; they report `local-cli`/`daemon not-configured` rather than implying a
+background service. Hardened the controller log reader against parsed non-object rows. Focused
+CLI tests: 9/9; full suite: 324/324; typecheck clean; offline eval completed as measurement. Automatic user daemon and harness hooks remain unimplemented.

@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "bin": {
+    "sabi": "./src/cli.ts"
+  },
   "exports": {
     ".": "./src/cli.ts"
   },

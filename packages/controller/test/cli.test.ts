@@ -135,3 +135,49 @@ test('human-readable output reports execution state and never crashes without --
   assert.match(result.stdout, /\[CONTROLLER\]/)
   assert.match(result.stdout, /execution: awaiting-user/)
 })
+
+test('the real CLI exposes status and agents as read-only machine inventory commands', () => {
+  const cwd = workspace()
+  const status = run(['status', '--json'], cwd)
+  assert.equal(status.status, 0)
+  const statusRecord = JSON.parse(status.stdout)
+  assert.equal(statusRecord.cwd, cwd)
+  assert.equal(statusRecord.runtime.mode, 'local-cli')
+  assert.equal(statusRecord.runtime.daemon, 'not-configured')
+  assert.equal(statusRecord.orca.available, false)
+
+  const agents = run(['agents', '--json'], cwd)
+  assert.equal(agents.status, 0)
+  const agentsRecord = JSON.parse(agents.stdout)
+  assert.equal(agentsRecord.active.id, statusRecord.active.id)
+  assert.equal(agentsRecord.active.lifecycle, statusRecord.active.lifecycle)
+  assert.equal(agentsRecord.active.capacity.status, statusRecord.active.capacity.status)
+})
+
+test('route remains an explicit alias and logs can be read without exposing a daemon claim', () => {
+  const cwd = workspace()
+  const routed = run(['route', 'read', 'this', '--json'], cwd)
+  assert.equal(routed.status, 0)
+  assert.equal(JSON.parse(routed.stdout).request, 'read this')
+
+  const logs = run(['logs', '--tail=1', '--json'], cwd)
+  assert.equal(logs.status, 0)
+  const record = JSON.parse(logs.stdout)
+  assert.equal(record.records.length, 1)
+  assert.equal(record.records[0].request, 'read this')
+})
+
+test('doctor and config report local boundaries without reading secrets', () => {
+  const cwd = workspace()
+  const doctor = run(['doctor', '--json'], cwd)
+  assert.equal(doctor.status, 0)
+  const doctorRecord = JSON.parse(doctor.stdout)
+  assert.equal(doctorRecord.runtime.daemon, 'not-configured')
+  assert.equal(doctorRecord.checks.some((check: { name: string }) => check.name === 'node'), true)
+
+  const config = run(['config', '--json'], cwd)
+  assert.equal(config.status, 0)
+  const configRecord = JSON.parse(config.stdout)
+  assert.equal(configRecord.cwd, cwd)
+  assert.match(configRecord.controllerLogPath, /controller-decisions\.jsonl$/)
+})

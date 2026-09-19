@@ -23,7 +23,10 @@ export function readControllerDecisions(logFile: string): ControllerDecisionReco
   for (const line of readFileSync(logFile, 'utf8').split('\n')) {
     if (!line.trim()) continue
     try {
-      rows.push(JSON.parse(line) as ControllerDecisionRecord)
+      const parsed: unknown = JSON.parse(line)
+      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        rows.push(parsed as ControllerDecisionRecord)
+      }
     } catch {
       // skip malformed line
     }

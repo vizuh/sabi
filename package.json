@@ -2,6 +2,9 @@
   "name": "sabi",
   "private": true,
   "type": "module",
+  "bin": {
+    "sabi": "./packages/controller/src/cli.ts"
+  },
   "workspaces": ["packages/*", "packages/adapters/*"],
   "engines": { "node": ">=22.6" },
   "scripts": {

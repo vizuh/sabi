@@ -190,3 +190,11 @@ Added the small `packages/adapters/orca` bridge in the same monorepo. It contrib
 OpenCode remains a real controller harness and spawn/orchestration candidate; the installed binary was observed as `1.18.30` and has a focused route regression test. Plugin activation/installation in the running Orca app was not claimed: the available `orca-ide` CLI help exposes no plugin install/validate command, so only manifest/bridge tests are verified here.
 
 Verification: `npm test` passed 318 tests, `npm run typecheck` passed, and the Orca plugin tests passed 3/3. The live controller execution proofs remain recorded above; this change does not launch a paid OpenCode task.
+
+## Installable CLI boundary — 2026-09-19
+
+Added a real `sabi` bin to the root and controller package manifests. The local executable now exposes `route`, `status`, `agents`, `doctor`, `config`, and `logs`; `status`/`agents` read the current Orca inventory and all commands accept an explicit `--cwd`, so controller identity is not tied to the CLI process directory. The controller log reader now rejects non-object JSON rows before returning them.
+
+This is the first installable UX slice, not the daemon claim: output explicitly reports `runtime: local-cli` and `daemon: not-configured`. No automatic Claude/Codex hooks, user service, or Orca plugin auto-install was added without a verified host contract. `npm link`/workspace linking can now expose `sabi`; packaging a public `@sabi/controller` release remains a separate delivery decision.
+
+Verification: CLI tests 9/9, full suite 324/324, typecheck clean, and offline eval completed. The offline eval remains a measurement rather than a release gate.
