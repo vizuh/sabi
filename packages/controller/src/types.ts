@@ -49,6 +49,8 @@ export interface AgentDescriptor {
 export interface AgentSession extends AgentDescriptor {
   kind: 'session'
   handle?: string
+  /** False when the host owns continuation and no external terminal transport exists. */
+  dispatchable?: boolean
   lifecycle: AgentLifecycle
   authenticated?: boolean
   failureStreak?: number
@@ -159,6 +161,7 @@ export interface ControllerCandidateTelemetry {
   agent: string
   kind: 'session' | 'harness'
   available: boolean
+  dispatchable?: boolean
   capacity: AgentCapacity
   lifecycle?: AgentLifecycle
   context?: string

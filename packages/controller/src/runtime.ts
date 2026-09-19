@@ -31,6 +31,7 @@ function summarizeAgent(agent: AgentSession | AgentHarness): Record<string, unkn
     worktree: agent.worktree,
     branch: agent.branch,
     context: agent.context,
+    ...(agent.kind === 'session' ? { dispatchable: agent.dispatchable } : {}),
     ...(agent.kind === 'session'
       ? { kind: agent.kind, handle: agent.handle, lifecycle: agent.lifecycle, authenticated: agent.authenticated }
       : { kind: agent.kind, command: agent.command }),

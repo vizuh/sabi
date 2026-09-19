@@ -186,6 +186,7 @@ function candidateState(inventory: AgentInventory): Record<string, unknown> {
     worktree: candidate.worktree,
     branch: candidate.branch,
     lifecycle: candidate.kind === 'session' ? candidate.lifecycle : undefined,
+    dispatchable: candidate.kind === 'session' ? candidate.dispatchable : true,
     context: candidate.context,
   })
   return {
@@ -205,6 +206,7 @@ function candidateTelemetry(inventory: AgentInventory): ControllerCandidateTelem
     agent: candidate.agent,
     kind: candidate.kind,
     available: candidate.available,
+    dispatchable: candidate.kind === 'session' ? candidate.dispatchable : true,
     capacity: candidate.capacity,
     lifecycle: candidate.kind === 'session' ? candidate.lifecycle : undefined,
     context: candidate.context,
@@ -447,7 +449,12 @@ function executeSelection(selection: RouteSelection, inventory: AgentInventory, 
   if (selection.action === 'ORCHESTRATE') return executeOrchestration(selection.target, cwd, request, handoff)
   if (selection.action === 'SPAWN' && selection.target?.kind === 'harness') return executeSpawn(selection.target, cwd, request, waitMs)
   const target = selection.target?.kind === 'session' ? selection.target : inventory.active
-  if (!target.handle) return { status: 'failed', targetId: target.id, operation: 'terminal-send', error: 'target-session-handle-missing' }
+  if (!target.handle) {
+    if (selection.action === 'CONTINUE' && target.dispatchable === false) {
+      return { status: 'not-started', targetId: target.id, operation: 'terminal-send', observedStatus: 'host-native', error: 'current request remains with the harness' }
+    }
+    return { status: 'failed', targetId: target.id, operation: 'terminal-send', error: 'target-session-handle-missing' }
+  }
   return sessionExecution(target.handle, target.id, request, 'terminal-send', waitMs, handoff, target.worktree)
 }
 

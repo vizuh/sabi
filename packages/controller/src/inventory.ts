@@ -170,6 +170,7 @@ function makeSession(
     lastOutputAt: finiteNumber(entry.lastOutputAt),
     kind: 'session',
     handle,
+    dispatchable: true,
     lifecycle,
     authenticated,
     failureStreak: stuck && isCurrent && tuiIdle !== true ? 2 : 0,
@@ -186,6 +187,7 @@ function unavailableCurrent(cwd: string, now: number): AgentSession {
     capacity: { status: 'unavailable', resetAt: now },
     worktree: cwd,
     kind: 'session',
+    dispatchable: false,
     lifecycle: 'dead',
     authenticated: false,
   }
@@ -203,6 +205,7 @@ function hostCurrentSession(cwd: string, sessionId: string, harness = 'current')
     worktree: cwd,
     context: 'current host session; execution remains with the harness',
     kind: 'session',
+    dispatchable: false,
     lifecycle: 'active',
   }
 }
