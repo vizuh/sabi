@@ -5,6 +5,7 @@ import { chooseActionWithJev } from './jev.ts'
 import {
   createOrcaRun,
   createOrcaTerminal,
+  closeOrcaTerminal,
   readOrcaTerminal,
   sendOrcaTerminal,
   showOrcaWorker,
@@ -149,7 +150,7 @@ function explicitlyDelegates(request: string): boolean {
 }
 
 function requestsFreshHarness(request: string): boolean {
-  return /\b(?:spawn|fresh harness|new harness|new session|start a new|no active session)\b/i.test(request)
+  return /\b(?:spawn|fresh harness|new harness|new session|no active session)\b/i.test(request)
 }
 
 function capacityRank(status: AgentSession['capacity']['status']): number {
@@ -348,9 +349,12 @@ function executeSpawn(target: AgentHarness, cwd: string, request: string, waitMs
   if (!handle) return { status: 'failed', targetId: target.id, operation: 'terminal-spawn', error: 'spawn-receipt-missing-handle' }
   const ready = waitOrcaTerminal(handle, 'tui-idle', Math.max(waitMs, 30_000))
   if (!ready.ok || findBoolean(ready.result, ['satisfied']) === false) {
+    closeOrcaTerminal(handle)
     return { status: 'failed', targetId: target.id, terminalHandle: handle, operation: 'terminal-spawn', error: ready.detail ?? ready.errorCode ?? 'spawn-not-ready' }
   }
-  return sessionExecution(handle, target.id, request, 'terminal-spawn', waitMs)
+  const execution = sessionExecution(handle, target.id, request, 'terminal-spawn', waitMs)
+  if (execution.status === 'failed') closeOrcaTerminal(handle)
+  return execution
 }
 
 function orchestrationAgent(target: AgentSession | AgentHarness | undefined): string {

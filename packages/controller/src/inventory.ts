@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
-import { queryOrcaTerminals, queryOrcaWorktrees, readOrcaTerminal } from './orca.ts'
+import { queryOrcaTerminals, queryOrcaWorktrees, readOrcaTerminal, waitOrcaTerminal } from './orca.ts'
 import type { AgentHarness, AgentSession, AgentCapacity, OrcaErrorCode } from './types.ts'
 
 interface OrcaTerminalEntry {
@@ -79,11 +79,13 @@ function capacityFromText(text: string, now: number): AgentCapacity {
   return { status: 'available' }
 }
 
-function lifecycleFromEntry(entry: OrcaTerminalEntry, text: string): AgentSession['lifecycle'] {
+function lifecycleFromEntry(entry: OrcaTerminalEntry, tuiIdle: boolean | undefined): AgentSession['lifecycle'] {
   if (entry.orphaned === true || entry.connected === false) return 'dead'
-  if (/stop hook error|canary missing|authentication required|unauthorized/i.test(text)) return 'blocked'
-  if (/working|run+ing|background terminal|exploring|planning|thinking|processing|tool call|churning/i.test(text)) return 'active'
-  return 'idle'
+  if (tuiIdle === true) return 'idle'
+  // A failed wait is live evidence of work; a missing wait result is not enough to call a
+  // session idle. Historical screen text contains old errors and quota messages, so it must
+  // never manufacture a current blocked state.
+  return 'active'
 }
 
 function observedScreen(handle: string): string {
@@ -94,6 +96,15 @@ function observedScreen(handle: string): string {
   if (terminal === null || typeof terminal !== 'object' || Array.isArray(terminal)) return ''
   const tail = (terminal as Record<string, unknown>).tail
   return Array.isArray(tail) ? tail.filter((line): line is string => typeof line === 'string').join('\n') : ''
+}
+
+function tuiIdleState(handle: string): boolean | undefined {
+  const result = waitOrcaTerminal(handle, 'tui-idle', 1000)
+  if (!result.ok || result.result === undefined || result.result === null || typeof result.result !== 'object' || Array.isArray(result.result)) return undefined
+  const wait = (result.result as Record<string, unknown>).wait
+  if (wait === null || typeof wait !== 'object' || Array.isArray(wait)) return undefined
+  const satisfied = (wait as Record<string, unknown>).satisfied
+  return typeof satisfied === 'boolean' ? satisfied : undefined
 }
 
 function executableExists(command: string): boolean {
@@ -123,6 +134,7 @@ function makeSession(
   stuck: boolean,
   now: number,
   observed: string,
+  tuiIdle: boolean | undefined,
 ): AgentSession | undefined {
   const handle = stringValue(entry.handle)
   const worktree = stringValue(entry.worktreePath)
@@ -131,8 +143,11 @@ function makeSession(
   const preview = stringValue(entry.preview) ?? ''
   const title = stringValue(entry.title)
   const context = title ? `${title}${preview ? ` | ${preview.slice(0, 160)}` : ''}` : preview.slice(0, 160)
-  const lifecycle = lifecycleFromEntry(entry, `${title ?? ''} ${preview} ${observed}`)
-  const capacity = capacityFromText(`${title ?? ''} ${preview} ${observed}`, now)
+  const lifecycle = lifecycleFromEntry(entry, tuiIdle)
+  // An idle screen is historical by definition: it may contain a previous limit or stop-hook
+  // message after the agent has recovered. Capacity failures are still detectable while a
+  // session is actively working; a failed live send remains the authoritative fallback.
+  const capacity = capacityFromText(tuiIdle === true ? '' : `${title ?? ''} ${preview} ${observed}`, now)
   const authenticated = capacity.status === 'unavailable' ? false : undefined
   const isCurrent = currentHandle === handle
   const available = Boolean(entry.connected !== false && entry.orphaned !== true && entry.writable !== false &&
@@ -152,7 +167,7 @@ function makeSession(
     handle,
     lifecycle,
     authenticated,
-    failureStreak: stuck && isCurrent ? 2 : 0,
+    failureStreak: stuck && isCurrent && tuiIdle !== true ? 2 : 0,
   }
 }
 
@@ -187,7 +202,8 @@ export function discoverAgents(
     .map((entry) => {
       const handle = stringValue(entry.handle)
       const observed = handle ? observedScreen(handle) : ''
-      return makeSession(entry, resolvedCwd, stringValue(matchingWorktree?.branch), currentHandle, Boolean(options.stuckSession), now, observed)
+      const tuiIdle = handle ? tuiIdleState(handle) : undefined
+      return makeSession(entry, resolvedCwd, stringValue(matchingWorktree?.branch), currentHandle, Boolean(options.stuckSession), now, observed, tuiIdle)
     })
     .filter((entry): entry is AgentSession => entry !== undefined)
   const active = sessions.find((session) => session.handle === currentHandle) ?? unavailableCurrent(resolvedCwd, now)

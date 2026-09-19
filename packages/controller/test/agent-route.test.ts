@@ -110,6 +110,19 @@ test('without a suitable existing session, the same hard trigger selects a suita
   assert.equal(plan.currentEligible, false)
 })
 
+test('OpenCode is a valid live spawn target when its CLI is available', () => {
+  const plan = planAgentRoute(
+    input({
+      existingSessions: [],
+      spawnCandidates: [harness('harness:opencode', 'opencode', { harness: 'opencode', command: 'opencode' })],
+    }),
+  )
+
+  assert.equal(plan.action, 'SPAWN')
+  assert.equal(plan.target?.id, 'harness:opencode')
+  assert.equal(plan.target?.agent, 'opencode')
+})
+
 test('the active session is reconsidered after its quota reset', () => {
   const plan = planAgentRoute(
     input({

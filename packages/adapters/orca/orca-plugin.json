@@ -1,0 +1,25 @@
+{
+  "manifestVersion": 1,
+  "id": "sabi-controller",
+  "publisher": "vizuh",
+  "name": "Sabi Agent Controller",
+  "version": "0.1.0",
+  "description": "Thin Orca bridge for dispatching work through Sabi's agent controller.",
+  "repository": "https://github.com/vizuh/sabi",
+  "engines": { "orca": ">=1.4.0" },
+  "pluginApi": 1,
+  "main": "main.mjs",
+  "contributes": {
+    "commands": [{ "id": "sabi.dispatch", "title": "Sabi: Dispatch request", "context": "worktree" }],
+    "events": [
+      { "on": "worktree.created" },
+      { "on": "worktree.removed" },
+      { "on": "agent.status.changed" }
+    ]
+  },
+  "capabilities": [
+    { "kind": "workspace:read" },
+    { "kind": "terminal:send" },
+    { "kind": "events:subscribe" }
+  ]
+}

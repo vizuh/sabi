@@ -167,3 +167,11 @@ Two independent ways in. **Class A (mod):** `cmd mods add ./packages/adapters/co
 Ran six representative requests through the real CLI with live `orca-ide` discovery. Orca exposed three connected Sabi terminals on the main worktree (`command-code`, `claude`, `codex`); no controller action was executed. The CLI recommended `DELEGATE` for a trivial request, `DELEGATE` for an existing-session review, `CONTINUE` instead of `SPAWN` for a fresh-branch request, `ORCHESTRATE` for the multi-project request, `CONTINUE` after a controlled Orca binary failure, and `ORCHESTRATE` for the explicit override flag.
 
 This is not ready for the stated end-to-end acceptance: `cli.ts` still calls the legacy advisory `decide()` path and never calls `planAgentRoute()`, creates a handoff, selects a target, dispatches, spawns, retries, or records actual execution. Full `npm test` passed 311 tests, `npm run typecheck` passed, and the main checkout stayed clean. No repair was dispatched because manually choosing an executor would invalidate this controller dogfood.
+
+## Orca bridge and OpenCode — 2026-09-19
+
+Added the small `packages/adapters/orca` bridge in the same monorepo. It contributes an Orca plugin manifest, a dispatch command, and bounded worktree/agent-status event subscriptions; the controller remains responsible for routing, handoffs, spawning, and orchestration. The richer CLI path remains the fallback until Orca exposes those lifecycle operations through its plugin host.
+
+OpenCode remains a real controller harness and spawn/orchestration candidate; the installed binary was observed as `1.18.30` and has a focused route regression test. Plugin activation/installation in the running Orca app was not claimed: the available `orca-ide` CLI help exposes no plugin install/validate command, so only manifest/bridge tests are verified here.
+
+Verification: `npm test` passed 318 tests, `npm run typecheck` passed, and the Orca plugin tests passed 3/3. The live controller execution proofs remain recorded above; this change does not launch a paid OpenCode task.

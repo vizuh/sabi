@@ -83,3 +83,25 @@ test('2 + 2 remains CONTINUE even when another terminal shares the worktree', as
   assert.equal(result.decisionSource, 'deterministic')
   assert.equal(result.jev.status, 'not-consulted')
 })
+
+test('ordinary "start a new" wording does not spawn a real harness', async () => {
+  const active = session('session:current', 'codex', 'term-current')
+  const result = await selectRoute(
+    'start a new test file for this fix',
+    '/tmp/sabi-controller',
+    signals,
+    {
+      orcaAvailable: true,
+      worktreeCount: 1,
+      active,
+      existingSessions: [],
+      spawnCandidates: [harness('harness:claude', 'claude')],
+    },
+    { ...handoff, objective: 'start a new test file for this fix', originalRequest: 'start a new test file for this fix' },
+    undefined,
+  )
+
+  assert.equal(result.action, 'CONTINUE')
+  assert.equal(result.target?.id, 'session:current')
+  assert.deepEqual(result.validActions, ['CONTINUE'])
+})

@@ -122,6 +122,13 @@ export function createOrcaTerminal(
   )
 }
 
+export function closeOrcaTerminal(handle: string, opts: { timeoutMs?: number } = {}): OrcaCommandResult {
+  return runOrcaCommand(
+    ['terminal', 'close', '--terminal', handle, '--json'],
+    { timeoutMs: opts.timeoutMs ?? ACTION_TIMEOUT_MS },
+  )
+}
+
 export function waitOrcaTerminal(
   handle: string,
   condition: 'exit' | 'tui-idle' = 'tui-idle',

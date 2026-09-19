@@ -305,3 +305,7 @@ Seven focused tests cover the 39-minute quota handoff, existing-session preferen
 ## [2026-09-19] review | Agent Controller dogfood
 
 Exercised six controller scenarios through the real CLI with live Orca discovery and recorded every recommendation in `.sabi/dogfood-controller-decisions.jsonl`. Recommendations were `DELEGATE`, `DELEGATE`, `CONTINUE`, `ORCHESTRATE`, `CONTINUE` (controlled `binary-not-found`), and `ORCHESTRATE`; none executed. The run exposed the blocking integration gap: the CLI remains advisory and uses legacy `decide()`, so the capacity planner, handoff snapshot, target selection, dispatch/spawn/recovery, and actual-execution telemetry are not wired. `npm test` passed 311; typecheck passed.
+
+## [2026-09-19] feat | Thin Orca bridge and OpenCode candidate
+
+Added `packages/adapters/orca` as a minimal same-repo plugin bridge: manifest, `sabi.dispatch` command, and bounded worktree/agent-status event subscriptions. Routing and execution remain in the controller/CLI; no fake Orca execution or unverified plugin installation was added. OpenCode `1.18.30` is already available as a controller spawn/orchestration candidate and now has a route regression test. Verification: `npm test` 318/318, `npm run typecheck`, plugin tests 3/3.
