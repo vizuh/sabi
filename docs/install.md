@@ -313,6 +313,23 @@ What the writer does — and deliberately does not do:
 Verify with `npm run report` (or `.sabi/decisions.jsonl`): the rounds appear with `client: opencode`.
 Rollback: remove the `sabi` provider from the config, or restore the backup.
 
+#### Controller hook
+
+The separate Agent Controller can install a thin OpenCode `chat.message` plugin alongside the
+Claude and Codex hooks:
+
+```bash
+npm link
+sabi setup --hooks
+# or: sabi hooks install --opencode
+```
+
+The plugin asks the loopback controller for a plan, dispatches only `DELEGATE`, `SPAWN` and
+`ORCHESTRATE`, and replaces the current message only after the daemon reports accepted execution.
+`CONTINUE` stays in OpenCode. Transport and daemon failures fail open. This is controller routing,
+not a subscription/model switch, and the installed OpenCode plugin surface still needs a live host
+activation check in the user's Orca instance.
+
 ### Hermes
 
 Hermes is served through the same proxy, plus an optional plugin that adds stable attribution. This

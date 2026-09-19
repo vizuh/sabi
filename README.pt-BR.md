@@ -103,6 +103,30 @@ Depois escolha `sabi/sabi-code` em `/model` (ou `--model sabi/sabi-code`). Alias
 
 O Sabi é um processo em primeiro plano, não um serviço: se não estiver rodando, toda requisição `sabi/*` falha dentro do harness com `ECONNREFUSED 127.0.0.1:8787`.
 
+## Daemon do Agent Controller (experimental)
+
+O controller pode rodar uma vez por usuário, em vez de uma vez por worktree:
+
+```bash
+npm link                         # a partir deste checkout, para desenvolvimento local
+sabi setup --hooks               # grava o estado, inicia o daemon e instala os hooks
+sabi status
+sabi route "revise esta mudança"
+```
+
+`setup` detecta os harnesses instalados e habilita o roteamento automático pelo daemon. Com
+`--hooks`, ele mescla um hook `UserPromptSubmit` do Sabi no Claude Code e no Codex, e instala o
+pequeno plugin `chat.message` do OpenCode. A configuração JSON existente é preservada e recebe um
+backup único em `<arquivo>.sabi-backup`. Um plano `CONTINUE` é silencioso; uma delegação só bloqueia
+o prompt atual depois que o daemon informa que o alvo aceitou a execução. Falhas do hook deixam o
+harness seguir normalmente se o Sabi estiver parado. Esses hooks roteiam a execução do controller;
+eles não trocam silenciosamente a assinatura paga nem o modelo selecionado dentro do harness.
+
+Para instalar ou reparar os hooks separadamente, rode `sabi hooks install` (ou selecione `--claude`,
+`--codex` ou `--opencode`). O daemon fica apenas em loopback e reutiliza o inventário real do Orca
+quando disponível. Um serviço de login do sistema e a ativação live do plugin OpenCode dentro do Orca
+continuam sendo integrações separadas.
+
 Na subida, o proxy carrega somente os nomes de credencial referenciados pela configuração ativa.
 Variáveis já presentes no ambiente vencem; depois vêm `SABI_SECRETS_FILE`, o `secrets/.env` mais
 próximo no workspace e, por fim, `~/.config/sabi/secrets.env` ou `~/.config/sabi/.env`. O arquivo

@@ -109,15 +109,23 @@ The separate controller surface can run once per user rather than once per workt
 
 ```bash
 npm link                         # from this checkout, for local development
-sabi setup                       # writes user state and starts the loopback daemon
+sabi setup --hooks               # writes user state, starts daemon and installs host hooks
 sabi status
 sabi route "review this change"
 ```
 
 `setup` detects installed harness executables and enables automatic controller routing through
-the daemon. It does not yet install Claude/Codex/OpenCode/Hermes hooks or a login/system service;
-those integrations remain explicit until their host contracts are verified. The controller daemon
-is loopback-only and reuses live Orca inventory when Orca is available.
+the daemon. With `--hooks`, it merges a Sabi `UserPromptSubmit` hook into Claude Code and Codex,
+and installs the small OpenCode `chat.message` plugin. Existing JSON configuration is preserved and
+backed up once as `<file>.sabi-backup`. A `CONTINUE` plan is silent; delegation only blocks the
+current prompt after the daemon reports that the target accepted execution. Hook failures fail open,
+so opening a harness still works if Sabi is stopped. These hooks route controller execution; they do
+not silently switch a paid subscription or the model selected inside a harness.
+
+To install or repair hooks separately, run `sabi hooks install` (or select `--claude`, `--codex`, or
+`--opencode`). The controller daemon is loopback-only and reuses live Orca inventory when Orca is
+available. A system login service and live OpenCode plugin activation inside Orca remain separate
+integration work.
 
 At startup the proxy loads only the credential names referenced by the active config. Existing
 environment variables win, then `SABI_SECRETS_FILE`, the nearest workspace `secrets/.env`, and

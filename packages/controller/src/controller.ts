@@ -416,13 +416,16 @@ export async function runController(
   signals: ControllerSignals,
   override?: ControllerOverride,
   waitMs = DEFAULT_WAIT_MS,
+  execute = true,
 ): Promise<ControllerRunResult> {
   const inventory = discoverAgents(cwd, { stuckSession: signals.stuckSession })
   const handoff = buildHandoff(cwd, request, inventory.active, signals.stuckSession)
   const selection = await selectRoute(request, cwd, signals, inventory, handoff, override)
-  let execution = executeSelection(selection, inventory, cwd, request, handoff, waitMs)
+  let execution: ControllerExecution = execute
+    ? executeSelection(selection, inventory, cwd, request, handoff, waitMs)
+    : { status: 'not-started' }
 
-  if (execution.status === 'failed' && selection.action !== 'ASK' && selection.action !== 'ORCHESTRATE' && selection.decisionSource !== 'override') {
+  if (execute && execution.status === 'failed' && selection.action !== 'ASK' && selection.action !== 'ORCHESTRATE' && selection.decisionSource !== 'override') {
     const refreshed = discoverAgents(cwd, { stuckSession: signals.stuckSession })
     const fallback = fallbackTarget(refreshed, execution.targetId)
     if (fallback?.handle) {

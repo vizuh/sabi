@@ -148,7 +148,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, info: Co
       sendJson(res, 200, inventorySnapshot(safeCwd(url.searchParams.get('cwd')), { mode: 'daemon', daemon: 'running' }))
       return
     }
-    if (req.method === 'POST' && url.pathname === '/route') {
+    if (req.method === 'POST' && (url.pathname === '/route' || url.pathname === '/plan')) {
       const body = await readJson(req)
       const request = typeof body.request === 'string' ? body.request : ''
       const waitMs = typeof body.waitMs === 'number' ? body.waitMs : undefined
@@ -158,6 +158,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, info: Co
         orchestrate: body.orchestrate === true,
         override: controllerOverride(body.override),
         waitMs,
+        execute: url.pathname === '/route',
       })
       sendJson(res, 200, record)
       return

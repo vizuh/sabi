@@ -296,6 +296,23 @@ O que o escritor faz — e o que deliberadamente não faz:
 
 Verifique com `npm run report` (ou `.sabi/decisions.jsonl`): as rodadas aparecem com `client: opencode`. Reverter: remova o provider `sabi` da config, ou restaure o backup.
 
+#### Hook do Controller
+
+O Agent Controller separado pode instalar um pequeno plugin `chat.message` do OpenCode junto com os
+hooks do Claude e do Codex:
+
+```bash
+npm link
+sabi setup --hooks
+# ou: sabi hooks install --opencode
+```
+
+O plugin consulta o daemon loopback, despacha apenas `DELEGATE`, `SPAWN` e `ORCHESTRATE`, e substitui
+a mensagem atual somente depois que o daemon informa execução aceita. `CONTINUE` permanece no
+OpenCode. Falhas de transporte ou do daemon deixam o harness seguir normalmente. Isto é roteamento
+do controller, não troca de assinatura/modelo; a ativação live do plugin OpenCode na instância Orca
+do usuário ainda precisa de uma verificação própria.
+
 ### Hermes
 
 O Hermes é atendido pelo mesmo proxy, mais um plugin opcional que adiciona atribuição estável. Isto segue `packages/adapters/hermes/README.md`: o plugin e uma sonda Hermes → Sabi → mock estão verificados em isolamento, mas **nenhum perfil real do Hermes rodou contra o Sabi ainda** — trate como template, não como caminho certificado.

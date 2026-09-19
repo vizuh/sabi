@@ -37,6 +37,13 @@ test('daemon serves health, live inventory and controller routing over loopback'
     })
     assert.equal(route?.action, 'ASK')
     assert.equal(existsSync(path.join(cwd, '.sabi', 'controller-decisions.jsonl')), true)
+
+    const plan = await requestControllerDaemon('/plan', {
+      info: daemon.info,
+      method: 'POST',
+      body: { request: 'what is 2 + 2?', cwd },
+    })
+    assert.equal(plan?.execution && (plan.execution as Record<string, unknown>).status, 'not-started')
   } finally {
     await daemon.close()
     if (previousOrca === undefined) delete process.env.ORCA_CLI_COMMAND
