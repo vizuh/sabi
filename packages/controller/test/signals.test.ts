@@ -146,6 +146,24 @@ test('stuck session: a recent row with state: null does not crash, reports not s
   assert.equal(signals.sabiLogSampled, 1)
 })
 
+test('stuck session: a top-level non-object row (null/number/array/string) does not crash, not sampled', () => {
+  for (const row of ['null', '42', '[]', '"a string"']) {
+    const cwd = workspace()
+    writeLog(cwd, [row])
+    const signals = gatherSignals(cwd, 'do something', false)
+    assert.equal(signals.stuckSession, false, `row=${row}`)
+    assert.equal(signals.sabiLogSampled, 0, `row=${row}`)
+  }
+})
+
+test('stuck session: a row with a non-string ts does not crash, is not sampled', () => {
+  const cwd = workspace()
+  writeLog(cwd, [JSON.stringify({ ts: 12345, outcome: 'ok', state: { failure: 'hard' } })])
+  const signals = gatherSignals(cwd, 'do something', false)
+  assert.equal(signals.stuckSession, false)
+  assert.equal(signals.sabiLogSampled, 0)
+})
+
 test('stuck session: no log file -> not stuck, zero sampled', () => {
   const cwd = workspace()
   const signals = gatherSignals(cwd, 'do something', false)

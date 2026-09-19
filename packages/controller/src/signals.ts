@@ -40,18 +40,24 @@ function inferenceLogPath(cwd: string): string {
   return process.env.SABI_LOG?.trim() || path.join(cwd, '.sabi', 'decisions.jsonl')
 }
 
+/** `readDecisions()` only guards unparsable JSON lines, not row shape — a literal `null` line, a
+ * bare number, or a partially-written row from a crashed writer all parse fine but aren't a
+ * usable record. Filtered out once, here, rather than guarding each property access downstream —
+ * a prior fix patched only `last.state.failure` and missed that `r.ts` a few lines above has the
+ * exact same hazard on the exact same unvalidated input. */
+function isPlainRecord(row: unknown): row is Record<string, unknown> {
+  return typeof row === 'object' && row !== null && !Array.isArray(row)
+}
+
 function stuckSessionSignal(cwd: string): { stuck: boolean; sampled: number } {
-  const rows = readDecisions(inferenceLogPath(cwd))
+  // Cast to unknown[] first so `.filter(isPlainRecord)` actually narrows the element type —
+  // filtering a DecisionRecord[] with this predicate type-checks but doesn't narrow, since
+  // Record<string, unknown> isn't a subtype of DecisionRecord (it has no index signature).
+  const rows = (readDecisions(inferenceLogPath(cwd)) as unknown[]).filter(isPlainRecord)
   const cutoff = Date.now() - STALE_AFTER_MS
-  const recent = rows.filter((r) => new Date(r.ts).getTime() >= cutoff)
+  const recent = rows.filter((r) => typeof r.ts === 'string' && new Date(r.ts).getTime() >= cutoff)
   const last = recent.at(-1)
-  // `readDecisions()` only guards unparsable JSON lines, not row shape — a partially-written row
-  // from a crashed writer, or one hand-edited mid-debugging, can parse fine but lack `state`
-  // entirely. Every other signal source here is fail-open by design; this one wasn't, and a
-  // malformed row used to crash the whole CLI instead of degrading to "not stuck".
-  const stuck = Boolean(
-    last && typeof last === 'object' && last.outcome === 'ok' && last.state?.failure === 'hard',
-  )
+  const stuck = Boolean(last?.outcome === 'ok' && isPlainRecord(last?.state) && last.state.failure === 'hard')
   return { stuck, sampled: recent.length }
 }
 
