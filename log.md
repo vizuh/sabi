@@ -451,3 +451,10 @@ terminal handles. The daemon now rejects non-loopback hosts and metadata, the Op
 open for non-loopback URLs, and persisted/read controller logs omit those sensitive fields while
 retaining routing metadata and request length. Added focused regressions for both boundaries.
 Live per-runtime receipt evidence and universal Orca activation remain release gates.
+
+## [2026-09-20] hardening | Host-native continuation and safe hook removal
+
+Marked hook-only current sessions `dispatchable: false` so the planner and executor distinguish a
+request that remains with its native harness from a real Orca terminal dispatch. Uninstall now
+matches Sabi hook structure (`statusMessage` plus command) rather than a broad substring, preserving
+third-party hooks that happen to mention a harness. Full suite remains green at 354 tests.

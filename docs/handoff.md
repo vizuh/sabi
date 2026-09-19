@@ -345,3 +345,8 @@ The live dispatch still carries the structured handoff to the selected terminal 
 Focused security regressions cover remote URL rejection, no-fetch fail-open behavior, non-loopback
 daemon refusal and log redaction. This closes the code-level P1 findings; it does not replace the
 remaining live receipt gate for Claude, Codex and OpenCode or prove universal Orca activation.
+
+The follow-up hardening also marks hook-identified host sessions as `dispatchable: false` and
+preserves the host-native `CONTINUE` boundary, while uninstall removes only entries carrying Sabi's
+structural hook marker instead of matching arbitrary command text. The public package remains gated
+on real runtime receipt tests and publication approval.
