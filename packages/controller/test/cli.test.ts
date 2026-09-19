@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +11,17 @@ const cliPath = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
 
 function workspace(): string {
   return mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-cli-'))
+}
+
+function fakeHarnessPath(cwd: string, harnesses: string[]): string {
+  const bin = path.join(cwd, 'bin')
+  mkdirSync(bin, { recursive: true })
+  for (const harness of harnesses) {
+    const command = path.join(bin, process.platform === 'win32' ? `${harness}.cmd` : harness)
+    writeFileSync(command, process.platform === 'win32' ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n')
+    if (process.platform !== 'win32') chmodSync(command, 0o755)
+  }
+  return `${bin}${path.delimiter}${process.env.PATH ?? ''}`
 }
 
 function run(args: string[], cwd: string, env: Record<string, string> = {}) {
@@ -244,8 +255,11 @@ test('sessions lists bounded adapter registrations without exposing raw identiti
 test('setup --hooks installs all host bridges in isolated config paths', () => {
   const cwd = workspace()
   const stateDir = path.join(cwd, 'controller-state')
+  const harnessPath = fakeHarnessPath(cwd, ['claude', 'codex', 'opencode'])
   const setup = run(['setup', '--no-start', '--hooks', '--json'], cwd, {
     SABI_CONTROLLER_HOME: stateDir,
+    PATH: harnessPath,
+    SABI_CONTROLLER_HARNESSES: 'claude,codex,opencode',
     SABI_CLAUDE_SETTINGS: path.join(cwd, 'claude', 'settings.json'),
     SABI_CODEX_HOOKS: path.join(cwd, 'codex', 'hooks.json'),
     SABI_OPENCODE_CONFIG: path.join(cwd, 'opencode', 'opencode.json'),
@@ -262,8 +276,10 @@ test('setup --hooks installs all host bridges in isolated config paths', () => {
 test('setup installs hooks by default only for detected supported harnesses', () => {
   const cwd = workspace()
   const stateDir = path.join(cwd, 'controller-state')
+  const harnessPath = fakeHarnessPath(cwd, ['claude'])
   const setup = run(['setup', '--no-start', '--json'], cwd, {
     SABI_CONTROLLER_HOME: stateDir,
+    PATH: harnessPath,
     SABI_CONTROLLER_HARNESSES: 'claude',
     SABI_CLAUDE_SETTINGS: path.join(cwd, 'claude', 'settings.json'),
     SABI_CODEX_HOOKS: path.join(cwd, 'codex', 'hooks.json'),
