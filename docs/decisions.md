@@ -498,3 +498,31 @@ name, versioning rule and live-host acceptance evidence before the release workf
 
 When those four inputs exist, add the controller package to a deliberate release lane; do not broaden
 the current npm workflow implicitly.
+
+## [2026-09-19] Design evidence is optional and local
+
+### Decision
+
+Treat TokenScout-like site analysis as an optional local evidence provider, not a required Sabi
+dependency or a public routing rule. Keep raw reports, Design DNA, screenshots, assets and site
+references under ignored local runtime state such as `.sabi/`. If routing consumes the result later,
+pass only bounded, redacted evidence signals and a soft model-affinity prior.
+
+### Why
+
+A design reference can provide useful evidence for visual work, and current local research makes Kimi
+K3 a reasonable hypothesis for that lane. The evidence is still task-, harness- and user-dependent;
+hard-coding `design -> Kimi` would turn an unverified prior into a brittle policy and would push
+site-specific data into the public repository.
+
+### Tradeoffs
+
+Users without TokenScout keep the normal route. Users with it can improve a reference-driven design
+handoff locally, but Sabi cannot compare the prior honestly until outcomes, acceptance and repair work
+are recorded. A failed or unauthorized study must fail open to the existing route.
+
+### Revisit later?
+
+Add a generic evidence-provider contract only when a second provider or a real routing consumer needs
+it. At that point validate the signals, redaction boundary and replay behavior with local fixtures
+before adding any provider package or model-specific default.
