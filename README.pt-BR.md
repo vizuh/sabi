@@ -132,6 +132,11 @@ Os registros do controller usam o schema de trace v1: candidatos bounded, conjun
 válidas, rota escolhida, status da execução e duração. `sabi replay` lê o JSONL sem chamar nenhum
 harness, permitindo avaliar mudanças de política sobre tráfego observado antes de executar.
 
+O controller ainda é um pacote experimental, somente fonte, dentro do monorepo; `npm link` é o
+fluxo de desenvolvimento local. A release pública `@vizuh/sabi` no GitHub/npm publica o adaptador
+do Command Code, não o controller nem a ponte Orca. Mudanças apenas no controller seguem pelo fluxo
+normal de PR até existir um artefacto publicável próprio.
+
 Na subida, o proxy carrega somente os nomes de credencial referenciados pela configuração ativa.
 Variáveis já presentes no ambiente vencem; depois vêm `SABI_SECRETS_FILE`, o `secrets/.env` mais
 próximo no workspace e, por fim, `~/.config/sabi/secrets.env` ou `~/.config/sabi/.env`. O arquivo

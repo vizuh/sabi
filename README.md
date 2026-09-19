@@ -132,6 +132,11 @@ Controller records use trace schema v1: bounded candidate descriptors, the close
 the selected route, execution status and elapsed time. `sabi replay` reads those JSONL records without
 calling a harness, so policy changes can be evaluated against observed traffic before execution.
 
+The controller is currently an experimental, source-only monorepo package; `npm link` is the local
+development setup. The public `@vizuh/sabi` GitHub/npm release publishes the Command Code adapter,
+not the controller or Orca bridge. A controller-only change is delivered through the source PR
+flow until a separate publishable controller artifact is defined.
+
 At startup the proxy loads only the credential names referenced by the active config. Existing
 environment variables win, then `SABI_SECRETS_FILE`, the nearest workspace `secrets/.env`, and
 finally `~/.config/sabi/secrets.env` or `~/.config/sabi/.env`. A dotenv file can use

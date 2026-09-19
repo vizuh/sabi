@@ -307,6 +307,10 @@ sabi setup --hooks
 # ou: sabi hooks install --opencode
 ```
 
+Este é o fluxo atual a partir de um checkout: o controller raiz é privado e `npm link` o expõe
+localmente. A release pública `@vizuh/sabi` contém apenas o adaptador do Command Code; ela não instala
+o controller nem a ponte Orca.
+
 O plugin consulta o daemon loopback, despacha apenas `DELEGATE`, `SPAWN` e `ORCHESTRATE`, e substitui
 a mensagem atual somente depois que o daemon informa execução aceita. `CONTINUE` permanece no
 OpenCode. Falhas de transporte ou do daemon deixam o harness seguir normalmente. Isto é roteamento

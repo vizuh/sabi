@@ -473,3 +473,28 @@ proxy startup reports only a loaded count and file path, never names or values.
 ### Revisit later?
 When Orca provides launch-time secret references, add an adapter-level source behind this same
 precedence contract. Keep the core and non-Orca harnesses unchanged.
+
+## [2026-09-19] Controller hooks are source-only until a publishable artifact exists
+
+### Decision
+
+Keep the controller daemon, Claude/Codex hooks, OpenCode bridge and Orca bridge in the monorepo's
+source/PR delivery path. Keep the existing `vX.Y.Z` release workflow scoped to the packaged Command
+Code adapter `@vizuh/sabi`.
+
+### Why
+
+PR #22 is merged on `main`, but the root controller and Orca bridge are private workspace packages and
+are not included in the npm tarball. Publishing a new package tag for controller-only changes would
+claim a release artifact that does not contain those changes.
+
+### Tradeoffs
+
+The controller is usable today from a checkout via `npm link`, while public installation remains
+limited to the Command Code adapter. A future controller release needs an explicit artifact, package
+name, versioning rule and live-host acceptance evidence before the release workflow should expand.
+
+### Revisit later?
+
+When those four inputs exist, add the controller package to a deliberate release lane; do not broaden
+the current npm workflow implicitly.
