@@ -370,6 +370,15 @@ was created for controller-only changes. Validation is source/test and merged-st
 installed user-config mutation, live OpenCode activation in Orca and real cross-terminal execution
 remain unclaimed.
 
+## [2026-09-19] plan | Public installation and global host integration
+
+Defined the production installation lane: bundle the private controller into a public
+`@vizuh/sabi-controller` package, install a per-user daemon/service, register consented harness
+adapters, maintain a global session registry, and prove clean-machine installation plus live terminal
+receipts before release. Kept the existing `@vizuh/sabi` Command Code package separate. The full
+sequence and support matrix are in `docs/research/public-installation-plan.md`; `npm link`, a PATH
+entry, a spawn candidate or an Orca manifest alone do not satisfy the public acceptance bar.
+
 ## [2026-09-19] docs | Optional local design evidence boundary
 
 Recorded TokenScout-like site analysis as an optional local evidence provider rather than a Sabi
