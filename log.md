@@ -369,3 +369,11 @@ existing `v0.1.2` release remains the latest package release at `35560c0`; no ar
 was created for controller-only changes. Validation is source/test and merged-state evidence only;
 installed user-config mutation, live OpenCode activation in Orca and real cross-terminal execution
 remain unclaimed.
+
+## [2026-09-19] docs | Optional local design evidence boundary
+
+Recorded TokenScout-like site analysis as an optional local evidence provider rather than a Sabi
+dependency. Raw reports, Design DNA, screenshots, assets and URLs stay under ignored local runtime
+state; a future routing consumer may accept only bounded evidence flags and a soft model-affinity
+prior. Kimi K3 remains a local hypothesis for reference-driven visual work, not a hard-coded public
+route. No URL was studied and no TokenScout dependency or site artifact was added.

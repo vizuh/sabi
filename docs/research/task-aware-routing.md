@@ -51,6 +51,27 @@ Security is also a cross-cutting constraint: a login-screen design or Terraform 
 can carry security risk. Domain names alone must not automatically force expensive models.
 Risk and reasoning difficulty are separate; a simple production deletion is still high risk.
 
+## Optional local design evidence
+
+Design evidence may come from a local provider such as TokenScout when the user supplies or
+authorizes a live URL. The provider may write its report, Design DNA and real screenshots under the
+ignored `.sabi/` runtime directory, but the public Sabi repository must not depend on the package or
+contain site-specific URLs, screenshots, tokens, assets or raw reports.
+
+The boundary is deliberately narrow:
+
+- the local provider reports bounded signals such as `reference-driven`, `visual-evidence-available`,
+  `responsive`, and `vision-required`;
+- Sabi applies those signals only after capability, authorization, availability, quota and user-pin
+  constraints;
+- model affinity is a soft prior among valid candidates, not a hard route;
+- a local Kimi K3 design prior is an experiment to measure, not a public claim that Kimi always wins;
+- missing, blocked or failed evidence leaves routing unchanged and records the provider failure class,
+  not the URL or page content.
+
+This lets a local TokenScout study improve both model selection and the implementation handoff while
+keeping Sabi portable, privacy-bounded and useful without TokenScout installed.
+
 ## Command Code implementation boundary
 
 Start with shadow recommendations on the verified hooks in the
