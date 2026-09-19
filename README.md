@@ -110,7 +110,7 @@ The public controller package is separate from the inference adapter:
 
 ```bash
 npm install --global @vizuh/sabi-controller
-sabi setup --hooks               # writes user state, starts daemon and installs host hooks
+sabi setup                        # writes user state, starts daemon and installs detected hooks
 sabi status
 sabi route "review this change"
 sabi sessions --json              # bounded adapter registrations
@@ -127,9 +127,10 @@ daemon, hooks, OpenCode plugin and Orca bridge resources; it does not require th
 `node_modules` at runtime.
 
 `setup` detects installed harness executables and enables automatic controller routing through
-the daemon. With `--hooks`, it merges a Sabi `UserPromptSubmit` hook into Claude Code and Codex,
-and installs the small OpenCode `chat.message` plugin. Existing JSON configuration is preserved and
-backed up once as `<file>.sabi-backup`. A `CONTINUE` plan is silent; delegation only blocks the
+the daemon. It merges a Sabi `UserPromptSubmit` hook into detected Claude Code and Codex
+installations, and installs the small OpenCode `chat.message` plugin. Existing JSON configuration is
+preserved and backed up once as `<file>.sabi-backup`; use `--no-hooks` to skip this step or
+`sabi hooks install` to repair it later. A `CONTINUE` plan is silent; delegation only blocks the
 current prompt after the daemon reports that the target accepted execution. Hook failures fail open,
 so opening a harness still works if Sabi is stopped. These hooks route controller execution; they do
 not silently switch a paid subscription or the model selected inside a harness.

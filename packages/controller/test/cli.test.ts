@@ -196,16 +196,17 @@ test('doctor and config report local boundaries without reading secrets', () => 
   assert.match(configRecord.controllerLogPath, /controller-decisions\.jsonl$/)
 })
 
-test('setup writes user-level preferences without pretending to install harness hooks', () => {
+test('setup can opt out of user hooks without mutating harness configuration', () => {
   const cwd = workspace()
   const stateDir = path.join(cwd, 'controller-state')
-  const setup = run(['setup', '--no-start', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
+  const setup = run(['setup', '--no-start', '--no-hooks', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
   assert.equal(setup.status, 0)
   const record = JSON.parse(setup.stdout)
   assert.equal(record.stateDir, stateDir)
   assert.equal(record.automaticRouting, true)
   assert.equal(record.daemon, 'stopped')
-  assert.equal(record.integrations, 'not-installed')
+  assert.deepEqual(record.integrations.installed, [])
+  assert.deepEqual(record.hooks, [])
   assert.equal(existsSync(record.preferencesPath), true)
 
   const status = run(['status', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
@@ -252,8 +253,28 @@ test('setup --hooks installs all host bridges in isolated config paths', () => {
   })
   assert.equal(setup.status, 0)
   const record = JSON.parse(setup.stdout)
-  assert.deepEqual(record.hooks.map((hook: { harness: string }) => hook.harness), ['claude', 'codex', 'opencode'])
+  assert.deepEqual(record.hooks.map((hook: { harness: string }) => hook.harness).sort(), ['claude', 'codex', 'opencode'])
   assert.equal(existsSync(path.join(cwd, 'claude', 'settings.json')), true)
   assert.equal(existsSync(path.join(cwd, 'codex', 'hooks.json')), true)
   assert.equal(existsSync(path.join(cwd, 'opencode', 'opencode.json')), true)
+})
+
+test('setup installs hooks by default only for detected supported harnesses', () => {
+  const cwd = workspace()
+  const stateDir = path.join(cwd, 'controller-state')
+  const setup = run(['setup', '--no-start', '--json'], cwd, {
+    SABI_CONTROLLER_HOME: stateDir,
+    SABI_CONTROLLER_HARNESSES: 'claude',
+    SABI_CLAUDE_SETTINGS: path.join(cwd, 'claude', 'settings.json'),
+    SABI_CODEX_HOOKS: path.join(cwd, 'codex', 'hooks.json'),
+    SABI_OPENCODE_CONFIG: path.join(cwd, 'opencode', 'opencode.json'),
+    SABI_HOOK_COMMAND: 'sabi-test',
+  })
+  assert.equal(setup.status, 0)
+  const record = JSON.parse(setup.stdout)
+  assert.deepEqual(record.integrations.installed, ['claude'])
+  assert.deepEqual(record.hooks.map((hook: { harness: string }) => hook.harness), ['claude'])
+  assert.equal(existsSync(path.join(cwd, 'claude', 'settings.json')), true)
+  assert.equal(existsSync(path.join(cwd, 'codex', 'hooks.json')), false)
+  assert.equal(existsSync(path.join(cwd, 'opencode', 'opencode.json')), false)
 })

@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { queryOrcaTerminals, queryOrcaWorktrees, readOrcaTerminal, waitOrcaTerminal } from './orca.ts'
 import type { AgentHarness, AgentSession, AgentCapacity, OrcaErrorCode } from './types.ts'
@@ -190,13 +191,29 @@ function unavailableCurrent(cwd: string, now: number): AgentSession {
   }
 }
 
+function hostCurrentSession(cwd: string, sessionId: string, harness = 'current'): AgentSession {
+  const digest = createHash('sha256').update(sessionId).digest('hex').slice(0, 24)
+  return {
+    id: `session:host:${digest}`,
+    agent: harness,
+    harness,
+    capabilities: ['coding'],
+    available: true,
+    capacity: { status: 'available' },
+    worktree: cwd,
+    context: 'current host session; execution remains with the harness',
+    kind: 'session',
+    lifecycle: 'active',
+  }
+}
+
 export function discoverAgents(
   cwd: string,
-  options: { stuckSession?: boolean; now?: number } = {},
+  options: { stuckSession?: boolean; now?: number; currentSession?: string; currentHarness?: string } = {},
 ): AgentInventory {
   const resolvedCwd = path.resolve(cwd)
   const now = options.now ?? Date.now()
-  const currentHandle = process.env.ORCA_TERMINAL_HANDLE?.trim() || undefined
+  const currentHandle = options.currentSession?.trim() || process.env.ORCA_TERMINAL_HANDLE?.trim() || undefined
   const worktreesResult = queryOrcaWorktrees()
   const terminalsResult = queryOrcaTerminals()
   const worktrees = (worktreesResult.worktrees ?? []) as OrcaWorktreeEntry[]
@@ -220,7 +237,8 @@ export function discoverAgents(
         : undefined
     })
     .filter((entry): entry is AgentSession => entry !== undefined)
-  const active = sessions.find((session) => session.handle === currentHandle) ?? unavailableCurrent(resolvedCwd, now)
+  const active = sessions.find((session) => session.handle === currentHandle) ??
+    (options.currentSession ? hostCurrentSession(resolvedCwd, options.currentSession, options.currentHarness) : unavailableCurrent(resolvedCwd, now))
   const existingSessions = sessions.filter((session) => session.id !== active.id)
   const orcaAvailable = worktreesResult.ok || terminalsResult.ok
   const knownAgentState = new Map<string, AgentSession>()

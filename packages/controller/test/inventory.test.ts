@@ -97,3 +97,19 @@ test('inventory includes eligible idle sessions from other Orca worktrees', () =
     else process.env.ORCA_TERMINAL_HANDLE = previousHandle
   }
 })
+
+test('a harness hook can identify the current host session without an Orca terminal handle', () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-host-session-'))
+  const previousCommand = process.env.ORCA_CLI_COMMAND
+  process.env.ORCA_CLI_COMMAND = fakeOrca(cwd)
+  try {
+    const inventory = discoverAgents(cwd, { currentSession: 'provider-session-1', currentHarness: 'claude' })
+    assert.equal(inventory.active.agent, 'claude')
+    assert.equal(inventory.active.available, true)
+    assert.equal(inventory.active.handle, undefined)
+    assert.match(inventory.active.id, /^session:host:/)
+  } finally {
+    if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
+    else process.env.ORCA_CLI_COMMAND = previousCommand
+  }
+})

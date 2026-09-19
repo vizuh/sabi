@@ -8,6 +8,8 @@ import type { AgentHarness, AgentSession, ControllerDecisionRecord, ControllerOv
 export interface RouteDispatchOptions {
   request: string
   cwd: string
+  currentSession?: string
+  currentHarness?: string
   orchestrate?: boolean
   override?: ControllerOverride
   waitMs?: number
@@ -65,6 +67,8 @@ export async function dispatchControllerRequest(options: RouteDispatchOptions): 
     options.override,
     Number.isFinite(waitMs) && waitMs >= 0 ? waitMs : 5000,
     options.execute !== false,
+    options.currentSession,
+    options.currentHarness,
   )
   const execution = { ...result.execution, durationMs: Math.max(0, Date.now() - startedAt) }
   const record: ControllerDecisionRecord = {

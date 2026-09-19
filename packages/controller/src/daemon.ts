@@ -163,6 +163,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, info: Co
       const record = await dispatchControllerRequest({
         request,
         cwd: safeCwd(body.cwd),
+        currentSession: typeof body.currentSession === 'string' ? body.currentSession : undefined,
+        currentHarness: typeof body.currentHarness === 'string' ? body.currentHarness : undefined,
         orchestrate: body.orchestrate === true,
         override: controllerOverride(body.override),
         waitMs,

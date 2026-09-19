@@ -83,7 +83,7 @@ export async function SabiOpenCodePlugin(context) {
           lifecycle: 'active',
         })
       }
-      const plan = await post(controllerURL, '/plan', { request, cwd })
+      const plan = await post(controllerURL, '/plan', { request, cwd, currentSession: sessionId, currentHarness: 'opencode' })
       const action = typeof plan?.action === 'string' ? plan.action : ''
       if (!['DELEGATE', 'SPAWN', 'ORCHESTRATE'].includes(action)) return
       const override = targetOverride(action, plan.target)
@@ -91,6 +91,8 @@ export async function SabiOpenCodePlugin(context) {
       const result = await post(controllerURL, '/route', {
         request,
         cwd,
+        currentSession: sessionId,
+        currentHarness: 'opencode',
         orchestrate: action === 'ORCHESTRATE',
         ...(override ? { override } : {}),
       })

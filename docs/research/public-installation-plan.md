@@ -38,9 +38,10 @@ sabi setup
 sabi doctor
 ```
 
-`setup` detects the machine's host and harnesses, requires explicit flags for user-configuration
-changes, installs the user-level daemon/service and reports exactly which integrations are supported,
-partial or unavailable. `upgrade --version=<semver>` provides an exact-version rollback path, and
+`setup` detects the machine's host and harnesses, is the explicit consent point for user-configuration
+changes, installs hooks only for detected supported harnesses, installs the user-level daemon/service
+and reports exactly which integrations are supported, partial or unavailable. `--no-hooks` skips that
+configuration step. `upgrade --version=<semver>` provides an exact-version rollback path, and
 `uninstall` restores hook backups while archiving Sabi state. Opening a new Orca worktree must not
 require another Sabi install.
 

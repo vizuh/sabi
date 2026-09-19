@@ -256,6 +256,13 @@ function sessionIdFrom(input: JsonObject): string | undefined {
   return undefined
 }
 
+function terminalHandleFrom(input: JsonObject): string | undefined {
+  for (const key of ['terminal_id', 'terminalId', 'orca_terminal_handle', 'orcaTerminalHandle']) {
+    if (typeof input[key] === 'string' && input[key].trim()) return input[key].trim()
+  }
+  return undefined
+}
+
 export async function routeHookPrompt(
   harness: HookHarness,
   event: string,
@@ -269,6 +276,7 @@ export async function routeHookPrompt(
     const info = await startControllerDaemon({ stateDir })
     const cwd = typeof input.cwd === 'string' && input.cwd.trim() ? path.resolve(input.cwd) : process.cwd()
     const sessionId = sessionIdFrom(input)
+    const terminalHandle = terminalHandleFrom(input) ?? env.ORCA_TERMINAL_HANDLE?.trim()
     if (sessionId) {
       await requestControllerDaemon('/v1/sessions/register', {
         info,
@@ -280,7 +288,7 @@ export async function routeHookPrompt(
     const plan = await requestControllerDaemon('/plan', {
       info,
       method: 'POST',
-      body: { request, cwd, waitMs: 5000 },
+      body: { request, cwd, currentSession: terminalHandle ?? sessionId, currentHarness: harness, waitMs: 5000 },
     })
     if (!plan || !['DELEGATE', 'SPAWN', 'ORCHESTRATE'].includes(String(plan.action))) return {}
     const action = String(plan.action)
@@ -293,6 +301,8 @@ export async function routeHookPrompt(
       body: {
         request,
         cwd,
+        currentSession: terminalHandle ?? sessionId,
+        currentHarness: harness,
         orchestrate: action === 'ORCHESTRATE',
         ...(override ? { override } : {}),
         waitMs: 5000,
