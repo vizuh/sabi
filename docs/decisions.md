@@ -428,3 +428,17 @@ A real controller genuinely operates above where Sabi sits today: the proxy only
 
 ### Revisit later?
 Once Sabi has any live session identity (not just the post-hoc `sessionId` grouping), replace the recency-based stuck-session gate with a real per-session filter. If `orca-ide`'s real entries ever carry a non-empty `branch`, consider whether branch should join `path` in the match predicate, or stay path-only by design (a worktree is already a distinct path per branch in Orca's own model, so branch may be redundant, not just unreliable). Only after the shadow-mode log shows the recommendations look right on real usage should executing DELEGATE/SPAWN/ORCHESTRATE even be considered — a separate, larger decision, not bundled here.
+
+## [2026-09-19] Agent capacity is a deterministic gate before handoff judgment
+
+### Decision
+
+Keep capacity and session-health routing pure in `packages/controller/src/agents.ts`. An active session with `quota_exhausted` or a rate limit is not eligible for `CONTINUE` when its reset wait exceeds the explicit transfer-cost bound (`handoffMs + replacementExecutionMs`, with a separate rate-limit threshold). Once `resetAt` passes, the same session becomes eligible again. If it is not eligible, reuse a suitable existing session before selecting a suitable harness to spawn. Carry the task in a typed `HandoffSnapshot`; the planner never reconstructs or restarts the work.
+
+### Why
+
+A provider quota wall, dead process, unavailable authentication, repeated identical failure, explicit blocked/waiting state and missing required capability are observable eligibility facts, not Jev questions. The planner therefore removes the current route first and leaves model/agent preference among valid candidates as a later decision. Healthy capacity outranks a `lower_priority`/`cheaper_model` fallback, so an exhausted Claude session does not silently consume scarce fallback capacity while a healthy Codex session exists.
+
+### Tradeoffs
+
+The costs are supplied by the caller in milliseconds; no invented provider reset or execution estimate is stored in Sabi. This is still shadow-mode logic: no live agent inventory, automatic handoff, process spawn or Jev selection is wired. The next required adapter is a verified inventory source that can populate these descriptors and snapshots without exposing credentials or raw usage logs.

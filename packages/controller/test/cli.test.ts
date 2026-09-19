@@ -39,11 +39,11 @@ test('no request, no history, no orca -> ASK, one well-formed log line, exit 0',
 
 test('an unquoted multi-word request is joined, not truncated to its first token', () => {
   const cwd = workspace()
-  const result = run(['please', 'coordinate', 'this', 'across', 'projects', '--json'], cwd)
+  const result = run(['please', 'fix', 'this', 'carefully', '--json'], cwd)
   assert.equal(result.status, 0)
   const record = JSON.parse(result.stdout)
-  assert.equal(record.action, 'ORCHESTRATE')
-  assert.equal(record.signals.multiScopeTrigger, 'across-projects')
+  assert.equal(record.action, 'ASK')
+  assert.equal(record.request, 'please fix this carefully')
 })
 
 test('--orchestrate forces ORCHESTRATE regardless of request text', () => {
@@ -51,10 +51,11 @@ test('--orchestrate forces ORCHESTRATE regardless of request text', () => {
   const result = run(['a single simple fix', '--orchestrate', '--json'], cwd)
   assert.equal(result.status, 0)
   const record = JSON.parse(result.stdout)
-  assert.equal(record.action, 'ORCHESTRATE')
+  assert.equal(record.action, 'ASK')
+  assert.equal(record.rule, 'no-orchestration-target')
 })
 
-test('a recent hard-failure row in .sabi/decisions.jsonl -> SPAWN', () => {
+test('a recent hard-failure row with no Orca -> ASK rather than pretending to spawn', () => {
   const cwd = workspace()
   mkdirSync(path.join(cwd, '.sabi'), { recursive: true })
   const row = {
@@ -87,7 +88,7 @@ test('a recent hard-failure row in .sabi/decisions.jsonl -> SPAWN', () => {
   writeFileSync(path.join(cwd, '.sabi', 'decisions.jsonl'), `${JSON.stringify(row)}\n`)
 
   const result = run(['fix the bug', '--json'], cwd)
-  assert.equal(JSON.parse(result.stdout).action, 'SPAWN')
+  assert.equal(JSON.parse(result.stdout).action, 'ASK')
 })
 
 test('the same stuck-session row, backdated past the recency window -> not SPAWN', () => {
@@ -127,10 +128,10 @@ test('the same stuck-session row, backdated past the recency window -> not SPAWN
   assert.notEqual(JSON.parse(result.stdout).action, 'SPAWN')
 })
 
-test('human-readable output prints the advisory-only disclaimer and never crashes without --json', () => {
+test('human-readable output reports execution state and never crashes without --json', () => {
   const cwd = workspace()
   const result = run(['fix the bug'], cwd)
   assert.equal(result.status, 0)
   assert.match(result.stdout, /\[CONTROLLER\]/)
-  assert.match(result.stdout, /advisory only/)
+  assert.match(result.stdout, /execution: awaiting-user/)
 })
