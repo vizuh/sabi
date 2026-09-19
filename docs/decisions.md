@@ -442,3 +442,34 @@ A provider quota wall, dead process, unavailable authentication, repeated identi
 ### Tradeoffs
 
 The costs are supplied by the caller in milliseconds; no invented provider reset or execution estimate is stored in Sabi. This is still shadow-mode logic: no live agent inventory, automatic handoff, process spawn or Jev selection is wired. The next required adapter is a verified inventory source that can populate these descriptors and snapshots without exposing credentials or raw usage logs.
+## [2026-09-19] Provider-neutral secret discovery at proxy startup
+
+### Decision
+The proxy loads only environment references used by enabled upstreams and Jev. Precedence is the
+existing process environment, `SABI_SECRETS_FILE`, the nearest workspace `secrets/.env`, then
+`~/.config/sabi/secrets.env` or `~/.config/sabi/.env`. The dotenv reader does not execute shell
+syntax, values remain in the Sabi process, and provider aliases such as the existing HugoOS
+`typesafe=` entry can satisfy `$TYPESAFE_API_KEY`.
+
+### Why
+Sabi is used through different harnesses and providers. Making Orca responsible for credentials
+would couple the proxy to one host and currently available plugin launch APIs, while requiring
+every user to export keys manually made the shared setup brittle. Loading only active references
+keeps the central workspace file useful without copying unrelated secrets into the process.
+
+### Alternatives considered
+- Orca-managed launch injection — deferred until Orca exposes a stable, consented secret-reference
+  launch contract; no plugin vault enumeration or terminal message transport is needed now.
+- Loading every `.env` entry — rejected because unrelated workspace credentials must not enter Sabi's
+  environment.
+- Hardcoding HugoOS's absolute path — rejected because users may run Sabi from other workspaces or
+  without Orca.
+
+### Tradeoffs
+The nearest workspace file is a convenience for deliberately shared workspaces; users needing a
+different boundary can set `SABI_SECRETS_FILE`, and shell variables still override the file. The
+proxy startup reports only a loaded count and file path, never names or values.
+
+### Revisit later?
+When Orca provides launch-time secret references, add an adapter-level source behind this same
+precedence contract. Keep the core and non-Orca harnesses unchanged.

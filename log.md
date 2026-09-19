@@ -309,3 +309,17 @@ Exercised six controller scenarios through the real CLI with live Orca discovery
 ## [2026-09-19] feat | Thin Orca bridge and OpenCode candidate
 
 Added `packages/adapters/orca` as a minimal same-repo plugin bridge: manifest, `sabi.dispatch` command, and bounded worktree/agent-status event subscriptions. Routing and execution remain in the controller/CLI; no fake Orca execution or unverified plugin installation was added. OpenCode `1.18.30` is already available as a controller spawn/orchestration candidate and now has a route regression test. Verification: `npm test` 318/318, `npm run typecheck`, plugin tests 3/3.
+## [2026-09-19] change | Provider-neutral workspace secret loading
+
+Added `packages/core/src/config.ts` secret discovery and a dotenv parser. The proxy now loads only
+the environment names referenced by enabled upstreams and Jev, with existing process variables
+winning over `SABI_SECRETS_FILE`, the nearest workspace `secrets/.env`, and the per-user Sabi file.
+The provider-name alias fallback accepts the current HugoOS `typesafe=` entry without requiring a
+provider-specific integration. `packages/server/src/index.ts` activates it at startup and reports
+only a count and path, never values. `scripts/setup.ts` now points users at the discovered file
+instead of incorrectly requiring an exported shell variable.
+
+Updated EN/PT-BR/ZH README and install/harness docs for users of OpenRouter, Ollama, OpenCode,
+Hermes, Kilo, Command Code and other clients; the proxy remains the shared boundary and Orca is
+not required. No secret file was changed. Validation: 262 Node tests, focused config tests 17/17,
+typecheck, and a no-provider-call startup with shell keys unset loaded 2 configured keys.

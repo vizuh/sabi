@@ -17,8 +17,10 @@ Use an explicit project/profile configuration. Do not replace normal provider de
 The existing Sabi service exposes `http://127.0.0.1:8787/v1/chat/completions` and `/v1/models`.
 Clients use the **base** `http://127.0.0.1:8787/v1`, not the full completion URL.
 Choose `sabi-code` for adaptive routing; fixed aliases preserve the selected tier.
-Keep upstream keys in Sabi's environment. A client that requires a key may use a non-secret
-local placeholder. Host subscription credits and login tokens are not transferred to Sabi.
+Keep upstream keys in Sabi's environment. The proxy can load only configured references from the
+existing environment, `SABI_SECRETS_FILE`, a nearest workspace `secrets/.env`, or the per-user Sabi
+secrets file; it does not depend on Orca. A client that requires a key may use a non-secret local
+placeholder. Host subscription credits and login tokens are not transferred to Sabi.
 
 | Client | Configuration path |
 |---|---|

@@ -91,8 +91,6 @@ A rodada 1 roda no modelo da sessão; a rodada 2 (leitura → `exploration` → 
 
 ```bash
 npm install
-export OPENROUTER_API_KEY=...    # credenciais do upstream
-export TYPESAFE_API_KEY=...      # juiz Jev (opcional; use judge.enabled false para pular)
 npm start                        # http://127.0.0.1:8787/v1
 
 npm run connect:command-code     # grava/atualiza o provider "sabi" em ~/.commandcode/providers.json
@@ -103,12 +101,16 @@ npm run connect:opencode         # OpenCode: grava o provider "sabi" em ~/.confi
 
 Depois escolha `sabi/sabi-code` em `/model` (ou `--model sabi/sabi-code`). Aliases fixos para comparação: `sabi-cheap`, `sabi-mid`, `sabi-strong`. `sabi-local` aponta para o Ollama e não é exposto por padrão — a janela de 32k é pequena demais para prompts de harness. Outros clientes — OpenCode e Hermes, com o que eles ganham e não ganham — estão em [docs/install.pt-BR.md](docs/install.pt-BR.md#clientes-além-do-command-code).
 
-O Sabi é um processo em primeiro plano, não um serviço: se não estiver rodando, toda requisição `sabi/*` falha dentro do harness com `ECONNREFUSED 127.0.0.1:8787`. Nesta máquina as duas chaves vêm do arquivo de segredos do workspace:
+O Sabi é um processo em primeiro plano, não um serviço: se não estiver rodando, toda requisição `sabi/*` falha dentro do harness com `ECONNREFUSED 127.0.0.1:8787`.
 
-```bash
-export OPENROUTER_API_KEY="$(grep -E '^OPENROUTER_API_KEY=' ../../../secrets/.env | cut -d= -f2-)"
-export TYPESAFE_API_KEY="$(grep -E '^typesafe=' ../../../secrets/.env | cut -d= -f2-)"
-```
+Na subida, o proxy carrega somente os nomes de credencial referenciados pela configuração ativa.
+Variáveis já presentes no ambiente vencem; depois vêm `SABI_SECRETS_FILE`, o `secrets/.env` mais
+próximo no workspace e, por fim, `~/.config/sabi/secrets.env` ou `~/.config/sabi/.env`. O arquivo
+dotenv pode usar `OPENROUTER_API_KEY=...` e `TYPESAFE_API_KEY=...`; o nome `typesafe=...` que já
+existe no workspace HugoOS também é aceito para a chave TypeSafe. Nenhum segredo é copiado para a
+configuração do harness, terminal, worktree, log ou Git. O mod do Command Code continua sem chave;
+OpenCode, Hermes, Kilo e outros clientes compatíveis com OpenAI apenas apontam para o proxy local,
+enquanto as credenciais próprias da conta continuam no harness.
 
 ## Onde o Sabi encontra a configuração
 

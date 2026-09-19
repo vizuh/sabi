@@ -6,7 +6,22 @@ PR #3 merged to `main` as `7d57ff4` from `feat/multi-harness-support`. A follow-
 
 ## Last meaningful update
 
-2026-09-18
+2026-09-19
+
+## Provider-neutral secret loading — 2026-09-19
+
+The proxy now loads only credential references used by the active configuration. Precedence is
+existing process environment, `SABI_SECRETS_FILE`, the nearest workspace `secrets/.env`, then
+`~/.config/sabi/secrets.env` or `~/.config/sabi/.env`. The loader parses dotenv data without
+executing it, keeps values in the Sabi process only, and accepts the existing HugoOS `typesafe=`
+alias for `$TYPESAFE_API_KEY`.
+
+This is deliberately independent of Orca and the harness: Command Code's mod remains keyless,
+while OpenCode, Hermes, Kilo and other OpenAI-compatible clients use the local proxy and retain
+their own account credentials. No secret was copied to a harness config, terminal, worktree, log
+or Git. Focused config tests passed 17/17, the full suite passed 262/262, typecheck passed, and a
+short startup with both shell variables unset loaded two configured keys from the HugoOS secrets
+file without making a provider request.
 
 ## npm distribution — 2026-09-18
 

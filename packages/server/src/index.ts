@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { defaultConfigPath, defaultLogPath, loadConfig, resolveKey } from '@sabi/core'
+import { defaultConfigPath, defaultLogPath, loadConfig, loadConfiguredSecrets, resolveKey } from '@sabi/core'
 import { createSabiServer } from './server.ts'
 
 const config = loadConfig()
+const secretLoad = loadConfiguredSecrets(config)
 const host = process.env.SABI_HOST ?? config.server?.host ?? '127.0.0.1'
 const port = Number(process.env.SABI_PORT ?? config.server?.port ?? 8787)
 const logFile = defaultLogPath()
@@ -32,6 +33,11 @@ console.log(`Sabi listening on http://${host}:${actualPort}/v1`)
 console.log(`  config : ${defaultConfigPath()}`)
 console.log(`  log    : ${logFile}`)
 console.log(`  models : ${Object.keys(config.aliases).join(', ')}`)
+if (secretLoad.loaded.length) {
+  console.log(`  credentials: loaded ${secretLoad.loaded.length} configured key(s) from ${secretLoad.file}`)
+} else if (secretLoad.error) {
+  console.log(`  WARN   : ${secretLoad.error}`)
+}
 for (const [tier, model] of Object.entries(config.models)) {
   console.log(`    ${tier.padEnd(7)} -> ${model.upstream}/${model.model}`)
 }

@@ -3,7 +3,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync,
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defaultConfigPath, loadConfig, minContextWindowFor, promptWithTimeout, validateConfig } from '@sabi/core'
+import { defaultConfigPath, loadConfig, minContextWindowFor, promptWithTimeout, secretSearchPaths, validateConfig } from '@sabi/core'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const COMMAND_CODE_CONNECT = path.join(ROOT, 'packages/adapters/command-code/src/connect.ts')
@@ -182,8 +182,11 @@ function reportJev(configPath: string, enabled: boolean): void {
   console.log(`Updated ${configPath}: judge.enabled = ${enabled}`)
   if (isInsideGitRepo(configPath)) console.log('This file is git-tracked — review the diff before committing.')
   if (enabled && !process.env.TYPESAFE_API_KEY) {
-    console.log('TYPESAFE_API_KEY is not set in this shell. Export it before starting Sabi:')
-    console.log('  export TYPESAFE_API_KEY=...')
+    if (secretSearchPaths().some((candidate) => existsSync(candidate))) {
+      console.log('TYPESAFE_API_KEY is not in this shell; Sabi will check the discovered secrets file when it starts.')
+    } else {
+      console.log('TYPESAFE_API_KEY is not set in this shell or a discovered secrets file. Export it or set SABI_SECRETS_FILE before starting Sabi.')
+    }
   }
 }
 
