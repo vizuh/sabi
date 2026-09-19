@@ -155,3 +155,7 @@ None technical. Unconfirmed: business goal and success metrics (marked TODO in `
 ## Quick restart note
 
 Two independent ways in. **Class A (mod):** `cmd mods add ./packages/adapters/command-code` once per clone, then any session in that project routes; no keys, no proxy. **Class B (proxy):** export `OPENROUTER_API_KEY` (+ `TYPESAFE_API_KEY` for Jev), `npm start`, pick `sabi/sabi-code` in `/model`, read `.sabi/decisions.jsonl` and `npm run report`. The proxy is a foreground process, not a service — if it is down, every `sabi/*` request fails with `ECONNREFUSED 127.0.0.1:8787`.
+
+## Agent Controller (new, advisory-only, shadow mode)
+
+`npm run controller -- "<request>" [--cwd=<path>] [--orchestrate] [--json]` (`packages/controller`) recommends CONTINUE/DELEGATE/SPAWN/ORCHESTRATE/ASK for a request arriving before any harness session exists — a separate surface from inference-round routing, not wired into `packages/server`. It only recommends and logs to `.sabi/controller-decisions.jsonl`; it never executes the action itself. DELEGATE never fires yet — Orca's real `worktree ps`/`terminal list` JSON field names are unverified (see `docs/decisions.md`'s dated entry). No caller in this repo invokes it yet; it's a standalone CLI to run by hand.
