@@ -206,3 +206,28 @@ Added the first ambient-runtime slice. `sabi setup` writes non-secret controller
 The daemon exposes only `/health`, `/status`, and `/route` for now. It reuses the existing live Orca inventory and execution code; it does not create a second controller, database, model registry, Laya adapter, or empirical bandit. The loopback endpoint has no auth by design; `ponytail: keep it loopback-only, add per-user authentication before any non-local bind.`
 
 `setup` detects installed harness executables and reports rules/Jev/Laya state, but deliberately reports harness hooks as `not-installed`. No Claude/Codex/OpenCode/Hermes hook or login/system-service integration was added without a verified host contract. The next evidence gate is one real post-setup route through the daemon into an Orca terminal, followed by one verified host adapter; model observatory work starts only after durable outcome signals exist.
+
+## Controller host hooks — 2026-09-19
+
+Added the first host-hook slice. `sabi setup --hooks` or `sabi hooks install` preserves existing Claude
+and Codex JSON configuration, writes one `.sabi-backup`, and installs `UserPromptSubmit` routing;
+OpenCode receives a copied `chat.message` plugin in the Sabi state directory. The hooks call daemon
+`/plan` first, execute only non-`CONTINUE` actions through `/route`, and fail open when Sabi is not
+configured or unavailable. A hook blocks the current prompt only after a real execution receipt.
+
+`/plan` is intentionally separate from `/route` so planning and hook tests cannot execute twice. The
+OpenCode adapter is a thin same-repo plugin and does not change the selected model or consume a paid
+subscription. Installed runtime evidence: Claude Code 2.1.278, Codex 0.155.1 with stable hooks,
+OpenCode CLI 1.18.31 and local `@opencode-ai/plugin` types 1.18.4. Config merge and transport tests
+pass; live mutation of the user's harness configs and live OpenCode plugin activation remain
+unverified and were not performed.
+
+## Controller traces and replay — 2026-09-19
+
+The controller record now carries trace schema v1, bounded candidate descriptors, the valid action
+set, execution duration and the existing execution receipt. `sabi replay --last=<n>` reads the local
+controller JSONL and reports action, rule and execution distributions without calling Orca or a
+harness. This is the first replay/evaluation surface; it does not yet re-run a policy against a
+historical inventory or synthesize lessons.
+
+Verification: focused controller tests pass, including a CLI replay test and daemon trace assertions.

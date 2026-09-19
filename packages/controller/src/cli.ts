@@ -14,13 +14,14 @@ import {
   writeControllerPreferences,
 } from './daemon.ts'
 import { configuredHarnesses } from './inventory.ts'
-import { defaultControllerLogPath, readControllerDecisions } from './log.ts'
+import { defaultControllerLogPath, readControllerDecisions, summarizeControllerReplay } from './log.ts'
 import { dispatchControllerRequest, inventorySnapshot } from './runtime.ts'
+import { installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'doctor' | 'config' | 'logs' | 'setup' | 'daemon'
+type Command = 'route' | 'status' | 'agents' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'daemon' | 'hooks' | 'hook'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'doctor', 'config', 'logs', 'setup', 'daemon'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'doctor', 'config', 'logs', 'replay', 'setup', 'daemon', 'hooks', 'hook'])
 
 function flagValue(argv: string[], name: string): string | undefined {
   return argv.find((a) => a.startsWith(`${name}=`))?.slice(name.length + 1)
@@ -56,11 +57,14 @@ function printHelp(): void {
   sabi doctor [--cwd=<path>] [--json]
   sabi config [--cwd=<path>] [--json]
   sabi logs [--cwd=<path>] [--tail=<n>] [--json]
-  sabi setup [--no-start] [--json]
+  sabi replay [--cwd=<path>] [--last=<n>] [--json]
+  sabi setup [--no-start] [--hooks] [--json]
   sabi daemon [--status|--stop|--foreground] [--json]
+  sabi hooks install [--claude] [--codex] [--opencode] [--json]
+  sabi hook <claude|codex> [--event=UserPromptSubmit]
 
-The current CLI uses live Orca state when available. A user daemon and automatic
-harness hooks are not installed by this package yet; run sabi setup to enable the daemon.`)
+The current CLI uses live Orca state when available. Run "sabi setup --hooks"
+once to enable the daemon and install the verified host hooks.`)
 }
 
 function resolvedCwd(argv: string[]): string {
@@ -149,12 +153,13 @@ async function runDoctor(argv: string[]): Promise<void> {
 async function runSetup(argv: string[]): Promise<void> {
   const stateDir = controllerStateDir()
   const detected = configuredHarnesses()
+  const hooks = argv.includes('--hooks') ? installHooks({ stateDir }) : undefined
   const preferencesPath = writeControllerPreferences({
     version: 1,
     autoRoute: true,
     decisionEngine: 'rules',
     integrations: Object.fromEntries(detected.map(({ agent }) => [agent, true])),
-    hooks: 'not-installed',
+    hooks: hooks ? 'installed' : 'not-installed',
   }, stateDir)
   let daemon: Awaited<ReturnType<typeof inspectControllerDaemon>>
   if (argv.includes('--no-start')) daemon = await inspectControllerDaemon(stateDir)
@@ -174,6 +179,7 @@ async function runSetup(argv: string[]): Promise<void> {
     decisionEngines: { rules: 'available', jev: process.env.TYPESAFE_API_KEY ? 'configured' : 'not-configured', laya: 'not-configured' },
     detectedHarnesses: detected.map(({ agent, command }) => ({ agent, command })),
     integrations: 'not-installed',
+    hooks: hooks ? hooks.map(({ harness, path: file }) => ({ harness, path: file })) : 'not-installed',
   }
   if (jsonRequested(argv)) {
     console.log(JSON.stringify(result, null, 2))
@@ -185,8 +191,27 @@ async function runSetup(argv: string[]): Promise<void> {
   console.log('automatic routing: ON')
   console.log(`decision engines: rules ✓ · Jev ${result.decisionEngines.jev} · Laya not-configured`)
   console.log(`harnesses: ${detected.length ? detected.map(({ agent }) => `${agent} ✓`).join(' · ') : 'none detected'}`)
-  console.log('hooks: not installed — host-specific contracts remain explicit')
+  console.log(hooks ? `hooks: installed — ${hooks.map(({ harness }) => harness).join(', ')}` : 'hooks: not installed — pass --hooks to install them')
   console.log(`preferences: ${preferencesPath}`)
+}
+
+async function runHooks(argv: string[]): Promise<void> {
+  const action = argv.find((arg) => !arg.startsWith('--')) ?? 'install'
+  if (action !== 'install') throw new Error(`unsupported hooks action '${action}'`)
+  const selected = (['claude', 'codex', 'opencode'] as InstalledHook[]).filter((harness) => argv.includes(`--${harness}`))
+  const installed = installHooks({ harnesses: selected.length ? selected : undefined })
+  if (jsonRequested(argv)) {
+    console.log(JSON.stringify({ installed }, null, 2))
+    return
+  }
+  console.log('Sabi hooks')
+  for (const result of installed) console.log(`✓ ${result.harness}: ${result.path}${result.plugin ? ` (plugin ${result.plugin})` : ''}`)
+}
+
+async function runHook(argv: string[]): Promise<void> {
+  const harness = argv.find((arg) => !arg.startsWith('--'))
+  if (harness !== 'claude' && harness !== 'codex') throw new Error('hook harness must be claude or codex')
+  await runHookCommand(harness, flagValue(argv, '--event') ?? 'UserPromptSubmit')
 }
 
 async function runDaemon(argv: string[]): Promise<void> {
@@ -256,6 +281,27 @@ function runLogs(argv: string[]): void {
   for (const record of records) console.log(`${record.ts} ${record.action} ${record.request ?? '(no request)'}`)
 }
 
+function runReplay(argv: string[]): void {
+  const cwd = resolvedCwd(argv)
+  const logFile = defaultControllerLogPath(cwd)
+  const requestedLast = Number(flagValue(argv, '--last') ?? 1000)
+  const last = Number.isFinite(requestedLast) && requestedLast >= 0 ? Math.floor(requestedLast) : 1000
+  const allRecords = readControllerDecisions(logFile)
+  const records = last === 0 ? [] : allRecords.slice(-last)
+  const result = { logFile, ...summarizeControllerReplay(records) }
+  if (jsonRequested(argv)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log('Sabi controller replay')
+  console.log(`log: ${logFile}`)
+  console.log(`sample: ${result.sampleSize}`)
+  console.log(`actions: ${Object.entries(result.actions).filter(([, count]) => count > 0).map(([action, count]) => `${action}=${count}`).join(', ') || 'none'}`)
+  console.log(`execution: ${Object.entries(result.execution).map(([status, count]) => `${status}=${count}`).join(', ') || 'none'}`)
+  console.log(`accepted: ${result.acceptedExecutions} · completed: ${result.completedExecutions} · failed: ${result.failedExecutions}`)
+  if (result.averageDurationMs !== undefined) console.log(`average duration: ${result.averageDurationMs}ms`)
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2)
   if (argv.includes('--help') || argv.includes('-h')) {
@@ -267,8 +313,11 @@ async function main(): Promise<void> {
   if (command === 'doctor') return runDoctor(args)
   if (command === 'config') return runConfig(args)
   if (command === 'logs') return runLogs(args)
+  if (command === 'replay') return runReplay(args)
   if (command === 'setup') return runSetup(args)
   if (command === 'daemon') return runDaemon(args)
+  if (command === 'hooks') return runHooks(args)
+  if (command === 'hook') return runHook(args)
   await runRoute(args)
 }
 

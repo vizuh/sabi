@@ -11,6 +11,7 @@ export interface RouteDispatchOptions {
   orchestrate?: boolean
   override?: ControllerOverride
   waitMs?: number
+  execute?: boolean
 }
 
 export interface InventoryRuntime {
@@ -56,8 +57,18 @@ export async function dispatchControllerRequest(options: RouteDispatchOptions): 
   const orchestrate = options.orchestrate ?? false
   const waitMs = options.waitMs ?? 5000
   const signals = gatherSignals(cwd, request, orchestrate)
-  const result = await runController(request, cwd, signals, options.override, Number.isFinite(waitMs) && waitMs >= 0 ? waitMs : 5000)
+  const startedAt = Date.now()
+  const result = await runController(
+    request,
+    cwd,
+    signals,
+    options.override,
+    Number.isFinite(waitMs) && waitMs >= 0 ? waitMs : 5000,
+    options.execute !== false,
+  )
+  const execution = { ...result.execution, durationMs: Math.max(0, Date.now() - startedAt) }
   const record: ControllerDecisionRecord = {
+    traceVersion: 1,
     action: result.selection.action,
     rule: result.selection.rule,
     reason: result.selection.reason,
@@ -69,7 +80,7 @@ export async function dispatchControllerRequest(options: RouteDispatchOptions): 
     handoff: result.handoff,
     target: result.selection.target,
     routing: result.routing,
-    execution: result.execution,
+    execution,
   }
   appendControllerDecision(record, defaultControllerLogPath(cwd))
   return record

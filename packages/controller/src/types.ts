@@ -125,6 +125,7 @@ export type ControllerExecutionStatus =
 
 export interface ControllerExecution {
   status: ControllerExecutionStatus
+  durationMs?: number
   targetId?: string
   terminalHandle?: string
   operation?: 'terminal-send' | 'terminal-spawn' | 'orchestration'
@@ -152,6 +153,17 @@ export interface JevDecisionTelemetry {
   error?: string
 }
 
+export interface ControllerCandidateTelemetry {
+  action: 'CONTINUE' | 'DELEGATE' | 'SPAWN'
+  id: string
+  agent: string
+  kind: 'session' | 'harness'
+  available: boolean
+  capacity: AgentCapacity
+  lifecycle?: AgentLifecycle
+  context?: string
+}
+
 export interface ControllerRoutingTelemetry {
   inventory: {
     orcaAvailable: boolean
@@ -161,6 +173,7 @@ export interface ControllerRoutingTelemetry {
     activeSessionId?: string
   }
   validActions: ControllerAction[]
+  candidates: ControllerCandidateTelemetry[]
   decisionSource: 'deterministic' | 'jev' | 'override'
   deterministicRule: string
   jev: JevDecisionTelemetry
@@ -190,6 +203,7 @@ export interface ControllerDecision {
 }
 
 export interface ControllerDecisionRecord extends ControllerDecision {
+  traceVersion?: 1
   ts: string
   cwd: string
   signals: ControllerSignals

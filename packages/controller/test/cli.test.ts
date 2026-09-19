@@ -167,6 +167,19 @@ test('route remains an explicit alias and logs can be read without exposing a da
   assert.equal(record.records[0].request, 'read this')
 })
 
+test('replay summarizes recorded decisions without executing another request', () => {
+  const cwd = workspace()
+  const routed = run(['route', 'read', 'this', '--json'], cwd)
+  assert.equal(routed.status, 0)
+  const replay = run(['replay', '--last=1', '--json'], cwd)
+  assert.equal(replay.status, 0)
+  const summary = JSON.parse(replay.stdout)
+  assert.equal(summary.sampleSize, 1)
+  assert.equal(summary.actions[JSON.parse(routed.stdout).action], 1)
+  assert.equal(summary.execution['awaiting-user'], 1)
+  assert.equal(typeof summary.averageDurationMs, 'number')
+})
+
 test('doctor and config report local boundaries without reading secrets', () => {
   const cwd = workspace()
   const doctor = run(['doctor', '--json'], cwd)
@@ -197,4 +210,22 @@ test('setup writes user-level preferences without pretending to install harness 
   const status = run(['status', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
   assert.equal(status.status, 0)
   assert.equal(JSON.parse(status.stdout).runtime.daemon, 'stopped')
+})
+
+test('setup --hooks installs all host bridges in isolated config paths', () => {
+  const cwd = workspace()
+  const stateDir = path.join(cwd, 'controller-state')
+  const setup = run(['setup', '--no-start', '--hooks', '--json'], cwd, {
+    SABI_CONTROLLER_HOME: stateDir,
+    SABI_CLAUDE_SETTINGS: path.join(cwd, 'claude', 'settings.json'),
+    SABI_CODEX_HOOKS: path.join(cwd, 'codex', 'hooks.json'),
+    SABI_OPENCODE_CONFIG: path.join(cwd, 'opencode', 'opencode.json'),
+    SABI_HOOK_COMMAND: 'sabi-test',
+  })
+  assert.equal(setup.status, 0)
+  const record = JSON.parse(setup.stdout)
+  assert.deepEqual(record.hooks.map((hook: { harness: string }) => hook.harness), ['claude', 'codex', 'opencode'])
+  assert.equal(existsSync(path.join(cwd, 'claude', 'settings.json')), true)
+  assert.equal(existsSync(path.join(cwd, 'codex', 'hooks.json')), true)
+  assert.equal(existsSync(path.join(cwd, 'opencode', 'opencode.json')), true)
 })
