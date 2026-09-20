@@ -23,19 +23,16 @@ O pacote do controller é publicado separadamente por tags `controller-v*`. Se a
 Depois da instalação, abra seu harness normalmente. As integrações de Command Code, proxy e controller são opcionais e entram apenas quando você precisa daquela capacidade.
 
 
-## Dois adaptadores, um núcleo
+## Escolher uma integração opcional
 
-| | Classe A — mod em processo | Classe B — proxy local |
-|---|---|---|
-| Roda como | mod do Command Code (um hook no loop do harness) | endpoint compatível com OpenAI em `127.0.0.1:8787` |
-| Pode escolher | modelo **e** esforço de raciocínio, do catálogo do Command Code | só o nome do modelo, dos seus próprios upstreams |
-| Precisa de chave | não — roteia a assinatura que você já tem | sim — suas credenciais de upstream (OpenRouter, Ollama, …) |
-| Sinal de falha | o `isError` do próprio harness (verdade de fato) | inferido do texto da saída da ferramenta |
-| Use para | Command Code | qualquer harness que só aceite uma `baseURL` |
+| Objetivo | Integração | O que o Sabi faz | Limite atual |
+|---|---|---|---|
+| Roteamento por rodada de modelo + esforço de raciocínio | [Mod do Command Code](docs/adapters/command-code.md) | Usa o loop nativo e o catálogo da assinatura do host | Somente Command Code |
+| Roteamento de modelo/provedor com suas próprias credenciais | [Proxy local](docs/install.pt-BR.md#integração-opcional--proxy-local-compatível-com-openai) | Encaminha requisições por um endpoint compatível com OpenAI | Modelo/provedor; não troca nativamente o esforço de raciocínio |
+| Mover trabalho entre sessões e worktrees | [Hooks do controller](docs/adapters/README.md) | Coordena ações limitadas de continuar/delegar/criar | Não troca o modelo dentro de uma sessão nativa existente |
+| Adicionar outro host | [Contrato de mantenedor](docs/maintainers.md) | Define a fronteira e as evidências necessárias para o adaptador | Adaptador não cria uma segunda política de roteamento |
 
-Os dois reutilizam as regras de roteamento de `packages/core`, mas seus sinais e comportamentos diferem. O mod usa sinais explícitos de erro de ferramenta e planeja as rodadas seguintes; o proxy infere falhas a partir de texto e pode chamar o Jev. `harness.tiers` contém ids do catálogo do Command Code; `models` contém ids de upstream. Compare os adaptadores separadamente.
-
-A instalação principal não escolhe um harness. Veja [Instalação e segurança](docs/install.pt-BR.md) para as integrações opcionais.
+Essas integrações compartilham o core do Sabi, mas não são etapas da instalação. Instale o Sabi uma vez; escolha uma integração somente quando precisar daquela capacidade.
 
 ## Política
 
