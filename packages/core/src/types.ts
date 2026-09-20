@@ -270,7 +270,7 @@ export interface DecisionRecord {
   sessionKnown?: boolean
   /** Server-generated request identity, independent of session grouping. */
   requestId?: string
-  client?: 'hermes' | 'opencode' | 'kilo-cli' | 'kilo-vscode' | 'prime-agent' | 'deepseek-harness' | 'command-code' | 'unknown'
+  client?: 'hermes' | 'opencode' | 'kilo-cli' | 'kilo-vscode' | 'prime-agent' | 'deepseek-harness' | 'command-code' | 'sabi-surplus' | 'unknown'
   /** Hashed client turn identity; never raw prompt text or credentials. */
   turnId?: string
   /** Observed upstream model only when it matches a configured model identifier. */

@@ -3,7 +3,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync,
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defaultConfigPath, loadConfig, minContextWindowFor, promptWithTimeout, secretSearchPaths, validateConfig } from '@sabi/core'
+import { configureFreeQuality, defaultConfigPath, loadConfig, minContextWindowFor, promptWithTimeout, secretSearchPaths, validateConfig } from '@sabi/core'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const COMMAND_CODE_CONNECT = path.join(ROOT, 'packages/adapters/command-code/src/connect.ts')
@@ -191,7 +191,7 @@ function reportJev(configPath: string, enabled: boolean): void {
 }
 
 function printUsage(): void {
-  console.log('Usage: npm run setup -- --harness=command-code|opencode|hermes [--class=a|b] [--jev|--no-jev] [--paid|--free]')
+  console.log('Usage: npm run setup -- --harness=command-code|opencode|hermes [--class=a|b] [--jev|--no-jev] [--paid|--free] [--free-quality]')
   console.log('No harness flag and no TTY to prompt on — nothing written. Pick one explicitly.')
 }
 
@@ -214,9 +214,15 @@ async function main(): Promise<void> {
   // by this wizard" message. Resolve the class first to know whether the question is relevant.
   const commandCodeClass = harness === 'command-code' ? await resolveClass(argv, isTTY) : undefined
   const jevRelevant = harness !== 'command-code' || commandCodeClass === 'b'
+  const freeQualityRequested = argv.includes('--free-quality')
+  if (freeQualityRequested && !jevRelevant) {
+    console.error('--free-quality requires the proxy path (Command Code --class=b, OpenCode, or Hermes). The Class A mod does not use sabi.config.json.')
+    process.exitCode = 1
+    return
+  }
 
-  if (jevRelevant) {
-    const wantJev = await resolveYesNo(
+  if (jevRelevant || freeQualityRequested) {
+    const wantJev = jevRelevant && await resolveYesNo(
       argv,
       isTTY,
       '--jev',
@@ -233,8 +239,24 @@ async function main(): Promise<void> {
       process.exitCode = 1
       return
     }
-    setJevEnabled(configPath, wantJev)
-    reportJev(configPath, wantJev)
+    if (jevRelevant) {
+      setJevEnabled(configPath, wantJev)
+      reportJev(configPath, wantJev)
+    }
+    if (freeQualityRequested) {
+      try {
+        const result = await configureFreeQuality(configPath)
+        console.log(`Updated ${configPath}: quality lane = ${result.model}`)
+        console.log(`  OpenRouter catalog observed ${result.observedAt} · sha256 ${result.catalogSha256}`)
+        console.log('  alias: sabi-quality · policy: verification → quality · pricing: catalog-reported zero')
+        console.log('  This is availability/configuration evidence, not a model-quality benchmark.')
+        if (isInsideGitRepo(configPath)) console.log('This file is git-tracked — review the diff before committing.')
+      } catch (error) {
+        console.error((error as Error).message)
+        process.exitCode = 1
+        return
+      }
+    }
   } else {
     console.log('Jev is proxy-only and unavailable on the Command Code mod (Class A) — skipping.')
   }

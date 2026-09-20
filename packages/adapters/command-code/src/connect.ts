@@ -15,12 +15,20 @@ const displayNames: Record<string, string> = {
   'sabi-cheap': 'Sabi Cheap (baseline)',
   'sabi-mid': 'Sabi Mid (baseline)',
   'sabi-strong': 'Sabi Strong (baseline)',
+  'sabi-quality': 'Sabi Quality (free OpenRouter lane)',
   'sabi-local': 'Sabi Local (ollama)',
 }
 
 /** Keyless is this repo's existing signal for "no external billing" (e.g. local Ollama today). */
 export function isFreeUpstream(upstream: UpstreamEntry | undefined): boolean {
   return upstream?.apiKey === false
+}
+
+/** Explicit zero catalog pricing is free for registration even when the upstream still needs a key. */
+export function isFreeTier(config: SabiConfig, tier: string): boolean {
+  const model = config.models[tier]
+  if (isFreeUpstream(config.upstreams[model?.upstream ?? ''])) return true
+  return model?.cost?.input === 0 && model?.cost?.output === 0
 }
 
 /**
@@ -87,9 +95,12 @@ async function main(): Promise<void> {
   const skippedKeyless: string[] = []
   for (const [alias, target] of Object.entries(config.aliases)) {
     const tiers = tiersFor(config, target)
+    // An adaptive alias still reaches every policy tier at runtime. Never expose it in a free-only
+    // provider registration when one reachable branch can spend paid credits.
+    if (!allowPaid && target === 'auto' && tiers.some((tier) => !isFreeTier(config, tier))) continue
     const usable = tiers.filter((tier) => {
       const upstream = config.upstreams[config.models[tier]?.upstream ?? '']
-      return isEnabledUpstream(upstream) && (allowPaid || isFreeUpstream(upstream))
+      return isEnabledUpstream(upstream) && (allowPaid || isFreeTier(config, tier))
     })
     if (!usable.length) continue
     // "Local" here means every usable tier is keyless (today: only Ollama), not specifically

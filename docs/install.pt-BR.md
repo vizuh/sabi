@@ -148,6 +148,28 @@ Se os segredos estiverem em outro lugar, inicie com `SABI_SECRETS_FILE=/caminho/
 Usuários sem arquivo central podem continuar exportando as variáveis do provider normalmente, e quem
 não usa Jev pode definir `judge.enabled` como `false`.
 
+### Lane opcional gratuita do OpenRouter para qualidade
+
+O proxy pode usar o catálogo atual de modelos OpenRouter com preço zero para verificação e outros
+checks de qualidade explicitamente aceitos. É opt-in; o `sabi setup` normal nunca atualiza catálogo de
+provider.
+
+```bash
+export OPENROUTER_API_KEY=...
+sabi setup --free-quality
+```
+
+O comando escolhe um modelo do catálogo com preço exato zero para entrada e saída, entrada/saída de
+texto, ferramentas e limite de saída declarado. Registra id, horário e hash do catálogo na
+proveniência da configuração, adiciona `sabi-quality` e mapeia `verification` para essa lane fixa.
+Não substitui os tiers pagos `cheap`, `mid`, `strong` ou `failure`. Execute novamente para atualizar
+a seleção quando o catálogo gratuito mudar. Um backup fica em `sabi.config.json.sabi-backup`.
+
+Disponibilidade gratuita não é evidência de qualidade: providers podem limitar ou remover modelos,
+e suas políticas de dados podem ser diferentes. Não use essa lane para segredos ou código
+proprietário sem aprovação explícita da política do provider. O setup falha antes de escrever se a
+chave, o catálogo ou um candidato não estiverem disponíveis.
+
 ### Confirmar que subiu
 
 ```bash
@@ -181,6 +203,10 @@ Depois escolha `sabi/sabi-code` em `/model`, ou passe `--model sabi/sabi-code`. 
 (`sabi-cheap`, `sabi-mid`, `sabi-strong`) ignoram a política e existem como baselines de comparação.
 `--include-local` também expõe `sabi-local` (Ollama); ele fica de fora por padrão porque uma janela de
 32k é pequena demais para prompts de harness.
+
+Quando `--free-quality` adicionar `sabi-quality`, `npm run connect:command-code -- --free` expõe essa
+lane fixa com preço zero. No modo somente gratuito, `sabi-code` não é exposto enquanto o alias
+adaptativo ainda puder alcançar branches pagos.
 
 Para desativar de forma permanente um upstream específico, independente de `--paid`, defina
 `"enabled": false` nele em `sabi.config.json` — veja Configuração abaixo. Esse interruptor é
