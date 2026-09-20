@@ -661,3 +661,50 @@ other Orca releases and must be re-run after an Orca upgrade.
 Prototype the headless shim first. Before building, read the in-flight controller daemon,
 user-service, CLI, hooks and Orca-bridge implementation on `main` — it may already own half of
 the adapter box. Never duplicate it by accident.
+
+## [2026-09-20] Runtime catalogs are evidence; route the execution tuple
+
+### Decision
+
+Treat `(harness, model, provider/plan, effort, session)` as the routing unit. The controller may
+discover mutable local catalogs from verified harness commands and attach bounded descriptors to
+spawn candidates. Each descriptor records the model ID, a deterministic `worker`/`judge` role,
+`explicit-free` or `unknown` cost class, runtime version, observation time and a hash of the full
+catalog output. Missing source repository/commit, plan entitlement, price and quota remain unknown.
+
+Availability, authentication, capacity, capability and measured-token evidence are deterministic
+gates. Jev is consulted only after code constructs the closed valid action set; its returned choice
+is validated before execution. A Jev model is not a coding worker merely because it appears in an
+OpenCode catalog.
+
+### Why
+
+The installed OpenCode catalog contains mutable free-labelled and paid/unknown IDs, while the
+dashboard/catalog does not by itself prove plan access or billing semantics. Hardcoding the list
+would drift, and asking Jev to do arithmetic would make missing price or token data look certain.
+Runtime version plus output hash makes an observation reproducible enough to audit without storing
+raw output or credentials. Native OpenCode free models remain harness resources; Sabi's proxy cannot
+silently consume or switch a native subscription model.
+
+### Alternatives considered
+
+- Hardcode the current OpenCode model list — rejected; it becomes stale and is not a plan check.
+- Label every non-free ID as paid — rejected; the installed catalog does not establish billing.
+- Let Jev choose any catalog ID — rejected; Jev must choose only among executable candidates.
+- Add learning, subscription economics and token estimates now — rejected; controller receipts do
+  not yet contain the measured fields needed to validate those claims.
+
+### Tradeoffs
+
+- Catalog probing adds a bounded local CLI call and a 60-second cache.
+- Runtime evidence is stronger than a name-only claim but weaker than source-pinned or plan-verified
+  evidence when the harness exposes no source revision or entitlement API.
+- The current phase inventories all models visible to verified OpenCode/Command Code probes but does
+  not automatically route every task among them.
+
+### Revisit later?
+
+Add token receipts (`input`, `output`, cache, tool-observation, compaction, latency and outcome),
+plan/health evidence and replay/held-out promotion gates before learned model profiles or
+AgentRun/SoL-Pi-style policy/harness evolution. The acceptance contract is in
+`docs/research/harness-model-token-routing.md`.

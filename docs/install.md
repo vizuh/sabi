@@ -339,6 +339,13 @@ The plugin asks the loopback controller for a plan, dispatches only `DELEGATE`, 
 not a subscription/model switch, and the installed OpenCode plugin surface still needs a live host
 activation check in the user's Orca instance.
 
+When the controller probes OpenCode, it records the runtime catalog from `opencode models` with the
+installed version and an output hash. IDs ending in an explicit `free` marker are classified as
+`explicit-free`; other IDs remain `unknown` rather than being called paid or plan-eligible. A
+controller-spawned OpenCode terminal may receive an exact native model such as a free Muse Spark
+entry through `--model`; an existing session keeps its selected model. This does not make a native
+OpenCode resource available through the Sabi proxy.
+
 Controller traces use schema v1 and retain bounded candidates, valid actions, execution status and
 duration. Inspect the read-only aggregate with:
 

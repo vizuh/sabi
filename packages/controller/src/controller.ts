@@ -198,6 +198,7 @@ function candidateState(inventory: AgentInventory): Record<string, unknown> {
     dispatchable: candidate.kind === 'session' ? candidate.dispatchable : true,
     context: candidate.context,
     model: candidate.model,
+    catalog: candidate.kind === 'harness' ? candidate.catalog : undefined,
   })
   return {
     active: describe(inventory.active),
@@ -221,6 +222,7 @@ function candidateTelemetry(inventory: AgentInventory): ControllerCandidateTelem
     lifecycle: candidate.kind === 'session' ? candidate.lifecycle : undefined,
     context: candidate.context,
     model: candidate.model,
+    catalog: candidate.kind === 'harness' ? candidate.catalog : undefined,
   })
   // ponytail: cap the trace at 32 candidates; add paged inventory storage if large Orca pools appear.
   return [

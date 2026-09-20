@@ -36,7 +36,18 @@ Hypotheses to validate before committing:
 
 ## Current state
 
-MVP (2026-09-18): Sabi runs as a local OpenAI-compatible proxy (`packages/server`) with a deterministic policy (`packages/core`), a Jev judgment layer (TypeSafe System One) for rounds the heuristics cannot settle, and is connected to Command Code as a keyless BYOK provider (`sabi/sabi-code`). Verified end-to-end: 41 tests green, typecheck clean, and live Command Code headless sessions routing first-turn rounds to mid, tool rounds to cheap, failing-test rounds to strong, and — with Jev — vetoing false escalations (a user-requested failing command now routes to cheap instead of strong). No learned profiles or quota awareness yet.
+Current `main` (2026-09-20) contains the local OpenAI-compatible proxy, deterministic trajectory
+routing, optional Jev judgments, the Command Code adapter, and the experimental user-level
+controller with Claude/Codex hooks, an OpenCode bridge, Orca inventory, bounded handoff/reroute,
+trace v1 and read-only replay. The controller now records runtime model catalogs for verified local
+commands (`opencode models` and `cmd --list-models`) with explicit-free markers, Jev/worker role,
+runtime version, observation time and output hash. Catalog presence is evidence only: it does not
+prove plan entitlement, pricing, quota or per-round native OpenCode model switching.
+
+The next phase is the deterministic harness × model × provider/plan × effort × session contract:
+hard availability/capability/quota/token-evidence gates first, Jev only over the closed valid set,
+then bounded execution and outcome receipts. Learned profiles, subscription economics, controller
+token receipts and policy compilation remain unimplemented until live evidence supports them.
 
 ## Key flows
 
@@ -49,7 +60,8 @@ Implemented (v0, Command Code):
 5. Sabi rewrites the model, forwards to the OpenAI-compatible upstream (OpenRouter today), and streams the response back with the model field rewritten to `sabi-code`.
 6. Usage is captured from the stream, cost estimated from configured rates, and the decision (including the judge outcome) appended to `.sabi/decisions.jsonl`; `npm run report` aggregates.
 
-Planned: learned model profiles, quota/economics inputs, evaluation loop.
+Planned: host token receipts, model/plan health evidence, learned model profiles, replay-based
+policy evaluation and promotion gates.
 
 ## Constraints
 

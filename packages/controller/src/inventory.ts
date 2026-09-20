@@ -3,7 +3,14 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import type { ControllerConfig } from '@sabi/core'
 import { queryOrcaTerminals, queryOrcaWorktrees, readOrcaTerminal, waitOrcaTerminal } from './orca.ts'
-import type { AgentHarness, AgentSession, AgentCapacity, OrcaErrorCode } from './types.ts'
+import type {
+  AgentHarness,
+  AgentSession,
+  AgentCapacity,
+  HarnessCatalogDescriptor,
+  HarnessModelDescriptor,
+  OrcaErrorCode,
+} from './types.ts'
 
 interface OrcaTerminalEntry {
   handle?: unknown
@@ -46,9 +53,10 @@ const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/
 const MODEL_LIST_HEADERS = new Set(['Available', 'Models', 'Open', 'Source', 'Built-in', 'Other'])
 const MODEL_CATALOG_TIMEOUT_MS = 10_000
 const MODEL_CATALOG_TTL_MS = 60_000
+const MODEL_CATALOG_MAX_MODELS = 256
 // ponytail: a short process cache avoids two slow CLI probes per request; lower the TTL or add an
 // explicit refresh if plan changes need to be visible inside an already-running daemon.
-const localModelCache = new Map<string, { models: string[] | undefined; observedAt: number }>()
+const localCatalogCache = new Map<string, { catalog: HarnessCatalogDescriptor | undefined; observedAt: number }>()
 
 export function parseModelList(output: string): string[] {
   const models = new Set<string>()
@@ -64,10 +72,55 @@ export function selectPreferredModel(output: string, preferredModels: string[]):
   return preferredModels.find((model) => models.has(model))
 }
 
-function localModels(agent: string, command: string): string[] | undefined {
+function modelCostClass(model: string): HarnessModelDescriptor['costClass'] {
+  return /(?:-|:)free$/i.test(model) ? 'explicit-free' : 'unknown'
+}
+
+function modelRole(model: string): HarnessModelDescriptor['role'] {
+  return /(?:^|\/)jev(?:[-/:]|$)/i.test(model) ? 'judge' : 'worker'
+}
+
+export function parseModelCatalog(
+  output: string,
+  metadata: { command: string; runtimeVersion?: string; observedAt?: number },
+): HarnessCatalogDescriptor {
+  const parsedModels = parseModelList(output)
+  const models: HarnessModelDescriptor[] = parsedModels.slice(0, MODEL_CATALOG_MAX_MODELS).map((id) => ({
+    id,
+    costClass: modelCostClass(id),
+    role: modelRole(id),
+  }))
+  return {
+    command: metadata.command,
+    ...(metadata.runtimeVersion ? { runtimeVersion: metadata.runtimeVersion } : {}),
+    outputSha256: createHash('sha256').update(output).digest('hex'),
+    observedAt: metadata.observedAt ?? Date.now(),
+    modelCount: parsedModels.length,
+    ...(parsedModels.length > MODEL_CATALOG_MAX_MODELS ? { truncated: true } : {}),
+    models,
+  }
+}
+
+function runtimeVersion(command: string): string | undefined {
+  try {
+    const output = execFileSync(command, ['--version'], {
+      encoding: 'utf8',
+      timeout: 2_000,
+      maxBuffer: 64_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    const firstLine = output.split(/\r?\n/, 1)[0]?.trim()
+    if (!firstLine || !/^[A-Za-z0-9][A-Za-z0-9._+:/ -]*$/.test(firstLine)) return undefined
+    return firstLine.slice(0, 160)
+  } catch {
+    return undefined
+  }
+}
+
+function localCatalog(agent: string, command: string): HarnessCatalogDescriptor | undefined {
   const key = `${agent}:${command}`
-  const cached = localModelCache.get(key)
-  if (cached && Date.now() - cached.observedAt < MODEL_CATALOG_TTL_MS) return cached.models
+  const cached = localCatalogCache.get(key)
+  if (cached && Date.now() - cached.observedAt < MODEL_CATALOG_TTL_MS) return cached.catalog
   const args = agent === 'opencode' ? ['models'] : ['--list-models']
   try {
     const output = execFileSync(command, args, {
@@ -76,19 +129,18 @@ function localModels(agent: string, command: string): string[] | undefined {
       maxBuffer: 2_000_000,
       stdio: ['ignore', 'pipe', 'ignore'],
     })
-    const models = parseModelList(output)
-    localModelCache.set(key, { models, observedAt: Date.now() })
-    return models
+    const catalog = parseModelCatalog(output, { command, runtimeVersion: runtimeVersion(command) })
+    localCatalogCache.set(key, { catalog, observedAt: catalog.observedAt })
+    return catalog
   } catch {
-    localModelCache.set(key, { models: undefined, observedAt: Date.now() })
+    localCatalogCache.set(key, { catalog: undefined, observedAt: Date.now() })
     return undefined
   }
 }
 
-function preferredModel(agent: string, command: string, preferredModels: string[] | undefined): string | undefined {
+function preferredModel(catalog: HarnessCatalogDescriptor | undefined, preferredModels: string[] | undefined): string | undefined {
   if (!preferredModels?.length) return undefined
-  const models = localModels(agent, command)
-  return models === undefined ? undefined : preferredModels.find((model) => models.includes(model))
+  return catalog === undefined ? undefined : preferredModels.find((model) => catalog.models.some((entry) => entry.id === model))
 }
 
 function launchCommand(command: string, model: string | undefined): string | undefined {
@@ -186,6 +238,7 @@ export function configuredHarnesses(controller?: ControllerConfig): Array<{
   model?: string
   launchCommand?: string
   modelRequired?: boolean
+  catalog?: HarnessCatalogDescriptor
 }> {
   const configured = process.env.SABI_CONTROLLER_HARNESSES?.split(',').map((value) => value.trim()).filter(Boolean)
   const definitions = !configured?.length
@@ -193,12 +246,17 @@ export function configuredHarnesses(controller?: ControllerConfig): Array<{
     : configured.map((agent) => ({ agent, command: agent }))
   return definitions.filter(({ command }) => executableExists(command)).map(({ agent, command }) => {
     const preferredModels = controller?.harnesses?.[agent]?.preferredModels
-    const model = preferredModel(agent, command, preferredModels)
+    // Only probe catalogs with a verified local command contract. Other harnesses may interpret
+    // --list-models as a normal invocation; a configured preference remains an explicit opt-in.
+    const shouldProbe = agent === 'opencode' || agent === 'command-code' || Boolean(preferredModels?.length)
+    const catalog = shouldProbe ? localCatalog(agent, command) : undefined
+    const model = preferredModel(catalog, preferredModels)
     return {
       agent,
       command,
       ...(model ? { model, launchCommand: launchCommand(command, model) } : {}),
       ...(preferredModels?.length ? { modelRequired: true } : {}),
+      ...(catalog ? { catalog } : {}),
     }
   })
 }
@@ -322,13 +380,14 @@ export function discoverAgents(
     if (!previous || (!session.available && previous.available)) knownAgentState.set(session.agent, session)
   }
   const spawnCandidates: AgentHarness[] = orcaAvailable
-    ? configuredHarnesses(options.controller).map(({ agent, command, model, launchCommand, modelRequired }) => ({
+    ? configuredHarnesses(options.controller).map(({ agent, command, model, launchCommand, modelRequired, catalog }) => ({
       id: `harness:${agent}`,
       agent,
       harness: agent,
       command,
       ...(model ? { model } : {}),
       ...(launchCommand ? { launchCommand } : {}),
+      ...(catalog ? { catalog } : {}),
       capabilities: ['coding'],
       available: modelRequired && !model
         ? false

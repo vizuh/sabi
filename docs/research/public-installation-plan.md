@@ -97,7 +97,9 @@ runtime: ~/.local/state/sabi/sabi.sock       # Unix socket, mode 0600
 
 Use the platform equivalents on macOS and Windows. Never put controller state, hooks or credentials
 inside a worktree. Raw TokenScout reports and screenshots remain local under ignored runtime state;
-they are not part of this public package or its telemetry.
+they are not part of this public package or its telemetry. The catalog/token boundary and planned
+deterministic economics/learning layer are specified separately in
+`docs/research/harness-model-token-routing.md`.
 
 ## Runtime layers
 
