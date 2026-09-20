@@ -19,9 +19,9 @@ npm run controller -- doctor
 npm run controller -- hooks install --codex
 ~~~
 
-A prompt can produce a controller plan—continue, delegate, or spawn—only when the controller has a
-valid target and execution receipt. A receipt is evidence that a host accepted the action; it is
-not proof that the downstream task completed successfully.
+A prompt can produce a controller plan with `CONTINUE`, `DELEGATE`, or `SPAWN` only when the
+controller has a valid target and execution receipt. A receipt shows that a host accepted the
+action; it does not prove that the downstream task completed successfully.
 
 ## Important boundary
 

@@ -2,12 +2,14 @@
 
 Adaptive routing for coding-agent trajectories.
 
-Sabi sits between a coding harness and the models behind it. The harness keeps its own loop,
-tools, permissions, history, and approvals. Sabi decides what capacity should serve the next
-inference or task transition from evidence in the trajectory: tool calls, results, failures,
-context pressure, capabilities, and provider state.
+Sabi sits between a coding harness and the models it can call. The harness keeps its own loop,
+tools, permissions, history, and approvals. Sabi uses trajectory evidence such as tool calls,
+results, failures, context pressure, capabilities, and provider state to choose what serves the
+next inference or task transition.
 
-It is not a new agent harness and it is not tied to one editor. It is a routing layer with adapters.
+Sabi is a routing layer with adapters, not another agent harness or editor.
+
+**English** · [Português (BR)](README.pt-BR.md) · [中文](README.zh-CN.md)
 
 ![Sabi routing architecture](docs/images/sabi-routing.svg)
 
@@ -59,7 +61,7 @@ tools, or silently rewrite permissions.
 
 ## What is actually shipped?
 
-There are two product families:
+Sabi currently has two product families:
 
 1. **Inference adapters.** Command Code's in-process mod and the local OpenAI-compatible proxy
    route individual inference rounds.
@@ -72,10 +74,10 @@ entitlement. A local mock test does not prove model quality or savings.
 
 Support is reported in layers:
 
-- **Source/tests:** the adapter exists and its contracts are tested.
-- **Protocol-tested:** a real client reached a local Sabi endpoint or host seam with a bounded fixture.
-- **Live-smoked:** an approved authenticated upstream was exercised under a spend cap.
-- **Task-proven:** completed-task quality and cost were measured against a fixed baseline.
+- Source and tests show that the adapter exists and its contracts are tested.
+- A protocol test shows that a real client reached a local Sabi endpoint or host seam with a bounded fixture.
+- A live smoke test shows that an approved authenticated upstream was exercised under a spend cap.
+- A completed-task evaluation measures quality and cost against a fixed baseline.
 
 Current evidence and limitations live in [Harness compatibility](docs/harnesses.md) and each adapter page.
 
@@ -116,7 +118,7 @@ secrets file. Values never enter a harness config, worktree, log, or Git. See
 
 ### Controller surfaces
 
-The controller is currently a checkout-based/experimental surface; do not assume a public
+The controller is still checkout-based and experimental. Do not assume a public
 @vizuh/sabi-controller registry release. From the checkout:
 
 ~~~bash
@@ -176,7 +178,7 @@ Assume an eight-round task:
 | Cheap | 3 | 3k / 1k | 12k |
 | Mid | 4 | 5k / 2k | 28k |
 | Strong | 1 | 8k / 3k | 11k |
-| **Total** | **8** | — | **51k** |
+| **Total** | **8** | n/a | **51k** |
 
 Using the example rates (cheap $0.06/$0.12, mid $0.20/$1.20, strong $2/$10):
 

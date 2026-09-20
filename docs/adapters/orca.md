@@ -3,8 +3,8 @@
 Orca is Sabi's host/controller surface. It exposes worktrees, terminal handles, and bounded status
 events that the controller can use to select or dispatch an agent.
 
-The small Orca plugin contributes sabi.dispatch. The richer orchestration logic stays in the
-controller; the plugin does not duplicate routing policy, usage detection, spawning, or orchestration.
+The small Orca plugin exports `sabi.dispatch`. The controller owns orchestration logic, so the
+plugin does not duplicate routing policy, usage detection, spawning, or orchestration.
 
 ## What is covered
 

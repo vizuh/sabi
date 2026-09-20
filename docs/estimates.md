@@ -1,6 +1,6 @@
 # Estimates and accounting
 
-This page explains how to make a routing estimate without turning it into a benchmark claim.
+This page shows how to estimate routing cost without presenting the result as a benchmark.
 
 ## Worked example
 

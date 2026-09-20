@@ -1,6 +1,6 @@
 # Harness compatibility
 
-Status: 2026-09-18. A local mock test proves client/proxy compatibility, not model quality,
+Status: 2026-09-20. A local mock test proves client/proxy compatibility, not model quality,
 provider entitlement or savings. No paid provider smoke test has run in this implementation.
 
 This page is the evidence ledger. For user-facing setup, use the

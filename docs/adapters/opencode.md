@@ -4,7 +4,7 @@ OpenCode has two independent Sabi paths. Pick one before configuring anything.
 
 ## A. Inference routing through the local proxy
 
-This is the simplest OpenCode path and the one with a real-client proxy check.
+This is the simplest OpenCode path and the one currently covered by a real-client proxy check.
 
 ~~~bash
 npm start
@@ -16,8 +16,8 @@ The connector writes only the provider.sabi entry, preserves existing providers,
 non-secret local placeholder key. Upstream keys stay in Sabi's environment. Use --set-default
 only when you explicitly want OpenCode's default model changed.
 
-The adaptive alias is sabi/sabi-code. Fixed aliases—sabi/sabi-cheap, sabi/sabi-mid, and
-sabi/sabi-strong—are useful baselines. sabi-code can move forward to an image-capable tier when
+The adaptive alias is `sabi/sabi-code`. Fixed aliases such as `sabi/sabi-cheap`, `sabi/sabi-mid`,
+and `sabi/sabi-strong` provide baselines. `sabi-code` can move to an image-capable tier when
 the request carries an image; a fixed text-only alias refuses clearly instead of answering blind.
 
 Verify locally:
@@ -26,7 +26,7 @@ Verify locally:
 npm run report -- --json
 ~~~
 
-Decisions include client, rule, selected tier, usage, and bounded failure evidence.
+Decisions record the client, rule, selected tier, usage, and bounded failure evidence.
 
 ## B. Controller hook
 

@@ -22,8 +22,8 @@ backup or removes only Sabi-owned entries.
 
 This adapter does **not** change the model selected inside an already-running Claude Code turn.
 It does not move Claude's login/subscription credits into Sabi. It does not grant permissions to
-a spawned target. The controller can only dispatch what its configured host/Orca transport can
-prove and receipt.
+a spawned target. The controller can dispatch only what its configured host or Orca transport can
+prove with a receipt.
 
-Controller status should be read as source/tests + hook installation + live receipt evidence,
-not simply “Claude is on PATH.”
+Read controller status as source and test evidence, hook installation, and live receipt evidence.
+Do not treat an executable on PATH as proof that Claude is integrated.

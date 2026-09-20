@@ -4,15 +4,15 @@ For putting Sabi on a machine that is not this one. The repo (`https://github.co
 public; you need a Command Code account for the class-A path.
 
 This page covers the two **inference** paths. Sabi also has a separate, experimental **controller**
-surface for Claude Code, Codex, OpenCode and Orca; it coordinates sessions/worktrees and does not
-silently switch the model inside an existing host session. Start with the
+surface for Claude Code, Codex, OpenCode and Orca. It coordinates sessions and worktrees but does
+not silently switch the model inside an existing host session. Start with the
 [adapter directory](adapters/README.md) if you are unsure which boundary you need.
 
-**Quick setup**: `npm run setup` walks you through picking a harness and, optionally, Jev — see
+**Quick setup**: `npm run setup` walks you through picking a harness and, optionally, Jev. See
 [Quick setup](#quick-setup) below. The sections after it are the detailed manual steps it runs
 for you; read them if you want to script around a single piece instead.
 
-Two ways in, and they are alternatives rather than stages:
+There are two entry points. They are alternatives, not stages:
 
 - **A — the mod** (recommended if you use Command Code): Sabi runs inside the harness, routes the
   subscription catalog, and needs no proxy and no API keys.

@@ -625,14 +625,16 @@ configuration, deployment or paid model request was changed by this patch. Sourc
 the follow-up PR; remote CI and merge state remain separate from this local validation evidence.
 
 
-## Product documentation reframe — 2026-09-20
+## Product documentation reframe: 2026-09-20
 
-The public documentation now presents Sabi as a multi-adapter routing product rather than a Command Code mod:
+The public docs now describe Sabi as a multi-adapter routing product.
 
-- root README separates inference routing from controller/session routing;
-- dedicated adapter pages cover Command Code, OpenCode, Hermes, Prime Agent, Kilo, Claude Code, Codex and Orca;
-- a maintainer guide defines the adapter operations and evidence ladder;
-- an estimates page shows token allocation, model-cost formulas, Jev overhead and the limits of illustrative savings;
-- an architecture SVG and Mermaid diagrams explain the two routing boundaries.
+- The root README separates inference routing from controller and session routing.
+- Dedicated pages cover Command Code, OpenCode, Hermes, Prime Agent, Kilo, Claude Code, Codex, and Orca.
+- The maintainer guide defines adapter operations and the evidence ladder.
+- The estimates page shows token allocation, model-cost formulas, Jev overhead, and the limits of illustrative savings.
+- An architecture SVG and Mermaid diagrams explain the two routing boundaries.
 
-Claims remain deliberately bounded: the published @vizuh/sabi package is still the Command Code mod; the controller is checkout-based/experimental; Claude and Codex hooks do not imply in-session model switching; and no quality or universal savings benchmark is published.
+The evidence boundaries stay explicit. The published `@vizuh/sabi` package is still the Command Code
+mod. The controller is checkout-based and experimental. Claude and Codex hooks do not imply
+in-session model switching, and the project does not publish a quality or universal savings benchmark.

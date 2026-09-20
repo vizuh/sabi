@@ -1,7 +1,7 @@
 # Command Code adapter
 
-The Command Code adapter is Sabi's in-process inference path. It runs as a native mod, keeps
-Command Code's loop, and chooses a model plus reasoning effort for continuing rounds.
+The Command Code adapter is Sabi's in-process path for inference. It runs as a native mod, keeps
+the Command Code loop, and chooses a model and reasoning effort for continuing rounds.
 
 ## Install
 
@@ -37,7 +37,7 @@ cmd -p "Read package.json and reply with only the value of its name field." \
   -t --output-format json
 ~~~
 
-Look for a first request on the session model and a continuing request planned as exploration → cheap.
+Look for a first request on the session model and a continuing request planned as exploration to cheap.
 
 ## What this adapter does not do
 

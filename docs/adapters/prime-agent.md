@@ -1,8 +1,7 @@
 # Prime Agent adapter
 
-Prime Agent uses the Sabi proxy as an explicit custom OpenAI-compatible provider. This is a
-compatibility adapter and probe suite, not a claim that Prime's native setters are safe for every
-continuing round.
+Prime Agent uses the Sabi proxy as an explicit custom OpenAI-compatible provider. This adapter
+has compatibility probes; it does not certify Prime's native setters for every continuing round.
 
 ## Current status
 

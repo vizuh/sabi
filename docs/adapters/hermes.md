@@ -10,8 +10,8 @@ Hermes → custom:sabi / sabi-code → Sabi proxy → configured upstream
 ~~~
 
 Hermes keeps the native loop. The middleware adds attribution headers and preserves the complete
-request—tools, IDs, order, arguments, and SDK objects—without creating a second retry loop or
-policy implementation.
+request, including tools, IDs, order, arguments, and SDK objects. It does not create a second retry
+loop or policy implementation.
 
 ## Current status
 

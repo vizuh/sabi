@@ -1,11 +1,11 @@
 # Maintainer guide
 
-This is the short contract for maintainers of harnesses and for contributors adding a Sabi adapter.
+This is a short contract for harness maintainers and contributors adding a Sabi adapter.
 
 ## The boundary
 
-Sabi should attach to a documented host seam. The host keeps its normal loop and remains the
-authority for tools, approvals, compaction, retries, cancellation, and user-visible state.
+Sabi should attach to a documented host seam. The host keeps its normal loop and remains
+responsible for tools, approvals, compaction, retries, cancellation, and user-visible state.
 
 An adapter may:
 
@@ -64,8 +64,8 @@ Start with a one-page proposal containing:
 - security boundary and secret ownership;
 - fixture tests plus a bounded real-client smoke plan.
 
-Then add the smallest adapter package under packages/adapters/<id> and a user-facing page under
-docs/adapters/<id>.md. Reuse packages/core; do not fork decideTier.
+Then add the smallest adapter package under `packages/adapters/<id>` and a user-facing page under
+`docs/adapters/<id>.md`. Reuse `packages/core`; do not fork `decideTier`.
 
 ## Upstream maintainer checklist
 

@@ -1,8 +1,8 @@
 # Sabi adapters
 
-Sabi has adapters because every harness exposes a different seam. The adapter is intentionally
-thin: it translates host events and metadata into the shared Sabi contract, then applies a bounded
-decision without creating a second agent loop.
+Sabi has adapters because each harness exposes a different seam. An adapter stays thin: it
+translates host events and metadata into the shared Sabi contract, then applies a bounded decision
+without creating a second agent loop.
 
 ## Choose by goal
 
@@ -28,7 +28,7 @@ decision without creating a second agent loop.
 
 ## Read support correctly
 
-A row marked tested means the exact evidence described on its page exists. It does not mean all
+A row marked tested means that the evidence described on its page exists. It does not mean that all
 model families, subscriptions, child agents, extensions, or future releases are supported.
 
 - **Inference routing** changes the next model/provider request.

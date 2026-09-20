@@ -3,7 +3,7 @@
 Kilo CLI and Kilo VS Code can use Sabi as an OpenAI-compatible custom provider. They are separate
 clients and must be tested separately.
 
-Use the base URL—not the full completion path:
+Use the base URL, not the full completion path:
 
 ~~~text
 http://127.0.0.1:8787/v1
