@@ -7,6 +7,8 @@
 - [x] Fail open to the first valid model when all configured candidates are unavailable.
 - [x] Keep unverifiable receipts unknown.
 - [x] Add focused health and inventory tests.
+- [x] Prefer the next configured model in the failed harness before an unrelated session, with a
+      controller execution-receipt integration test.
 - [x] Document that latency is receipt-observed, not first-token latency.
 
 ## Deferred gate

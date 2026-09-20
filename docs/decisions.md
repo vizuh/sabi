@@ -739,6 +739,32 @@ Promote only after live free-model and fallback receipts provide runtime-pinned 
 durable health or learned profiles only if cross-process recovery and held-out outcome data justify
 them. Keep paid probing and subscription claims outside the automatic path.
 
+## [2026-09-20] Same-harness model fallback precedes unrelated session fallback
+
+### Decision
+
+When a spawned harness/model fails before its send receipt shows acceptance or turn start, keep the
+failed `(harness, model)` excluded and prefer the next available configured worker from that same
+harness. Only after that candidate set is exhausted may the controller choose an unrelated idle
+session or another harness.
+
+### Why
+
+A model receipt failure is evidence about the selected worker, not necessarily about the harness
+itself. Keeping the retry in the same harness preserves the requested execution shape and makes
+model-health telemetry actionable before spending context-switch cost on another session.
+
+### Limits
+
+The focused proof uses fake Orca envelopes and process-local health. It does not prove a real quota
+failure, provider entitlement, task correctness or cross-process recovery. Accepted/started turns
+remain non-retryable.
+
+### Revisit later?
+
+Keep the live quota/fallback gate separate and pin the installed harness/Orca versions and receipts
+before treating this ordering as live runtime evidence.
+
 ## [2026-09-20] Free OpenCode evidence closes native execution only
 
 ### Decision

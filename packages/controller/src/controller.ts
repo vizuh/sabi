@@ -478,8 +478,17 @@ function executeSelection(selection: RouteSelection, inventory: AgentInventory, 
   return sessionExecution(target.handle, target.id, request, 'terminal-send', waitMs, handoff, target.worktree, idempotencyKey)
 }
 
-function fallbackTarget(inventory: AgentInventory, failedTargetIds: Set<string>, preferred?: string[]): AgentSession | AgentHarness | undefined {
+function fallbackTarget(
+  inventory: AgentInventory,
+  failedTargetIds: Set<string>,
+  preferred?: string[],
+  preferredHarness?: string,
+): AgentSession | AgentHarness | undefined {
   const targetKey = (candidate: AgentSession | AgentHarness): string => `${candidate.id}\0${candidate.model ?? ''}`
+  const sameHarness = preferredHarness
+    ? bestHarness(inventory.spawnCandidates.filter((candidate) => candidate.harness === preferredHarness && !failedTargetIds.has(targetKey(candidate))), preferred)
+    : undefined
+  if (sameHarness) return sameHarness
   const session = bestSession(inventory.existingSessions.filter((candidate) => !failedTargetIds.has(targetKey(candidate))), preferred)
   if (session) return session
   if (!failedTargetIds.has(targetKey(inventory.active)) && inventory.active.available) return inventory.active
@@ -539,11 +548,12 @@ export async function runController(
   if (execute && execution.status === 'failed' && execution.retryable === true && selection.action !== 'ASK' && selection.action !== 'ORCHESTRATE' && selection.decisionSource !== 'override') {
     const failedTargetIds = new Set<string>()
     let rerouteCount = 0
+    let failedHarness = selection.target?.kind === 'harness' ? selection.target.harness : undefined
     while (execution.status === 'failed' && rerouteCount < MAX_REROUTES) {
       if (execution.targetId) failedTargetIds.add(`${execution.targetId}\0${execution.model ?? ''}`)
       const refreshed = discoverAgents(cwd, { stuckSession: signals.stuckSession, controller, currentSession, currentHarness, refresh: true })
       inventory = refreshed
-      const fallback = fallbackTarget(refreshed, failedTargetIds, controller?.preferredHarnesses)
+      const fallback = fallbackTarget(refreshed, failedTargetIds, controller?.preferredHarnesses, failedHarness)
       if (!fallback) break
       const previousTargetId = execution.targetId
       const retryStartedAt = Date.now()
@@ -560,6 +570,7 @@ export async function runController(
         ...(previousTargetId ? { reroutedFrom: previousTargetId } : {}),
         rerouteCount,
       }
+      if (fallback.kind === 'harness') failedHarness = fallback.harness
     }
   }
 

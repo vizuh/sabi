@@ -28,10 +28,22 @@ bounded execution evidence and candidate telemetry.
 This is not first-token telemetry, entitlement/quota proof, durable health, learned economics or
 automatic paid probing. `unverifiable` stays unknown. A bounded free OpenCode receipt has now been
 observed below; it proves the native free-model/plugin path and a `CONTINUE` controller decision,
-not a controller-spawned model-health execution receipt. The remaining live gate is an explicit
-quota/fallback observation without a paid request or user configuration change.
+not a controller-spawned model-health execution receipt. A controller retry now prefers the next
+configured model in the failed harness before an unrelated idle session.
 
-Validation: `npm test` passed 381/381, `npm run typecheck` passed, and `git diff --check` passed.
+## Same-harness model fallback — 2026-09-20
+
+The controller keeps the failed pre-acceptance harness/model excluded, refreshes live inventory,
+and tries the next available configured worker from that same harness before selecting an unrelated
+session. A focused fake-Orca integration test proves the complete local chain: natural `SPAWN`,
+quota receipt before acceptance, first model marked `unavailable`, second model spawned, completion
+receipt returned and second model marked `healthy`.
+
+This is bounded execution evidence, not live quota evidence. The remaining live gate is an explicit
+quota/fallback observation on an addressable controller target without a paid request or user
+configuration change.
+
+Validation: `npm test` passed 382/382, `npm run typecheck` passed, and `git diff --check` passed.
 No paid provider request, secret, user configuration, deployment or publication was changed by
 this phase; the bounded free OpenCode request is documented below.
 

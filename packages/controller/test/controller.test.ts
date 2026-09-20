@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { AgentHarness, AgentSession, ControllerSignals, HandoffSnapshot } from '../src/types.ts'
 import { runController, selectRoute, structuredHandoff } from '../src/controller.ts'
+import { clearModelHealth, modelHealth } from '../src/model-health.ts'
 
 const signals: ControllerSignals = {
   cwd: '/tmp/sabi-controller',
@@ -195,6 +196,113 @@ console.log(JSON.stringify({ id: 'reroute-test', ok: true, result }))
     else process.env.ORCA_TERMINAL_HANDLE = previousHandle
     if (previousHarnesses === undefined) delete process.env.SABI_CONTROLLER_HARNESSES
     else process.env.SABI_CONTROLLER_HARNESSES = previousHarnesses
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('failed spawned model reroutes to the next configured model in the same harness', async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-model-health-'))
+  const binDir = path.join(root, 'bin')
+  const fakeOrca = path.join(root, 'orca.js')
+  const firstModel = 'opencode/muse-spark-1.3-free'
+  const secondModel = 'opencode/ling-3.0-flash-fin-free'
+  const harnessName = 'opencode-health-test'
+  const fakeHarness = path.join(binDir, harnessName)
+  const previousCommand = process.env.ORCA_CLI_COMMAND
+  const previousHandle = process.env.ORCA_TERMINAL_HANDLE
+  const previousHarnesses = process.env.SABI_CONTROLLER_HARNESSES
+  const previousPath = process.env.PATH
+
+  mkdirSync(binDir)
+  writeFileSync(fakeHarness, `#!/usr/bin/env node
+const args = process.argv.slice(2)
+const firstModel = ${JSON.stringify(firstModel)}
+const secondModel = ${JSON.stringify(secondModel)}
+const cwd = ${JSON.stringify(root)}
+const commandIndex = args.indexOf('--command')
+const command = commandIndex >= 0 ? args[commandIndex + 1] ?? '' : ''
+const handleIndex = args.indexOf('--terminal')
+const handle = handleIndex >= 0 ? args[handleIndex + 1] : undefined
+const textIndex = args.indexOf('--text')
+const text = textIndex >= 0 ? args[textIndex + 1] ?? '' : ''
+let result
+if (args[0] === 'worktree' && args[1] === 'ps') {
+  result = { worktrees: [{ path: cwd, branch: 'main' }] }
+} else if (args[0] === 'terminal' && args[1] === 'list') {
+  result = { terminals: [{ handle: 'term-current', worktreePath: cwd, branch: 'main', connected: true, writable: true, orphaned: false, title: 'current', preview: 'idle', agentIdentity: ${JSON.stringify(harnessName)} }] }
+} else if (args[0] === 'terminal' && args[1] === 'create') {
+  result = { handle: command.includes(firstModel) ? 'spawn-first' : command.includes(secondModel) ? 'spawn-second' : 'spawn-unknown' }
+} else if (args[0] === 'terminal' && args[1] === 'send') {
+  result = handle === 'spawn-first'
+    ? { requestId: 'first-request', inputAccepted: false, turnStarted: false }
+    : { requestId: 'second-request', inputAccepted: true, turnStarted: true }
+} else if (args[0] === 'terminal' && args[1] === 'wait') {
+  result = { wait: { satisfied: true, status: 'idle' } }
+} else if (args[0] === 'terminal' && args[1] === 'read') {
+  result = handle === 'spawn-first'
+    ? { terminal: { tail: ['quota exhausted'] } }
+    : handle === 'spawn-second'
+      ? { terminal: { tail: ['❯ ' + text, '● done'] } }
+      : { terminal: { tail: ['❯'] } }
+} else if (args[0] === 'terminal' && args[1] === 'close') {
+  result = { closed: true }
+} else if (args[0] === 'models' || args[0] === '--list-models') {
+  result = undefined
+  process.stdout.write(firstModel + '\\n' + secondModel + '\\n')
+  process.exit(0)
+} else if (args[0] === '--version') {
+  result = undefined
+  process.stdout.write('opencode-health-test 1.18.31\\n')
+  process.exit(0)
+} else {
+  result = {}
+}
+console.log(JSON.stringify({ id: 'model-health-test', ok: true, result }))
+`)
+  chmodSync(fakeHarness, 0o755)
+  writeFileSync(fakeOrca, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process')
+const result = spawnSync(${JSON.stringify(fakeHarness)}, process.argv.slice(2), { encoding: 'utf8' })
+process.stdout.write(result.stdout)
+process.stderr.write(result.stderr)
+process.exit(result.status ?? 1)
+`)
+  chmodSync(fakeOrca, 0o755)
+  clearModelHealth()
+  process.env.ORCA_CLI_COMMAND = fakeOrca
+  process.env.ORCA_TERMINAL_HANDLE = 'term-current'
+  process.env.SABI_CONTROLLER_HARNESSES = harnessName
+  process.env.PATH = `${binDir}:${previousPath ?? ''}`
+  try {
+    const result = await runController(
+      'spawn a fresh harness for this bounded read-only check',
+      root,
+      { ...signals, cwd: root, orcaAvailable: true, matchingWorktree: true, matchingTerminal: true },
+      undefined,
+      10,
+      true,
+      { harnesses: { [harnessName]: { preferredModels: [firstModel, secondModel] } } },
+    )
+    assert.equal(result.selection.action, 'SPAWN')
+    assert.equal(result.selection.target?.kind, 'harness')
+    assert.equal(result.selection.target?.model, firstModel)
+    assert.equal(result.execution.status, 'rerouted')
+    assert.equal(result.execution.reroutedFrom, 'harness:opencode-health-test')
+    assert.equal(result.execution.targetId, 'harness:opencode-health-test')
+    assert.equal(result.execution.model, secondModel)
+    assert.equal(result.execution.modelHealth?.status, 'healthy')
+    assert.equal(modelHealth(harnessName, firstModel)?.status, 'unavailable')
+    assert.equal(modelHealth(harnessName, secondModel)?.status, 'healthy')
+  } finally {
+    clearModelHealth()
+    if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
+    else process.env.ORCA_CLI_COMMAND = previousCommand
+    if (previousHandle === undefined) delete process.env.ORCA_TERMINAL_HANDLE
+    else process.env.ORCA_TERMINAL_HANDLE = previousHandle
+    if (previousHarnesses === undefined) delete process.env.SABI_CONTROLLER_HARNESSES
+    else process.env.SABI_CONTROLLER_HARNESSES = previousHarnesses
+    if (previousPath === undefined) delete process.env.PATH
+    else process.env.PATH = previousPath
     rmSync(root, { recursive: true, force: true })
   }
 })
