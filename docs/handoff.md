@@ -756,6 +756,36 @@ the legacy compatibility path.
 
 Validation in the follow-up worktree: focused free-quality tests pass; the full suite and remote CI
 remain the delivery gates for the new PR. No provider request or live quality claim was used.
+## Surplus council protocol and ledger — 2026-09-20
+
+Added `docs/specs/surplus-council.md` and `docs/tasks/surplus-council.md`. The protocol defines
+bounded `none`/`probe`/`panel`/`debate`/`council` modes, blind independent seats, conflict-only
+cross-examination, a separate synthesizer when available, deterministic verification and explicit
+egress limits. It is a contract, not an automatic council or quality claim.
+
+Added `@sabi/core` council plan/ledger types and `sabi council history|record`. Receipts are
+append-only JSONL with harness/runtime version/provider/model/stage/status/evidence/source and optional hashes,
+counts and measured usage. Prompts, diffs, claims, provider output, credentials and transcripts are
+excluded. `verifiedClaimCount` is forced to zero unless evidence is independently marked
+`verification`.
+
+OpenCode and Hermes execution remains the next adapter gate. Installed evidence observed for this
+phase: OpenCode `1.18.31`; Hermes `v0.20.4` from the audited checkout launcher; Orca `1.4.201`.
+No provider request or paid inference was used by the implementation.
+
+## Council review receipts — 2026-09-20
+
+After the implementation checks, two bounded read-only reviews were run as live harness
+validation and recorded locally at `~/.config/sabi/council-ledger.jsonl`:
+
+- OpenCode `1.18.31` / `opencode-zen` / `opencode/muse-spark-1.3-contributor-free`;
+- Hermes `v0.21.3` / Nous / `upstage/solar-pro4:free`.
+
+Both returned observable review responses with `status=completed` and `evidence=completion`.
+Neither was independently verified, so both receipts retain `verifiedClaimCount=0`. This is
+live review evidence, not evidence that Sabi automatically plans or delegates council seats;
+the Phase 1–4 adapter and verifier gates remain open.
+
 ## OpenCode Muse cheap-lane issue — 2026-09-20
 
 The installed OpenCode 1.18.31 catalog exposes `opencode/muse-spark-1.3-contributor-free` with a

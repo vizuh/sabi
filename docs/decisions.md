@@ -968,6 +968,27 @@ Rate limits and proxy failures are recorded and fail open for the primary task.
 
 Add verifiers, approved completed-task/held-out data, independent receipts per free resource and
 Jev intent selection before fan-out, advisory handoff or learned model-by-intent promotion.
+## [2026-09-20] Surplus review uses a bounded council protocol
+
+### Decision
+
+Represent extra review as `none`, `probe`, `panel`, `debate`, or `council`. JEV may later select
+the mode and uncertainty; independent seats ask distinct questions; cross-examination is reserved
+for material disagreement; deterministic verification, not model confidence, determines whether a
+claim is actionable.
+
+### Evidence and operations
+
+Add an append-only metadata-only ledger for harness, runtime version, provider, model, seat, stage, status, evidence
+level, hashes, counts and measured usage. `sabi council record|history` is an evidence surface, not
+a model executor. OpenCode and Hermes remain peer adapters and must report their installed runtime
+and actual receipt level before any council quality claim.
+
+### Revisit
+
+The ledger and protocol are shipped before automatic planning or debate. Add adapters, verifiers,
+held-out replay and learned promotion only after privacy and completion-receipt gates pass.
+
 ## [2026-09-20] Hermes-first setup uses the native Nous proxy boundary
 
 ### Decision

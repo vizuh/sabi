@@ -762,6 +762,22 @@ Follow-up to merged PR #52. When the OpenRouter upstream enables `streamUsage`, 
 `stream_options` into streamed requests. Free-quality setup now includes that proxy-owned field in
 the generated capability allowlist so compatibility validation does not reject its own envelope.
 A fixed-lane streaming regression covers the behavior.
+## [2026-09-20] feat | Add surplus council contract and metadata ledger
+
+Defined the bounded surplus council protocol (`none`, `probe`, `panel`, `debate`, `council`) and
+added an append-only `CouncilLedgerReceipt` for harness/runtime/provider/model provenance, stage, evidence
+level, status, hashes, counts and measured usage. Added `sabi council history|record`; it records
+metadata only and does not execute providers. Specs and ordered tasks cover JEV planning, OpenCode
+and Hermes adapters, blind seats, conflict-only debate, deterministic verification, held-out replay
+and learned promotion.
+
+No provider request, secret, paid inference or automatic review was used by this change.
+
+Validation receipts were then collected separately, using read-only bounded reviews: OpenCode
+`1.18.31` with `opencode/muse-spark-1.3-contributor-free`, and Hermes `v0.21.3` with
+`upstage/solar-pro4:free`. Both completed at the review-response level; no claim was promoted to
+verification. The receipts were written to the user-local Sabi ledger and were not committed.
+
 ## [2026-09-20] spec | OpenCode Muse cheap lane and output metadata
 
 Confirmed with OpenCode 1.18.31 and the local catalog that `sabi-code` was context-safe at
