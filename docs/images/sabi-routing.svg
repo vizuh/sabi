@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 430" role="img" aria-labelledby="title desc">
+  <title id="title">Sabi routes an agent trajectory through an adapter and the shared planner</title>
+  <desc id="desc">A harness sends events to an adapter. The adapter sends trajectory state to Sabi core. Sabi applies policy and capability gates, then selects a model or controller target and records evidence.</desc>
+  <defs>
+    <linearGradient id="blue" x1="0" x2="1"><stop offset="0" stop-color="#0f172a"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient>
+    <linearGradient id="violet" x1="0" x2="1"><stop offset="0" stop-color="#312e81"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <linearGradient id="green" x1="0" x2="1"><stop offset="0" stop-color="#14532d"/><stop offset="1" stop-color="#16a34a"/></linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#475569"/></marker>
+    <style>
+      .box { stroke: #cbd5e1; stroke-width: 2; rx: 18; }
+      .title { font: 700 24px system-ui, sans-serif; fill: white; }
+      .body { font: 16px system-ui, sans-serif; fill: #e2e8f0; }
+      .label { font: 14px system-ui, sans-serif; fill: #334155; }
+    </style>
+  </defs>
+  <rect width="1200" height="430" fill="#f8fafc"/>
+  <text x="48" y="52" font-family="system-ui, sans-serif" font-size="28" font-weight="700" fill="#0f172a">One trajectory, two routing boundaries</text>
+  <text x="48" y="82" font-family="system-ui, sans-serif" font-size="16" fill="#475569">The host keeps control; Sabi supplies a bounded decision where the adapter has evidence.</text>
+  <rect class="box" x="48" y="145" width="220" height="150" fill="url(#blue)"/>
+  <text class="title" x="72" y="190">Harness</text>
+  <text class="body" x="72" y="224">Claude · Codex</text>
+  <text class="body" x="72" y="250">OpenCode · Hermes</text>
+  <text class="body" x="72" y="276">Command Code · Orca</text>
+  <rect class="box" x="330" y="145" width="220" height="150" fill="url(#violet)"/>
+  <text class="title" x="354" y="190">Adapter</text>
+  <text class="body" x="354" y="224">mod · proxy · hook</text>
+  <text class="body" x="354" y="250">middleware · plugin</text>
+  <text class="body" x="354" y="276">preserves host contract</text>
+  <rect class="box" x="612" y="125" width="250" height="190" fill="url(#green)"/>
+  <text class="title" x="636" y="172">Sabi core</text>
+  <text class="body" x="636" y="208">classify trajectory</text>
+  <text class="body" x="636" y="234">apply hard gates</text>
+  <text class="body" x="636" y="260">choose next capacity</text>
+  <text class="body" x="636" y="286">record evidence</text>
+  <rect class="box" x="924" y="145" width="220" height="150" fill="#fff" stroke="#94a3b8"/>
+  <text x="948" y="190" font-family="system-ui, sans-serif" font-size="24" font-weight="700" fill="#0f172a">Outcome</text>
+  <text class="label" x="948" y="224">model/provider round</text>
+  <text class="label" x="948" y="250">or controller handoff</text>
+  <text class="label" x="948" y="276">with rollback + receipt</text>
+  <path d="M268 220 H330" stroke="#475569" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M550 220 H612" stroke="#475569" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M862 220 H924" stroke="#475569" stroke-width="3" marker-end="url(#arrow)"/>
+  <text class="label" x="284" y="207">host event</text>
+  <text class="label" x="564" y="207">trajectory state</text>
+  <text class="label" x="870" y="207">bounded decision</text>
+  <text class="label" x="48" y="365">Inference boundary: choose a model/provider for the next round.</text>
+  <text class="label" x="48" y="392">Controller boundary: continue, delegate, or spawn only when the host exposes a safe receipt.</text>
+</svg>

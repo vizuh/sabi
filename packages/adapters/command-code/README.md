@@ -1,4 +1,9 @@
-# @vizuh/sabi
+# @vizuh/sabi — Command Code adapter
+
+This npm artifact is one Sabi adapter, not the whole Sabi product. Sabi also supports a local
+OpenAI-compatible proxy for OpenCode, Hermes, Prime Agent, Kilo and other clients, plus an
+experimental controller surface for Claude Code, Codex and Orca. See the
+[adapter directory](../../../docs/adapters/README.md) for the product map and evidence boundaries.
 
 Adaptive inference scheduling for [Command Code](https://commandcode.ai): a mod that plans each
 continuing round — model and reasoning effort — from the trajectory's own state (tool calls and
