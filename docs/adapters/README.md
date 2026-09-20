@@ -1,8 +1,13 @@
 # Sabi adapters
 
-Sabi has adapters because each harness exposes a different seam. An adapter stays thin: it
-translates host events and metadata into the shared Sabi contract, then applies a bounded decision
-without creating a second agent loop.
+Adapters are optional bridges, not installation prerequisites. Install Sabi once at user scope, then use this page to choose a host-specific capability. The core/controller remains independent of Command Code, OpenCode, Claude Code, Codex, Hermes, Orca, and any other harness.
+
+~~~bash
+npm install --global @vizuh/sabi-controller
+sabi setup
+~~~
+
+If a host has no verified execution seam, Sabi can still document or observe the boundary, but the adapter must not claim native model switching that the host cannot expose.
 
 ## Choose by goal
 
@@ -15,16 +20,16 @@ without creating a second agent loop.
 
 ## Capability map
 
-| Adapter | Form | Current status | Start |
+| Adapter | Form | Current status | Optional entry point |
 | --- | --- | --- | --- |
 | [Command Code](command-code.md) | In-process mod | Shipped per-round model + effort routing | cmd mods add -g npm:@vizuh/sabi |
 | [OpenCode](opencode.md) | Local proxy + optional controller hook | Protocol-tested proxy; controller partial | npm start + npm run connect:opencode |
 | [Hermes](hermes.md) | Native llm_request middleware + proxy | Pinned Hermes 0.21.3 path tested; auxiliary paths separate | Isolated profile |
 | [Prime Agent](prime-agent.md) | Custom OpenAI-compatible provider + probes | Proxy compatibility tested with mock; native timing experimental | Manual profile |
 | [Kilo](kilo.md) | OpenAI-compatible provider | CLI recipe tested; VS Code is a separate gate | Manual profile |
-| [Claude Code](claude-code.md) | User-prompt controller hook | Partial controller integration | npm run controller -- setup |
-| [Codex](codex.md) | Lifecycle/prompt controller hooks | Partial controller integration | npm run controller -- setup |
-| [Orca](orca.md) | Plugin + inventory/dispatch bridge | Inventory and bounded dispatch surface | Controller/Orca checkout |
+| [Claude Code](claude-code.md) | User-prompt controller hook | Partial controller integration | sabi setup |
+| [Codex](codex.md) | Lifecycle/prompt controller hooks | Partial controller integration | sabi setup |
+| [Orca](orca.md) | Plugin + inventory/dispatch bridge | Inventory and bounded dispatch surface | sabi setup + Orca |
 
 ## Read support correctly
 

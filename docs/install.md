@@ -1,104 +1,73 @@
 # Install Sabi
 
-For putting Sabi on a machine that is not this one. The repo (`https://github.com/vizuh/sabi`) is
-public; you need a Command Code account for the class-A path.
+Sabi is installed once per machine or user. It is not a Command Code plugin and does not require a particular harness. The core/controller is the user-facing installation; Command Code, OpenCode, Hermes, Claude Code, Codex, Orca, and other hosts are optional integrations.
 
-This page covers the two **inference** paths. Sabi also has a separate, experimental **controller**
-surface for Claude Code, Codex, OpenCode and Orca. It coordinates sessions and worktrees but does
-not silently switch the model inside an existing host session. Start with the
-[adapter directory](adapters/README.md) if you are unsure which boundary you need.
-
-**Quick setup**: `npm run setup` walks you through picking a harness and, optionally, Jev. See
-[Quick setup](#quick-setup) below. The sections after it are the detailed manual steps it runs
-for you; read them if you want to script around a single piece instead.
-
-There are two entry points. They are alternatives, not stages:
-
-- **A — the mod** (recommended if you use Command Code): Sabi runs inside the harness, routes the
-  subscription catalog, and needs no proxy and no API keys.
-- **B — the proxy**: Sabi runs as a local OpenAI-compatible endpoint. Use it for harnesses that only
-  accept a `baseURL`, or to route your own OpenRouter/Ollama models.
-
-You can install both; they do not interfere (different mechanisms, different model namespaces).
-
-## Controller setup (Claude Code, Codex, OpenCode and Orca)
-
-The controller is currently checkout-based; do not assume a public registry release of the
-Sabi controller package. From the Sabi checkout:
+## One-time user install
 
 ~~~bash
+npm install --global @vizuh/sabi-controller
+sabi setup
+sabi status
+sabi doctor
+~~~
+
+The `setup` command is idempotent. It keeps the daemon and state user-scoped, detects supported hosts, installs only supported Sabi-owned hooks, and fails open when Sabi is unavailable. Use `sabi setup --no-hooks` if you want the daemon without changing host configuration. You do not need a Command Code account, a repository checkout, or a per-worktree installation.
+
+The controller package is released separately under `controller-v*` tags. If npm does not yet contain a release, use the checkout instructions below as a maintainer/development fallback; do not treat them as the normal user installation.
+
+## What gets installed?
+
+| Surface | Role | Requires Command Code? | Requires provider keys? |
+|---|---|---:|---:|
+| Sabi controller/daemon | User-level session and worktree coordination | No | No |
+| Command Code mod | Per-round model + reasoning-effort routing inside Command Code | Yes | No |
+| Local proxy | Model/provider routing for OpenAI-compatible clients | No | Yes, for BYOK upstreams |
+
+These are independent surfaces, not stages. Installing the controller does not silently enable the proxy or the Command Code mod.
+
+## Maintainer checkout (development only)
+
+Use the repository checkout when you are developing Sabi, running the full test suite, or using an integration that has not yet been packaged:
+
+~~~bash
+git clone https://github.com/vizuh/sabi
+cd sabi
 npm install
 npm run controller -- setup
 npm run controller -- doctor
 npm run controller -- integrations list
 ~~~
 
-Setup is explicit and idempotent. It installs hooks only for detected supported hosts, starts a
-loopback daemon when the platform permits it, and keeps backups for rollback. Hooks fail open if
-Sabi is unavailable. See the individual [Claude Code](adapters/claude-code.md), [Codex](adapters/codex.md),
-[OpenCode](adapters/opencode.md), and [Orca](adapters/orca.md) pages for their exact boundaries.
+The old `npm run setup` wizard is also a maintainer/development helper for writing a specific proxy or Hermes configuration. It is not the end-user installation path and should not be the first command shown to new users.
 
-## Quick setup
+## Requirements by surface
 
-```bash
-git clone https://github.com/vizuh/sabi && cd sabi && npm install
-npm run setup
-```
-
-Asks which harness (Command Code / OpenCode / Hermes) and, separately, whether to enable Jev.
-For Command Code and OpenCode it runs the same certified writer each harness's detailed section
-below documents. For Hermes it automates the mechanical parts of the manual recipe below (create
-`HERMES_HOME`, copy the plugin, write `config.yaml`) — that path is still **uncertified**, exactly
-as the Hermes section says; it prints the context-window candidate for you to verify, it does not
-assert it. Flags skip any prompt: `npm run setup -- --harness=command-code --class=a`,
-`--harness=opencode --no-jev`, `--harness=hermes --hermes-home=<path>`. No harness flag and no TTY
-to prompt on writes nothing and prints usage — there's no safe default harness, every choice
-writes a different file. `--jev` only ever flips `judge.enabled`/`judge.baseURL` in
-`sabi.config.json`; it never reads, prints, or writes your `TYPESAFE_API_KEY` — export that
-yourself, same as always. Kilo and Prime Agent aren't automated — `--harness=kilo`/`prime-agent`
-just points at [the manual recipes](harnesses.md).
-
-## Requirements
-
-| | |
+| Surface | Requirements |
 |---|---|
-| Node | 22.6 or newer (type stripping; developed on 24) |
-| Harness | Command Code for path A; anything OpenAI-compatible for path B |
-| Access | none — the repo is public |
-| Keys | path A: none; path B: an upstream key (e.g. OpenRouter) and optionally a TypeSafe key for Jev |
-| Plan | path A only: every id in `harness.tiers` must be covered — see [Plan coverage](#plan-coverage) |
+| Base controller | Node 22.6+ and the published `@vizuh/sabi-controller` package |
+| Command Code mod | Command Code, a plan covering the configured `harness.tiers`, and the published `@vizuh/sabi` mod |
+| Local proxy | Node 22.6+, an OpenAI-compatible client, and credentials for any paid upstream you enable |
+| Maintainer checkout | Node 22.6+, git, and the repository |
 
-## A — Command Code mod
+## Optional integration: Command Code native mod
 
-```bash
-git clone https://github.com/vizuh/sabi && cd sabi
+Use this only when you specifically want per-round model and reasoning-effort routing inside Command Code. It is not required to install Sabi.
+
+### Published mod
+
+~~~bash
+cmd mods add -g npm:@vizuh/sabi
+cmd mods list
+~~~
+
+### Local checkout (maintainer/development only)
+
+~~~bash
+git clone https://github.com/vizuh/sabi
+cd sabi
 npm install
 cmd mods add ./packages/adapters/command-code
-```
-
-`cmd mods add` records the package as a mod source for the **project** (it writes
-`.commandcode/settings.json` next to your checkout, which is gitignored). It does not copy anything:
-the package is referenced in place, which is why the clone must stay where it is.
-
-What was added:
-
-```json
-{ "mods": { "sources": ["/path/to/sabi/packages/adapters/command-code"] } }
-```
-
-The package declares what it ships in its own `package.json`:
-
-```json
-{ "commandcode": { "mods": ["./mod/sabi.ts"] } }
-```
-
-If you would rather not keep a checkout, the same mod is published to npm as one bundled file with no runtime dependencies, shipping its own default `sabi.config.json`:
-
-```bash
-cmd mods add -g npm:@vizuh/sabi     # user scope — loads in every project
-```
-
-A `sabi.config.json` in the project (or `~/.config/sabi/sabi.config.json`) takes precedence over the shipped default. Updates come from `cmd mods update`. Path B below still needs the clone.
+~~~
 
 ### Confirm it loaded
 
@@ -106,12 +75,7 @@ A `sabi.config.json` in the project (or `~/.config/sabi/sabi.config.json`) takes
 cmd mods list
 ```
 
-Expected — one line, no warnings:
-
-```
-Mods (1)
-  sabi · project · from local:/path/to/sabi/packages/adapters/command-code
-```
+Expected: one Sabi entry at user or project scope, with no warnings. The exact scope and source depend on how you installed the mod.
 
 If it prints `Mods (0)`: the project has no session yet, so project-scope sources are not shown.
 Start `cmd` once in the checkout, or trust the workspace, and list again.
@@ -154,7 +118,9 @@ session transcript:
 cmd mods remove sabi          # or: cmd mods remove ./packages/adapters/command-code
 ```
 
-## B — local proxy
+## Optional integration: local OpenAI-compatible proxy
+
+Use this only when a client accepts a `baseURL` and you want Sabi to route your own upstream credentials. This is separate from the user-level controller daemon: in the current release, the proxy is still a foreground checkout process, so this optional path requires a checkout and `npm start`.
 
 ```bash
 npm install
@@ -342,7 +308,7 @@ Rollback: remove the `sabi` provider from the config, or restore the backup.
 
 #### Controller hook
 
-The separate Agent Controller can install a thin OpenCode `chat.message` plugin alongside the
+The user-level controller installed above can install a thin OpenCode `chat.message` plugin alongside the
 Claude and Codex hooks:
 
 ```bash
@@ -351,11 +317,7 @@ sabi setup --hooks
 # or: sabi hooks install --opencode
 ```
 
-This is the intended user installation path. The public `@vizuh/sabi` release contains the Command
-Code adapter only; it does not install the controller or Orca bridge. Before the first
-`@vizuh/sabi-controller` tag is published, the package command is intentionally unavailable; do not
-replace it with `npm link` for a user installation. Maintainers can run `npm run build:controller`
-and the clean-prefix package test from the repository.
+The controller package is the canonical user-level installation surface. Its release is separate from the `@vizuh/sabi` Command Code mod; the two packages are optional and do not replace each other. Maintainers can run `npm run build:controller` and the clean-prefix package test from the repository.
 
 The plugin asks the loopback controller for a plan, dispatches only `DELEGATE`, `SPAWN` and
 `ORCHESTRATE`, and replaces the current message only after the daemon reports accepted execution.
