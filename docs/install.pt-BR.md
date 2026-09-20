@@ -2,7 +2,7 @@
 
 O Sabi é instalado uma vez por usuário/máquina. Ele não é um plugin do Command Code e não exige um harness específico. O core/controller é a instalação para usuários; Command Code, OpenCode, Hermes, Claude Code, Codex, Orca e outros hosts são integrações opcionais.
 
-Se o usuário pedir ao próprio AI do host para instalar o Sabi, use o [fluxo de instalação por host-AI](install.ai.md). Ele define as perguntas, o caminho de uma única chave do OpenRouter, a opção de explicação no idioma do usuário e as evidências que o agente deve reportar.
+Se o usuário pedir ao próprio AI do host para instalar o Sabi, use o [fluxo de instalação por host-AI](install.ai.pt-BR.md). Ele define as perguntas, o caminho de uma única chave do OpenRouter, a opção de explicação no idioma do usuário e as evidências que o agente deve reportar.
 
 Para Claude Code, Codex e os fluxos de OpenCode apoiados pelo controller, instale o pacote público. Para Hermes ou para inferência do OpenCode pelo proxy local, continue usando o checkout, pois o pacote do controller não contém o servidor proxy nem o perfil do Hermes.
 

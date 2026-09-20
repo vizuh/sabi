@@ -817,3 +817,10 @@ completed workflows `35539333133` and `35539332925`; the public npm registry now
 Releases. Local and PR gates passed: 406 tests, typecheck, package builds and clean controller
 installation. This is source/CI/distribution evidence only; host activation, cross-terminal
 completion, provider entitlement/quota and task quality remain unverified runtime gates.
+
+## [2026-09-20] docs | Add Portuguese host-AI installation flow
+
+Added `docs/install.ai.pt-BR.md` and language links from the Portuguese README and installation
+guide. The translated flow covers Hermes-first setup, the OpenRouter-only credential rule, native
+OpenCode Go/ChatGPT Plus behavior, BYOK configuration and evidence-layer checks. Internal research
+and architecture notes remain English; no runtime or package behavior changed.

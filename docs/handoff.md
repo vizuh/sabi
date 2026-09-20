@@ -820,3 +820,12 @@ the matching GitHub assets are attached to the
 This proves source, CI, package build and public distribution. It does not prove universal host
 activation, cross-terminal completion, provider entitlement, quota behavior or task quality; those
 remain runtime evidence gates.
+
+## Portuguese user-facing onboarding — 2026-09-20
+
+Added `docs/install.ai.pt-BR.md` as the Portuguese host-AI runbook and linked it from the Portuguese
+README and installation guide. The English runbooks now expose the pt-BR language switch. The
+translated surface covers the primary Hermes path, OpenRouter-only proxy credential collection,
+native OpenCode Go/ChatGPT Plus boundaries, BYOK guidance and layered completion checks. Internal
+architecture, decision and research documents remain English unless a user-facing translation is
+needed.
