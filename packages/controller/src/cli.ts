@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { configureFreeQuality, defaultConfigPath } from '@sabi/core'
+import { configureFreeQuality, defaultConfigPath, loadConfig, readSurplusReviewReceipts, surplusResources, type SurplusReviewIntent } from '@sabi/core'
 import {
   controllerPreferencesPath,
   controllerStateDir,
@@ -21,11 +21,12 @@ import { dispatchControllerRequest, inventorySnapshot } from './runtime.ts'
 import { installUserService, restartUserService, type UserServiceResult } from './service.ts'
 import { uninstallController, upgradeController } from './lifecycle.ts'
 import { installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
+import { runSurplusReview } from './surplus.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'upgrade' | 'uninstall'
+type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'upgrade' | 'uninstall'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'daemon', 'hooks', 'hook', 'integrations', 'upgrade', 'uninstall'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'daemon', 'hooks', 'hook', 'integrations', 'upgrade', 'uninstall'])
 const CLI_VERSION = process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
 
 function flagValue(argv: string[], name: string): string | undefined {
@@ -67,6 +68,7 @@ function printHelp(): void {
   sabi logs [--cwd=<path>] [--tail=<n>] [--json]
   sabi replay [--cwd=<path>] [--last=<n>] [--json]
   sabi setup [--no-start] [--no-hooks] [--free-quality] [--json]
+  sabi surplus [inventory|review|history] [--cwd=<path>] [--intent=bug-hunt|test-gap|api-contract] [--alias=<alias>] [--json]
   sabi integrations [list|repair] [--json]
   sabi upgrade [--version=<semver>|latest] [--json]
   sabi uninstall [--keep-config] [--json]
@@ -243,6 +245,52 @@ async function runSetup(argv: string[]): Promise<void> {
   console.log(`harnesses: ${detected.length ? detected.map(({ agent }) => `${agent} ✓`).join(' · ') : 'none detected'}`)
   console.log(hooks.length ? `hooks: installed — ${hooks.map(({ harness }) => harness).join(', ')}` : 'hooks: not installed — no supported harness detected or disabled with --no-hooks')
   console.log(`preferences: ${preferencesPath}`)
+}
+
+const SURPLUS_INTENTS: SurplusReviewIntent[] = ['bug-hunt', 'test-gap', 'api-contract']
+
+async function runSurplus(argv: string[]): Promise<void> {
+  const action = argv.find((arg) => !arg.startsWith('--')) ?? 'inventory'
+  const cwd = resolvedCwd(argv)
+  const logFile = process.env.SABI_SURPLUS_LOG?.trim()
+  if (action === 'history') {
+    const receipts = readSurplusReviewReceipts(logFile).slice(-(Number(flagValue(argv, '--last') ?? 20) || 20))
+    const result = { logFile: logFile ?? undefined, count: receipts.length, receipts }
+    if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
+    else {
+      console.log('Sabi surplus history')
+      for (const receipt of receipts) console.log(`${receipt.ts} ${receipt.intent} ${receipt.resource.alias} ${receipt.status} claims=${receipt.claimCount}`)
+    }
+    return
+  }
+
+  const configPath = defaultConfigPath({ cwd })
+  const config = loadConfig(configPath)
+  if (action === 'inventory') {
+    const result = { configPath, resources: surplusResources(config) }
+    if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
+    else {
+      console.log('Sabi surplus inventory')
+      console.log(result.resources.length ? result.resources.map((resource) => `${resource.alias} → ${resource.provider}/${resource.model} (${resource.trust})`).join('\n') : 'no zero-cost fixed resources')
+    }
+    return
+  }
+  if (action !== 'review') throw new Error(`unsupported surplus action '${action}'`)
+  const rawIntent = flagValue(argv, '--intent') ?? 'bug-hunt'
+  if (!SURPLUS_INTENTS.includes(rawIntent as SurplusReviewIntent)) throw new Error(`unsupported surplus review intent '${rawIntent}'`)
+  const result = await runSurplusReview({ cwd, config, intent: rawIntent as SurplusReviewIntent, alias: flagValue(argv, '--alias') })
+  if (jsonRequested(argv)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log('Sabi surplus review (shadow)')
+  console.log(`resource: ${result.resource ? `${result.resource.alias} → ${result.resource.provider}/${result.resource.model}` : 'none'}`)
+  console.log(`intent: ${result.receipt.intent} · status: ${result.receipt.status} · claims: ${result.receipt.claimCount}`)
+  console.log(`receipt: ${result.logFile}`)
+  for (const claim of result.claims) {
+    const location = claim.file ? `${claim.file}${claim.line ? `:${claim.line}` : ''}` : 'diff'
+    console.log(`- [${claim.severity}] ${location}: ${claim.claim}`)
+  }
 }
 
 async function runIntegrations(argv: string[]): Promise<void> {
@@ -446,6 +494,7 @@ async function main(): Promise<void> {
   if (command === 'logs') return runLogs(args)
   if (command === 'replay') return runReplay(args)
   if (command === 'setup') return runSetup(args)
+  if (command === 'surplus') return runSurplus(args)
   if (command === 'daemon') return runDaemon(args)
   if (command === 'hooks') return runHooks(args)
   if (command === 'hook') return runHook(args)

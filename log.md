@@ -735,3 +735,12 @@ stress: HTTP 200, `SABI_PROXY_FREE_OK`, decision `quality`, upstream
 `dots-studio/dots-3-note-preview:free`, outcome `ok`, 1387 ms. No paid fallback, private content,
 user config or secret value was used. These observations prove availability/receipt behavior only,
 not quality, entitlement or privacy.
+
+## [2026-09-20] feat | Add surplus inference shadow QA slice
+
+Added `sabi surplus inventory|review|history`. The review path selects a fixed exact-zero-cost text
+resource, sends only a bounded tracked diff through the local Sabi proxy, rejects secret paths and
+canaries, parses advisory JSON claims and persists only task/resource/hash/status/latency/count
+metadata. It records `verifiedClaimCount: 0`, never invokes tools, never falls back to paid tiers and
+does not alter the primary work. Full suite passed 400/400; seven focused tests pass. Live completed-task quality and claim
+verification are intentionally unverified.

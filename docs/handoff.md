@@ -701,3 +701,15 @@ content was used.
 
 Remaining gates: receipt-aware free-model health/demotion, a privacy-approved completed-task set,
 held-out comparison, and only then any multi-model debate or learned quality profile.
+
+## Surplus inference shadow QA — 2026-09-20
+
+Added the first explicit surplus-inference slice on branch `feat/surplus-inference-shadow`. It
+discovers fixed zero-cost text resources from config, builds a bounded tracked-diff packet, calls the
+local `sabi-quality` proxy alias in shadow mode, parses bounded advisory claims and writes durable
+metadata-only receipts to `SABI_SURPLUS_LOG` or the user Sabi config directory. Secret paths/markers,
+adaptive aliases, tools, credentials and paid fallback are refused by construction.
+
+Validation so far: `npm test` passed 400/400; seven focused tests pass and typecheck/diff check pass. This is not yet a live
+completed-task quality result: claim verification, multi-resource fan-out, Jev intent assignment,
+held-out evaluation and automatic handoff remain gated tasks.

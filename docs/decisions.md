@@ -921,3 +921,24 @@ fallback, private prompt or completed-task quality claim was used.
 
 The next gate is a user-approved privacy-safe task set with receipt-aware demotion and held-out
 evaluation. Debate and learned quality profiles remain out of the first lane.
+
+## [2026-09-20] Surplus inference starts as explicit shadow QA
+
+### Decision
+
+Treat zero-cost inference as a separate review resource, not as a replacement for the primary
+model. The first controller slice exposes `sabi surplus inventory|review|history`, sends only a
+bounded tracked diff through a fixed zero-cost alias, parses advisory claims, and persists a
+metadata-only receipt.
+
+### Safety boundary
+
+Adaptive aliases, paid fallback, tools, environment values, credentials, absolute paths and
+secret-like packets are excluded. A successful response proves only that a structured advisory
+receipt was obtained; `verifiedClaimCount` remains zero until deterministic evidence proves a claim.
+Rate limits and proxy failures are recorded and fail open for the primary task.
+
+### Follow-up gate
+
+Add verifiers, approved completed-task/held-out data, independent receipts per free resource and
+Jev intent selection before fan-out, advisory handoff or learned model-by-intent promotion.

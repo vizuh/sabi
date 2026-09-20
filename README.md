@@ -113,6 +113,22 @@ configured Sabi secrets file) and run `sabi setup --free-quality`. Sabi refreshe
 adds the fixed `sabi-quality` alias and routes verification rounds there; paid tiers remain intact.
 The catalog refresh is availability evidence, not a model-quality or privacy guarantee.
 
+### Surplus inference: shadow QA
+
+Sabi can use a configured zero-cost fixed lane to try to find a problem in the primary work without
+changing it. The first slice is explicit, read-only and shadow-only:
+
+~~~bash
+sabi surplus inventory
+sabi surplus review --intent=bug-hunt
+sabi surplus history
+~~~
+
+Only a bounded tracked diff is sent through the local Sabi proxy. Secret paths, secret-like markers,
+tools, environment values and absolute paths are refused; receipts store hashes and counts, not the
+diff or model claims. A claim is advisory until a deterministic verifier proves it. See
+[Surplus inference](docs/specs/surplus-inference.md).
+
 ### Controller hooks
 
 The user-level controller installed above can coordinate supported Claude Code, Codex, OpenCode, and Orca workflows. It is a task/session surface, not a generic way to rewrite the model inside an existing host session. See [Adapters](docs/adapters/README.md) for the evidence and boundary of each host.
