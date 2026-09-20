@@ -330,7 +330,7 @@ Isto resume o tráfego registrado; não chama harness nem repete uma tarefa paga
 
 ### Hermes
 
-O Hermes é atendido pelo mesmo proxy, mais um plugin opcional que adiciona atribuição estável. Isto segue `packages/adapters/hermes/README.md`: o plugin e uma sonda Hermes → Sabi → mock estão verificados em isolamento, mas **nenhum perfil real do Hermes rodou contra o Sabi ainda** — trate como template, não como caminho certificado.
+O Hermes é atendido pelo mesmo proxy, mais um plugin opcional que adiciona atribuição estável. Isto segue `packages/adapters/hermes/README.md`: o caminho principal e de resume do Hermes está certificado pela sonda nativa Hermes → Sabi → mock com runtime fixado. Chamadas auxiliares, rebinding direto de provider e qualidade com provider real continuam gates separados; isto não é certificação de provider pago.
 
 1. Crie um `HERMES_HOME` novo. Não aponte para um perfil pessoal existente.
 2. Copie `packages/adapters/hermes/plugin/` para `$HERMES_HOME/plugins/sabi-metadata/`.

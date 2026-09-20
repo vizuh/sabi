@@ -1,7 +1,9 @@
-"""Opt-in Hermes request attribution for the local Sabi Chat Completions alias.
+"""Hermes middleware for Sabi's native OpenAI-compatible routing path.
 
-This plugin does not choose models, change effort, call tools, or make requests.
-Hermes owns execution, retries, streaming, cancellation, and permissions.
+Hermes sends the selected ``sabi-code`` alias to the local Sabi proxy. Sabi owns
+per-request model, effort and provider scheduling; this middleware supplies only
+safe session/turn attribution. Hermes still owns execution, retries, streaming,
+cancellation and permissions.
 """
 
 import os

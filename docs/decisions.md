@@ -743,3 +743,32 @@ settlement. A two-second inventory TTL is a bounded freshness tradeoff, not a qu
 Add durable receipts only when the daemon can run with multiple workers or must recover across restarts;
 add host token/cost fields after a harness exposes a stable usage contract; add full orchestration
 settlement only in a verified Orca-side adapter.
+
+## [2026-09-20] Hermes uses the native Sabi proxy seam, not a second router
+
+### Decision
+
+Certify the pinned Hermes main-conversation path through public `llm_request` middleware and the
+existing `custom:sabi` / `sabi-code` Chat Completions provider. The plugin supplies only opaque
+session/turn attribution; the shared Sabi proxy performs the per-request trajectory decision and
+forwards the selected upstream. Hermes keeps its loop, tools, permissions, retries, streaming,
+cancellation and compaction.
+
+### Why
+
+The isolated probe proves fragmented tool call/result preservation, resume with a new turn, three
+unique Sabi receipts, and shared policy routing `mid → cheap → mid`. A direct model swap cannot
+transfer a provider subscription, while the proxy is an honest cross-provider boundary and avoids
+a second Python policy implementation.
+
+### Alternatives rejected
+
+- Reimplement Sabi policy in the Hermes plugin.
+- Rewrite arbitrary Hermes provider/model choices from middleware.
+- Let Jev delete or rewrite the Hermes transcript.
+
+### Revisit later?
+
+Auxiliary/subagent calls, real-provider quality, and ContextEngine behavior need a pinned runtime
+contract, rollback path and separate held-out test. The V1 contract/checklist are in
+`docs/specs/hermes-sabi-routing.md` and `docs/tasks/hermes-sabi-routing.md`.
