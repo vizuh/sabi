@@ -1,12 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
+  appendCouncilLedgerReceipt,
   appendSurplusReviewReceipt,
   buildSafeReviewPacket,
   readSurplusReviewReceipts,
+  readCouncilLedgerReceipts,
+  newCouncilLedgerReceipt,
   parseReviewClaims,
   surplusResources,
   type SabiConfig,
@@ -80,6 +83,45 @@ test('surplus receipts persist metadata only', () => {
     appendSurplusReviewReceipt(receipt, file)
     assert.equal(readSurplusReviewReceipts(file)[0]?.claimCount, 1)
     assert.ok(!readFileSync(file, 'utf8').includes('null state'))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('council ledger receipts preserve harness provenance without raw content', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-council-core-'))
+  const file = path.join(dir, 'council.jsonl')
+  try {
+    const receipt = newCouncilLedgerReceipt({
+      taskKey: 'task-1',
+      harness: 'opencode',
+      runtimeVersion: '1.18.31',
+      provider: 'openrouter',
+      model: 'provider/model:free',
+      seatId: 'contract-seat',
+      stage: 'review',
+      mode: 'probe',
+      intent: 'api-contract',
+      status: 'completed',
+      evidence: 'execution',
+      source: 'live',
+      inputSha256: 'A'.repeat(64),
+      transportStatus: 700,
+      claimCount: 2,
+      verifiedClaimCount: 2,
+      now: new Date('2026-09-20T22:00:00.000Z'),
+    })
+    appendCouncilLedgerReceipt(receipt, file)
+    const rows = readCouncilLedgerReceipts(file)
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0]?.harness, 'opencode')
+    assert.equal(rows[0]?.runtimeVersion, '1.18.31')
+    assert.equal(rows[0]?.model, 'provider/model:free')
+    assert.equal(rows[0]?.verifiedClaimCount, 0)
+    assert.equal(rows[0]?.transportStatus, undefined)
+    assert.ok(!readFileSync(file, 'utf8').includes('raw content'))
+    appendFileSync(file, `${JSON.stringify({ ...receipt, intent: 'invalid' })}\n`)
+    assert.equal(readCouncilLedgerReceipts(file).length, 1)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
