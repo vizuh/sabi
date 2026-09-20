@@ -1,5 +1,7 @@
 # Host-AI installation flow
 
+**English** · [Português (BR)](install.ai.pt-BR.md)
+
 This is the canonical flow for a user who asks Command Code, OpenCode, Hermes,
 Claude Code or Codex to install Sabi. The host AI should execute it step by step,
 answer in the user's language, and never guess a harness, account or model plan.

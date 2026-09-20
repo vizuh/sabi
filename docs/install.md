@@ -1,5 +1,7 @@
 # Install Sabi
 
+**English** · [Português (BR)](install.pt-BR.md)
+
 Sabi is installed once per machine or user. It is not a Command Code plugin and does not require a particular harness. The core/controller is the user-facing installation; Command Code, OpenCode, Hermes, Claude Code, Codex, Orca, and other hosts are optional integrations.
 
 If the user asks the current host AI to install Sabi, use the [host-AI installation flow](install.ai.md). It defines the questions, the one-key OpenRouter path, the localized explanation option, and the evidence the agent must report.

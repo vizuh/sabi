@@ -20,7 +20,7 @@ A release pública do `@vizuh/sabi-controller` é `controller-v0.1.0`. Para Herm
 
 O `setup` é idempotente: mantém o daemon e o estado no escopo do usuário, detecta hosts compatíveis, instala apenas hooks do Sabi que tenham suporte e deixa o harness seguir normalmente se o Sabi estiver indisponível. Use `sabi setup --no-hooks` se quiser inicializar o daemon sem alterar a configuração do host.
 
-Se o próprio AI do host estiver fazendo a instalação, use o [fluxo de instalação por host-AI](docs/install.ai.md); ele pergunta explicitamente o harness e a rota, e só pede uma chave do OpenRouter no caminho de proxy.
+Se o próprio AI do host estiver fazendo a instalação, use o [fluxo de instalação por host-AI](docs/install.ai.pt-BR.md); ele pergunta explicitamente o harness e a rota, e só pede uma chave do OpenRouter no caminho de proxy.
 
 Depois da instalação, abra seu harness normalmente. As integrações de Command Code, proxy e controller são opcionais e entram apenas quando você precisa daquela capacidade.
 
