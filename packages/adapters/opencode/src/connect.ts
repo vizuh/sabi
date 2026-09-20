@@ -2,7 +2,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { loadConfig, minContextWindowFor, minOutputTokensFor, type SabiConfig } from '@sabi/core'
+import { loadConfig, minContextWindowFor, minOutputTokensFor, tiersFor, type SabiConfig } from '@sabi/core'
 
 /**
  * Adds Sabi to OpenCode as an OpenAI-compatible provider. Verified against OpenCode 1.18.30: a real
@@ -37,8 +37,11 @@ const displayNames: Record<string, string> = {
 }
 
 /**
- * OpenCode model entries. Modalities stay text-only until an operator declares per-tier capabilities:
- * advertising `image` here would promise a vision round that Sabi would then have to refuse.
+ * OpenCode model entries. Input modalities are advertised per alias from the tiers that alias can
+ * serve: `image` appears only where a reachable tier affirmatively declares it, so OpenCode sends
+ * images exactly where Sabi's capability routing can honour them (adaptive rounds fall forward to
+ * the first image-capable tier with `rule: capability`; a fixed text-only alias refuses with 400
+ * instead of answering blind). An alias whose tiers declare nothing stays text-only.
  */
 export function sabiModels(
   config: SabiConfig,
@@ -47,10 +50,13 @@ export function sabiModels(
   const models: Record<string, Record<string, unknown>> = {}
   for (const [alias, target] of Object.entries(config.aliases)) {
     if (config.models[target]?.upstream === 'ollama' && !options.includeLocal) continue
+    const servesImage = tiersFor(config, target).some((tier) =>
+      config.models[tier]?.capabilities?.inputModalities?.includes('image'),
+    )
     const entry: Record<string, unknown> = {
       name: displayNames[alias] ?? alias,
       tool_call: true,
-      modalities: { input: ['text'], output: ['text'] },
+      modalities: { input: servesImage ? ['text', 'image'] : ['text'], output: ['text'] },
     }
     // OpenCode wants both limit keys together, so a limit appears only when a window is knowable.
     const context = minContextWindowFor(config, target)

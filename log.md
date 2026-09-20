@@ -443,3 +443,15 @@ they are combined with live quota/session state, so the current quota-exhausted 
 session selects the available OpenCode Sabi session. New terminals carry the verified model through
 `--model`; existing sessions are not silently switched. Verification: 348 Node tests and typecheck
 passed; live status and a pure routing proof ran read-only, with no paid task dispatched.
+
+## [2026-09-20] change | OpenCode advertises image input where tiers declare it
+
+`packages/adapters/opencode/src/connect.ts` (`sabiModels`) now derives per-alias input modalities from the tiers the alias can serve (`tiersFor`): `image` is advertised only where a reachable tier affirmatively declares it in `capabilities.inputModalities`. With the shipped config that is `sabi-code`/`sabi-mid`/`sabi-strong` (mid/strong declare image, verified live against the OpenRouter models API 2026-09-20: flash-0731 text-only, luna and sonnet-5 text+image+file); `sabi-cheap` stays text-only. Previously every alias advertised text-only, so OpenCode had no path to send images at all. `docs/install.md` OpenCode paragraph updated (it still said text-only).
+
+Validation: typecheck clean, opencode adapter tests 6/6 (1 new), writer re-run against the live profile (backup preserved, not rewritten), and a live proxy check — image request on `sabi-cheap` returns the designed `400 incompatible route 'cheap': input modality 'image' is not supported` with no upstream spend. No live image round-trip yet: that would route to mid and spend real credit, so it waits for a real user message with an image.
+
+## [2026-09-20] fix | SSE tap accepts a usage chunk restating the terminal choice
+
+`sabi/sabi-code` in OpenCode looped forever resetting: every adaptive round routed `sabi-code -> mid -> openai/gpt-5.6-luna` and died after one chunk with `upstream response failed`. Direct OpenRouter calls succeeded (credit fine), `sabi-cheap` + tools streamed fine, and a raw upstream capture showed the cause: OpenAI-via-OpenRouter repeats `finish_reason: "stop"` with an empty delta on its final usage-bearing chunk, and the tap's post-terminal guard rejected it as `upstream stream choice continued after terminal finish` — the client saw a destroyed mid-stream response (502) and retried forever. `packages/server/src/sse.ts` now tracks the terminal reason per choice and allows that idempotent restatement (same reason, no content, no tool calls); real post-terminal deltas still reject, and the existing regression test passes unchanged.
+
+Validation: typecheck clean, server SSE suite 8/8 (1 new: luna-shaped echo accepts, usage recorded), live probes `sabi-mid` + `sabi-code` (as `client: opencode`) both complete with `[DONE]` and `outcome: ok` for fractions of a cent.

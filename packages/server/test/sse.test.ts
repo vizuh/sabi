@@ -94,6 +94,27 @@ test('usage-only and unfinished streams reject before forwarding DONE', () => {
   }
 })
 
+test('a usage chunk restating the terminal choice is an idempotent echo, not corruption', () => {
+  // Observed live 2026-09-20: OpenAI-via-OpenRouter repeats finish_reason "stop" with an empty
+  // delta on its final usage-bearing chunk. The tap must accept that echo and still record usage.
+  const events = [
+    { model: 'upstream-mid', choices: [{ index: 0, delta: { content: 'ok', role: 'assistant' }, finish_reason: null }] },
+    { model: 'upstream-mid', choices: [{ index: 0, delta: { content: '', role: 'assistant' }, finish_reason: 'stop' }] },
+    { model: 'upstream-mid', choices: [{ index: 0, delta: { content: '', role: 'assistant' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 40, completion_tokens: 5, total_tokens: 45 } },
+  ]
+  const wire = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n'
+  let result: SseTapResult | undefined
+  let calls = 0
+  const tap = createSseTap('sabi-code', (value) => { result = value; calls += 1 })
+  tap.push(encoder.encode(wire))
+  tap.flush()
+  assert.equal(calls, 1)
+  assert.equal(result?.finishReason, 'stop')
+  assert.equal(result?.usage?.totalTokens, 45)
+  assert.equal(tap.done, true)
+})
+
 test('post-terminal choice deltas reject before DONE', () => {
   const events = [
     { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
