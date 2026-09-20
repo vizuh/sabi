@@ -824,3 +824,9 @@ Added `docs/install.ai.pt-BR.md` and language links from the Portuguese README a
 guide. The translated flow covers Hermes-first setup, the OpenRouter-only credential rule, native
 OpenCode Go/ChatGPT Plus behavior, BYOK configuration and evidence-layer checks. Internal research
 and architecture notes remain English; no runtime or package behavior changed.
+
+## [2026-09-20] docs | Localize the adapter navigation and Hermes guide
+
+Added Portuguese versions of the adapter index and Hermes user guide, linked them from the
+Portuguese README and English source pages, and kept package implementation references in English.
+No runtime, provider, credential or package behavior changed.

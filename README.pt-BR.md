@@ -31,7 +31,7 @@ Depois da instalação, abra seu harness normalmente. As integrações de Comman
 |---|---|---|---|
 | Roteamento por rodada de modelo + esforço de raciocínio | [Mod do Command Code](docs/adapters/command-code.md) | Usa o loop nativo e o catálogo da assinatura do host | Somente Command Code |
 | Roteamento de modelo/provedor com suas próprias credenciais | [Proxy local](docs/install.pt-BR.md#integração-opcional--proxy-local-compatível-com-openai) | Encaminha requisições por um endpoint compatível com OpenAI | Modelo/provedor; não troca nativamente o esforço de raciocínio |
-| Mover trabalho entre sessões e worktrees | [Hooks do controller](docs/adapters/README.md) | Coordena ações limitadas de continuar/delegar/criar | Não troca o modelo dentro de uma sessão nativa existente |
+| Mover trabalho entre sessões e worktrees | [Hooks do controller](docs/adapters/README.pt-BR.md) | Coordena ações limitadas de continuar/delegar/criar | Não troca o modelo dentro de uma sessão nativa existente |
 | Adicionar outro host | [Contrato de mantenedor](docs/maintainers.md) | Define a fronteira e as evidências necessárias para o adaptador | Adaptador não cria uma segunda política de roteamento |
 
 Essas integrações compartilham o core do Sabi, mas não são etapas da instalação. Instale o Sabi uma vez; escolha uma integração somente quando precisar daquela capacidade.
@@ -267,6 +267,8 @@ Nome do produto: **Sabi**. Os handles `sabi` e `uasabi` no GitHub já estavam to
 - [Folder review](docs/research/folder-review.md) — achados no código e comentários prontos para issue (em inglês)
 - [Prime Agent reuse](docs/research/prime-agent-reuse.md) — evidência do runtime instalado e padrões que valem reaproveitar (em inglês)
 - [docs/install.pt-BR.md](docs/install.pt-BR.md) — instalação passo a passo na máquina de outra pessoa
+- [docs/install.ai.pt-BR.md](docs/install.ai.pt-BR.md) — fluxo para pedir a instalação ao AI do host
+- [docs/adapters/README.pt-BR.md](docs/adapters/README.pt-BR.md) — mapa de adaptadores e limites em português
 - [docs/context.md](docs/context.md) — contexto, restrições, riscos (em inglês)
 - [docs/decisions.md](docs/decisions.md) — decisões correntes (em inglês)
 - [docs/handoff.md](docs/handoff.md) — estado atual e próximos passos (em inglês)
