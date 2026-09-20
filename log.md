@@ -494,6 +494,17 @@ inventory and rerouted without a false success. The remaining live targets also 
 capacity, so `QUOTA_HANDOFF_OK` was not produced. The retry loop is now bounded to three replacement
 attempts; this result remains a recovery proof, not a successful cross-terminal completion.
 
+## [2026-09-20] verify | Validate free Command Code and OpenCode lanes
+
+Read-only live checks used temporary state/configuration only. Command Code's real catalog exposed
+explicit free models; the Sabi mod routed a continuing round from `poolside/laguna-s-2.1-free` to
+`inclusionai/ling-3.0-flash-sante:free`. Headless permissions blocked the requested shell tool, so
+no task completion was claimed. A real OpenCode session with the Sabi plugin and loopback daemon ran
+`opencode/big-pickle`, executed `node --version` as `v24.15.0`, and returned `OPENCODE_SABI_OK`; the
+controller trace was `CONTINUE` with the host session non-dispatchable. The explicit
+`opencode/jev-1.13-free` probe produced no receipt within the bounded budget and was interrupted;
+no retry or false success was recorded.
+
 ## [2026-09-20] change | OpenCode advertises image input where tiers declare it
 
 `packages/adapters/opencode/src/connect.ts` (`sabiModels`) now derives per-alias input modalities from the tiers the alias can serve (`tiersFor`): `image` is advertised only where a reachable tier affirmatively declares it in `capabilities.inputModalities`. With the shipped config that is `sabi-code`/`sabi-mid`/`sabi-strong` (mid/strong declare image, verified live against the OpenRouter models API 2026-09-20: flash-0731 text-only, luna and sonnet-5 text+image+file); `sabi-cheap` stays text-only. Previously every alias advertised text-only, so OpenCode had no path to send images at all. `docs/install.md` OpenCode paragraph updated (it still said text-only).
