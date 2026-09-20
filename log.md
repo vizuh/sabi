@@ -624,3 +624,19 @@ receipts, `mid → cheap → mid`, one hashed session, two hashed turns, `client
 and preserved the tool call/result. The full Node suite passed 378/378, `npm run typecheck` passed,
 and `git diff --check` passed. No secrets or paid inference were used. Specs and deferred gates are
 in `docs/specs/hermes-sabi-routing.md` and `docs/tasks/hermes-sabi-routing.md`.
+
+## [2026-09-20] feat | Add receipt-aware OpenCode model health and fail-open fallback
+
+Added the smallest next gate after catalog evidence: controller execution receipts now record the
+selected harness model, bounded elapsed receipt latency, outcome and process-local health counts.
+Configured OpenCode/Command Code worker selection skips a recently failed preferred model when a
+second valid worker exists, then fails open to the first valid worker if all configured workers
+are unavailable. Unverifiable receipts remain unknown and no paid probe or entitlement inference
+was added.
+
+Added focused health and fallback tests plus `docs/specs/opencode-model-health.md` and
+`docs/tasks/opencode-model-health.md`; the research contract now names the live free-model receipt
+gate as the next step.
+
+Validation: `npm test` passed 381/381, `npm run typecheck` passed, and `git diff --check` passed.
+No live provider request, user configuration, secret, deployment or publication was performed.

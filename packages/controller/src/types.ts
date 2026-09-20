@@ -35,6 +35,16 @@ export type AgentLifecycle = 'active' | 'idle' | 'blocked' | 'waiting' | 'dead'
 export type HarnessModelCostClass = 'explicit-free' | 'unknown'
 export type HarnessModelRole = 'worker' | 'judge'
 
+export interface HarnessModelHealth {
+  status: 'healthy' | 'unavailable' | 'unknown'
+  sampleCount: number
+  successCount: number
+  failureCount: number
+  lastOutcome: 'ok' | 'failed' | 'unverifiable'
+  lastLatencyMs?: number
+  observedAt: number
+}
+
 /**
  * Runtime evidence from a harness-owned model catalog. A missing sourceRevision is intentional:
  * most installed CLIs expose a version but not the repository commit that generated the catalog.
@@ -89,6 +99,8 @@ export interface AgentHarness extends AgentDescriptor {
   launchCommand?: string
   /** Bounded runtime catalog evidence; presence does not prove plan entitlement or health. */
   catalog?: HarnessCatalogDescriptor
+  /** Process-local receipt health for the selected model; absence means no observation yet. */
+  modelHealth?: HarnessModelHealth
 }
 
 export interface HandoffSnapshot {
@@ -174,6 +186,8 @@ export interface ControllerExecution {
   runId?: string
   dispatchId?: string
   idempotencyKey?: string
+  model?: string
+  modelHealth?: HarnessModelHealth
   receipt?: ControllerExecutionReceipt
   inputAccepted?: boolean
   turnStarted?: boolean
@@ -210,6 +224,7 @@ export interface ControllerCandidateTelemetry {
   context?: string
   model?: string
   catalog?: HarnessCatalogDescriptor
+  modelHealth?: HarnessModelHealth
 }
 
 export interface ControllerRoutingTelemetry {

@@ -4,6 +4,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { clearInventoryCache, discoverAgents, parseModelCatalog, parseModelList, selectPreferredModel } from '../src/inventory.ts'
+import { clearModelHealth, recordModelReceipt } from '../src/model-health.ts'
 
 test('local harness model catalog matching stays exact and provider-free', () => {
   const output = 'opencode-go/kimi-k3\nopencode-go/gpt-5.6-luna\nAvailable models · 2 models'
@@ -110,6 +111,23 @@ test('discovered OpenCode spawn candidates carry the observed runtime catalog', 
     else process.env.SABI_CONTROLLER_HARNESSES = previousHarnesses
     if (previousPath === undefined) delete process.env.PATH
     else process.env.PATH = previousPath
+  }
+})
+
+test('a failed preferred OpenCode model moves selection to the next catalog model and fails open when all fail', () => {
+  const first = 'opencode/muse-spark-1.3-free'
+  const second = 'opencode/ling-3.0-flash-fin-free'
+  clearModelHealth()
+  try {
+    const output = `${first}\n${second}\n`
+    assert.equal(selectPreferredModel(output, [first, second], 'opencode'), first)
+    recordModelReceipt({ harness: 'opencode', model: first, outcome: 'failed', latencyMs: 80 })
+    assert.equal(selectPreferredModel(output, [first, second], 'opencode'), second)
+
+    recordModelReceipt({ harness: 'opencode', model: second, outcome: 'failed', latencyMs: 90 })
+    assert.equal(selectPreferredModel(output, [first, second], 'opencode'), first)
+  } finally {
+    clearModelHealth()
   }
 })
 

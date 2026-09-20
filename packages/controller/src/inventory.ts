@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import type { ControllerConfig } from '@sabi/core'
 import { parseTerminalReadReceipt, parseTerminalWaitReceipt, queryOrcaTerminals, queryOrcaWorktrees, readOrcaTerminal, waitOrcaTerminal } from './orca.ts'
+import { modelHealth } from './model-health.ts'
 import type {
   AgentHarness,
   AgentSession,
@@ -77,9 +78,12 @@ export function parseModelList(output: string): string[] {
   return [...models]
 }
 
-export function selectPreferredModel(output: string, preferredModels: string[]): string | undefined {
+export function selectPreferredModel(output: string, preferredModels: string[], harness?: string): string | undefined {
   const models = new Set(parseModelList(output))
-  return preferredModels.find((model) => models.has(model) && modelRole(model) === 'worker')
+  const candidates = preferredModels.filter((model) => models.has(model) && modelRole(model) === 'worker')
+  return harness
+    ? candidates.find((model) => modelHealth(harness, model)?.status !== 'unavailable') ?? candidates[0]
+    : candidates[0]
 }
 
 function modelCostClass(model: string): HarnessModelDescriptor['costClass'] {
@@ -150,11 +154,12 @@ function localCatalog(agent: string, command: string): HarnessCatalogDescriptor 
   }
 }
 
-function preferredModel(catalog: HarnessCatalogDescriptor | undefined, preferredModels: string[] | undefined): string | undefined {
+function preferredModel(harness: string, catalog: HarnessCatalogDescriptor | undefined, preferredModels: string[] | undefined): string | undefined {
   if (!preferredModels?.length) return undefined
   if (catalog === undefined) return undefined
   const ids = catalogModelIds.get(catalog) ?? catalog.models.map((entry) => entry.id)
-  return preferredModels.find((model) => ids.includes(model) && modelRole(model) === 'worker')
+  const candidates = preferredModels.filter((model) => ids.includes(model) && modelRole(model) === 'worker')
+  return candidates.find((model) => modelHealth(harness, model)?.status !== 'unavailable') ?? candidates[0]
 }
 
 function launchCommand(command: string, model: string | undefined): string | undefined {
@@ -244,6 +249,7 @@ export function configuredHarnesses(controller?: ControllerConfig): Array<{
   launchCommand?: string
   modelRequired?: boolean
   catalog?: HarnessCatalogDescriptor
+  modelHealth?: AgentHarness['modelHealth']
 }> {
   const configured = process.env.SABI_CONTROLLER_HARNESSES?.split(',').map((value) => value.trim()).filter(Boolean)
   const definitions = !configured?.length
@@ -255,11 +261,12 @@ export function configuredHarnesses(controller?: ControllerConfig): Array<{
     // --list-models as a normal invocation; a configured preference remains an explicit opt-in.
     const shouldProbe = agent === 'opencode' || agent === 'command-code' || Boolean(preferredModels?.length)
     const catalog = shouldProbe ? localCatalog(agent, command) : undefined
-    const model = preferredModel(catalog, preferredModels)
+    const model = preferredModel(agent, catalog, preferredModels)
     return {
       agent,
       command,
       ...(model ? { model, launchCommand: launchCommand(command, model) } : {}),
+      ...(model && modelHealth(agent, model) ? { modelHealth: modelHealth(agent, model) } : {}),
       ...(preferredModels?.length ? { modelRequired: true } : {}),
       ...(catalog ? { catalog } : {}),
     }
@@ -406,7 +413,7 @@ export function discoverAgents(
     if (!previous || (!session.available && previous.available)) knownAgentState.set(session.agent, session)
   }
   const spawnCandidates: AgentHarness[] = orcaAvailable
-    ? configuredHarnesses(options.controller).map(({ agent, command, model, launchCommand, modelRequired, catalog }) => ({
+    ? configuredHarnesses(options.controller).map(({ agent, command, model, launchCommand, modelRequired, catalog, modelHealth: selectedModelHealth }) => ({
       id: `harness:${agent}`,
       agent,
       harness: agent,
@@ -414,6 +421,7 @@ export function discoverAgents(
       ...(model ? { model } : {}),
       ...(launchCommand ? { launchCommand } : {}),
       ...(catalog ? { catalog } : {}),
+      ...(selectedModelHealth ? { modelHealth: selectedModelHealth } : {}),
       capabilities: ['coding'],
       // Catalog membership identifies a model, but does not prove plan capacity. A fixed
       // preferred model needs a live session signal before it is safe to spawn.

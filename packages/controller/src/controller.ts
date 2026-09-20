@@ -22,6 +22,7 @@ import {
   waitOrcaTerminal,
 } from './orca.ts'
 import { discoverAgents, type AgentInventory } from './inventory.ts'
+import { recordModelReceipt } from './model-health.ts'
 import type {
   AgentHarness,
   AgentRoutePlan,
@@ -147,6 +148,7 @@ function candidateState(inventory: AgentInventory): Record<string, unknown> {
     dispatchable: candidate.kind === 'session' ? candidate.dispatchable : true,
     context: candidate.context?.slice(0, 160),
     model: candidate.model,
+    modelHealth: candidate.kind === 'harness' ? candidate.modelHealth?.status : undefined,
   })
   return {
     active: describe(inventory.active),
@@ -188,6 +190,7 @@ function candidateTelemetry(inventory: AgentInventory): ControllerCandidateTelem
     context: candidate.context,
     model: candidate.model,
     catalog: candidate.kind === 'harness' ? candidate.catalog : undefined,
+    modelHealth: candidate.kind === 'harness' ? candidate.modelHealth : undefined,
   })
   // ponytail: cap the trace at 32 candidates; add paged inventory storage if large Orca pools appear.
   return [
@@ -476,10 +479,31 @@ function executeSelection(selection: RouteSelection, inventory: AgentInventory, 
 }
 
 function fallbackTarget(inventory: AgentInventory, failedTargetIds: Set<string>, preferred?: string[]): AgentSession | AgentHarness | undefined {
-  const session = bestSession(inventory.existingSessions.filter((candidate) => !failedTargetIds.has(candidate.id)), preferred)
+  const targetKey = (candidate: AgentSession | AgentHarness): string => `${candidate.id}\0${candidate.model ?? ''}`
+  const session = bestSession(inventory.existingSessions.filter((candidate) => !failedTargetIds.has(targetKey(candidate))), preferred)
   if (session) return session
-  if (!failedTargetIds.has(inventory.active.id) && inventory.active.available) return inventory.active
-  return bestHarness(inventory.spawnCandidates.filter((candidate) => !failedTargetIds.has(candidate.id)), preferred)
+  if (!failedTargetIds.has(targetKey(inventory.active)) && inventory.active.available) return inventory.active
+  return bestHarness(inventory.spawnCandidates.filter((candidate) => !failedTargetIds.has(targetKey(candidate))), preferred)
+}
+
+function recordModelExecution(
+  target: AgentSession | AgentHarness | undefined,
+  execution: ControllerExecution,
+  startedAt: number,
+): ControllerExecution {
+  if (target?.kind !== 'harness' || !target.model) return execution
+  const outcome = execution.status === 'failed'
+    ? 'failed'
+    : execution.status === 'started' || execution.status === 'completed' || execution.status === 'rerouted'
+      ? 'ok'
+      : 'unverifiable'
+  const health = recordModelReceipt({
+    harness: target.harness,
+    model: target.model,
+    outcome,
+    latencyMs: Date.now() - startedAt,
+  })
+  return { ...execution, model: target.model, modelHealth: health }
 }
 
 export interface ControllerRunResult {
@@ -507,29 +531,32 @@ export async function runController(
   let inventory = inventoryOverride ?? discoverAgents(cwd, { stuckSession: signals.stuckSession, controller, currentSession, currentHarness })
   const handoff = buildHandoff(cwd, request, inventory.active, signals.stuckSession)
   const selection = await selectRoute(request, cwd, signals, inventory, handoff, override, controller)
+  const initialExecutionStartedAt = Date.now()
   let execution: ControllerExecution = execute
-    ? executeSelection(selection, inventory, cwd, request, handoff, waitMs, idempotencyKey)
+    ? recordModelExecution(selection.target, executeSelection(selection, inventory, cwd, request, handoff, waitMs, idempotencyKey), initialExecutionStartedAt)
     : { status: 'not-started', idempotencyKey }
 
   if (execute && execution.status === 'failed' && execution.retryable === true && selection.action !== 'ASK' && selection.action !== 'ORCHESTRATE' && selection.decisionSource !== 'override') {
     const failedTargetIds = new Set<string>()
     let rerouteCount = 0
     while (execution.status === 'failed' && rerouteCount < MAX_REROUTES) {
-      if (execution.targetId) failedTargetIds.add(execution.targetId)
+      if (execution.targetId) failedTargetIds.add(`${execution.targetId}\0${execution.model ?? ''}`)
       const refreshed = discoverAgents(cwd, { stuckSession: signals.stuckSession, controller, currentSession, currentHarness, refresh: true })
       inventory = refreshed
       const fallback = fallbackTarget(refreshed, failedTargetIds, controller?.preferredHarnesses)
       if (!fallback) break
       const previousTargetId = execution.targetId
+      const retryStartedAt = Date.now()
       const retry = fallback.kind === 'session'
         ? fallback.handle
           ? sessionExecution(fallback.handle, fallback.id, request, 'terminal-send', waitMs, handoff, fallback.worktree, idempotencyKey)
           : { status: 'failed' as const, targetId: fallback.id, operation: 'terminal-send' as const, retryable: true, idempotencyKey, receipt: receipt('failed'), error: 'target-session-handle-missing' }
         : executeSpawn(fallback, cwd, request, waitMs, idempotencyKey)
+      const observedRetry = recordModelExecution(fallback, retry, retryStartedAt)
       rerouteCount += 1
       execution = {
-        ...retry,
-        status: retry.status === 'failed' ? 'failed' : 'rerouted',
+        ...observedRetry,
+        status: observedRetry.status === 'failed' ? 'failed' : 'rerouted',
         ...(previousTargetId ? { reroutedFrom: previousTargetId } : {}),
         rerouteCount,
       }

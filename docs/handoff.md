@@ -16,6 +16,24 @@ tool loop, resume, three unique Sabi request receipts and shared-core routing `m
 Direct provider rebinding, auxiliary/subagent calls, compaction replacement and paid-provider
 quality remain explicit separate gates.
 
+## OpenCode model health and fail-open selection — 2026-09-20
+
+The controller now records process-local health for the selected harness/model when an execution
+receipt returns: outcome (`ok`, `failed` or `unverifiable`), bounded sample counts, observed
+latency and timestamp. A failed preferred OpenCode worker is temporarily skipped when another
+configured catalog worker is valid; if every configured worker is unavailable, selection returns
+the first valid worker as a fail-open boundary. The model and health record are retained in the
+bounded execution evidence and candidate telemetry.
+
+This is not first-token telemetry, entitlement/quota proof, durable health, learned economics or
+automatic paid probing. `unverifiable` stays unknown. The next live gate remains a bounded free
+OpenCode run that records runtime, model, receipt latency and outcome, including a quota/fallback
+case without changing user configuration.
+
+Validation: `npm test` passed 381/381, `npm run typecheck` passed, and `git diff --check` passed.
+No live provider request, secret, user configuration, deployment or publication was changed by
+this phase.
+
 ## Product narrative and controller hardening — 2026-09-20
 
 The README now leads with the user outcome, separates the in-harness inference scheduler from the
