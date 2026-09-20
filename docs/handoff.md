@@ -654,3 +654,14 @@ not a learned router or an unconditional Jev call.
 Validation in this worktree: focused Command Code tests passed 15/15, full `npm test` passed 384/384,
 and `npm run typecheck` passed. No provider request, secret, user configuration, deployment or
 publication was performed.
+
+## DeepSeek Harness bundle adapter — 2026-09-20
+
+Added the public `@vizuh/sabi-deepseek-harness` DSH bundle. It adds a `sabi/sabi-code` route through
+DSH's native `@deepseek-ai/dsh-llm-pi-ai` provider and attributes requests as `deepseek-harness`.
+The controller inventory labels DSH `inference-only`; no lifecycle/controller capability is implied.
+
+The package is pinned in documentation to DSH `0.1.6-alpha.2`, upstream revision
+`ddefc45fbc7f8e46dd73185e68295696d1297887`. The local runtime did not include `dsh`, so the current
+gate is package/patch/static validation only. A live DSH boot, stream receipt and mock-upstream probe
+remain the next release gate. No secrets, paid inference or user configuration were used.

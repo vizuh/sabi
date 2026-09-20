@@ -868,3 +868,29 @@ subscription receipt proves task success or spend.
 The host currently exposes no real session ID, model-request latency, task-level outcome or
 provider cost. The first host-served round has no Sabi plan and is therefore not recorded as one.
 Jev, catalog fallback and learned policy remain separate follow-up slices.
+
+## 2026-09-20 — DeepSeek Harness uses a published bundle over the native provider seam
+
+### Decision
+
+Publish `@vizuh/sabi-deepseek-harness` as a configuration-only DSH bundle. It contributes the
+`sabi` provider and `sabi-code` model to DSH's existing `@deepseek-ai/dsh-llm-pi-ai` adapter, whose
+OpenAI-compatible request reaches the local Sabi proxy. DSH remains responsible for the agent loop,
+tools, streaming, approvals and session state. Sabi remains responsible for trajectory routing behind
+the proxy. The controller manifest reports DSH as `inference-only` until session and outcome seams
+are independently proven.
+
+### Evidence and limits
+
+The bundle was authored against DeepSeek Harness `0.1.6-alpha.2` at upstream revision
+`ddefc45fbc7f8e46dd73185e68295696d1297887`. That runtime is a developer preview with expected
+breaking changes. The local environment did not have a `dsh` executable, so package/patch tests are
+the only current evidence; no DSH boot, model request, stream receipt, paid provider request, or
+quality result is claimed. The next gate is a pinned, bounded DSH → Sabi → mock probe.
+
+### Why
+
+A bundle is the smallest supported DSH extension surface and reuses DSH's maintained protocol and
+stream translation. A custom `ctx.llm` adapter would duplicate that surface before the DSH runtime
+is stable. The package does not make Sabi the DSH default model automatically and carries no model
+price, plan, quota, image, or reasoning-effort claim.
