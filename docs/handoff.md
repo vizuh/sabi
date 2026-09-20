@@ -8,6 +8,14 @@
 
 2026-09-20
 
+## OpenCode image modalities — 2026-09-20
+
+The OpenCode writer advertised text-only input for every alias, so images had no path in. `sabiModels` now advertises `image` per alias from reachable-tier capabilities: `sabi-code`/`mid`/`strong` carry `text`+`image`, `sabi-cheap` stays text-only (verified live vs OpenRouter 2026-09-20: flash-0731 text-only; luna, sonnet-5 image-capable). Live proxy check: image on `sabi-cheap` → designed 400, no spend. No live image round-trip yet (would spend on mid).
+
+## SSE post-terminal restatement fix — 2026-09-20
+
+`sabi/sabi-code` in OpenCode looped forever resetting: every adaptive round died on mid/luna after one chunk. Cause: OpenAI-via-OpenRouter restates terminal `stop` with an empty delta on its final usage-bearing chunk, and the PR #4 tap guard rejected it as post-terminal corruption — the client saw a destroyed mid-stream response (502) and retried. `sse.ts` now tracks the terminal reason per choice and allows that idempotent echo (same reason, no content, no tool calls); real late deltas still reject. Live `sabi-mid` + `sabi-code` both `ok` with `[DONE]` after the fix.
+
 ## Public controller package — 2026-09-19
 
 Built the first no-checkout installation boundary. `packages/controller/pack.mjs` bundles the CLI,

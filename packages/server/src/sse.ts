@@ -38,6 +38,22 @@ export class UpstreamStreamError extends UpstreamProtocolError {
   }
 }
 
+/**
+ * Whether a choice that already emitted its terminal reason may appear again. Some providers
+ * restate the finished choice on the final usage-bearing chunk (observed: same `stop` reason,
+ * empty content, role echo). That idempotent echo is harmless; anything carrying new content —
+ * tool-call deltas, real text, a different reason — is the post-terminal corruption the guard
+ * exists for and must still reject.
+ */
+function isContentFreeRestatement(delta: unknown, finishReason: unknown, recorded: string | undefined): boolean {
+  if (recorded === undefined) return false
+  if (finishReason !== undefined && finishReason !== null && finishReason !== recorded) return false
+  if (!isObject(delta)) return false
+  if (typeof delta.content === 'string' && delta.content.length > 0) return false
+  if (delta.tool_calls !== undefined || delta.function_call !== undefined) return false
+  return true
+}
+
 /** Inspect complete events only. Tool deltas remain opaque, including argument fragments. */
 export function createSseTap(alias: string, onFinish: (result: SseTapResult) => void): SseTap {
   const decoder = new TextDecoder('utf-8', { fatal: true })
@@ -45,6 +61,8 @@ export function createSseTap(alias: string, onFinish: (result: SseTapResult) => 
   const result: SseTapResult = { dataEvents: 0 }
   const choicesSeen = new Set<number>()
   const choicesFinished = new Set<number>()
+  /** Terminal reason already emitted per choice, to recognise an idempotent restatement. */
+  const terminalReason = new Map<number, string>()
   let buffer = ''
   let done = false
   let flushed = false
@@ -86,7 +104,14 @@ export function createSseTap(alias: string, onFinish: (result: SseTapResult) => 
         throw new UpstreamProtocolError('invalid upstream stream choice index')
       }
       if (choicesFinished.has(index)) {
-        throw new UpstreamProtocolError('upstream stream choice continued after terminal finish')
+        // A provider may restate the terminal choice on its final usage-bearing chunk (observed:
+        // OpenAI-via-OpenRouter repeats `finish_reason: "stop"` with an empty delta). That
+        // idempotent echo is allowed; anything carrying new content after the terminal reason —
+        // the case the post-terminal guard exists for — still rejects.
+        if (!isContentFreeRestatement(choice.delta, choice.finish_reason, terminalReason.get(index))) {
+          throw new UpstreamProtocolError('upstream stream choice continued after terminal finish')
+        }
+        continue
       }
       choicesSeen.add(index)
       if (choice.finish_reason !== undefined && choice.finish_reason !== null) {
@@ -94,6 +119,7 @@ export function createSseTap(alias: string, onFinish: (result: SseTapResult) => 
           throw new UpstreamProtocolError('invalid upstream stream finish reason')
         }
         choicesFinished.add(index)
+        terminalReason.set(index, choice.finish_reason)
         result.finishReason ??= choice.finish_reason
       }
     }
