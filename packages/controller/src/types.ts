@@ -147,6 +147,7 @@ export interface ControllerExecution {
   observedOutputLines?: number
   outputCursor?: number
   reroutedFrom?: string
+  rerouteCount?: number
   error?: string
 }
 

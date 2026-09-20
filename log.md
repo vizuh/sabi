@@ -475,3 +475,21 @@ Added idempotent user-service implementations for macOS LaunchAgent and Windows 
 the existing Linux `systemd --user` path. All service launchers use absolute packaged entrypoints and
 user-scoped state; install/remove command paths and rendered service definitions are tested without
 touching a real foreign OS. Live macOS/Windows startup remains an explicit release gate.
+
+## [2026-09-20] fix | Bounded quota reroute across eligible candidates
+
+A live quota probe showed the controller stopping after a single fallback attempt. `fallbackTarget`
+now takes the set of failed target ids, consults a refreshed inventory per attempt, and falls back
+to spawn candidates when sessions are exhausted; `runController` retries up to `MAX_REROUTES = 3`
+and records `rerouteCount` on each retry. A regression test with a fake Orca CLI replays the exact
+case (first target quota-fails, second target receives and completes). Focused `controller.test.ts`
+4/4 passed, `npm run typecheck` clean. The branch change remained uncommitted at entry; the live
+retry and final validation are recorded below.
+
+## [2026-09-20] verify | Exercise live quota rerouting
+
+Ran the requested read-only check through the real Orca inventory. Sabi detected a quota-exhausted
+active Codex session, selected OpenCode, observed receipt plus quota/rate-limit failure, refreshed
+inventory and rerouted without a false success. The remaining live targets also reported unavailable
+capacity, so `QUOTA_HANDOFF_OK` was not produced. The retry loop is now bounded to three replacement
+attempts; this result remains a recovery proof, not a successful cross-terminal completion.

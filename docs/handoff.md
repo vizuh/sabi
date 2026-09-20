@@ -6,7 +6,7 @@
 
 ## Last meaningful update
 
-2026-09-19
+2026-09-20
 
 ## Public controller package — 2026-09-19
 
@@ -379,3 +379,34 @@ no terminal was spawned, and no merge or publication was performed.
 
 Verification: 348 Node tests passed, `npm run typecheck` passed, and live `sabi status --json` plus a
 pure `planAgentRoute()` check used the real Orca inventory without executing a request.
+
+## Bounded quota reroute — 2026-09-20
+
+A live quota probe (first target accepted then reported quota, second target also quota) exposed
+that the controller stopped after a single fallback attempt. `runController` now retries only
+new/eligible candidates within a bound (`MAX_REROUTES = 3`): failed target ids accumulate across
+refreshed inventories, sessions are preferred, then the active session, then spawn candidates; each
+retry records `reroutedFrom`/`rerouteCount` (`types.ts`). A regression test replays the exact case
+(first target quota-fails, second receives and completes) against a fake Orca CLI.
+
+Verification: focused `controller.test.ts` 4/4 passed, `npm run typecheck` clean. A second live
+retry selected OpenCode from the real Orca inventory, observed terminal acceptance followed by a
+quota/rate-limit status, refreshed inventory and rerouted without claiming success. All remaining
+eligible targets were unavailable, so `QUOTA_HANDOFF_OK` was not produced. This is a recovery and
+safety proof, not a successful cross-terminal completion.
+
+Preservation note: this work lives in the linked worktree at `/tmp/sabi-global-controller`
+(branch `feat/global-installation-phase2`, gitdir under
+`www/products/sabi/.git/worktrees/sabi-global-controller`). A cross-device `git worktree move` to
+`HugoOS/worktrees/sabi/global-installation-phase2` failed (`Invalid cross-device link`), so the
+the change is now being finalized on that branch; no cross-device worktree move is required.
+
+## Live quota reroute acceptance — 2026-09-20
+
+A real controller run against the current Orca inventory observed 34 worktrees, 10 sessions and 5
+spawn candidates. The active Codex session was quota-exhausted; deterministic routing selected an
+available OpenCode session and sent the read-only `node --version` check through Orca. The terminal
+accepted the input but reported quota/rate-limit state, so the controller refreshed inventory and
+rerouted through additional eligible sessions/targets without claiming success. The final run did
+not receive `QUOTA_HANDOFF_OK`; this is a recovery/safety proof, not a successful end-to-end receipt.
+The recovery loop is now bounded to three replacement attempts and the structured handoff is retained.
