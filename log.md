@@ -699,3 +699,76 @@ verified 128,000-token minimum output ceiling across the current OpenRouter adap
 The Sabi/Orca read-only review (`ctx_193cf942ae7d`) confirmed that native Muse is not reachable by
 the current Chat Completions proxy. Added the spec/task contract and deferred a Responses bridge;
 no native model ID, credential, user config, paid request or deployment was changed.
+
+## [2026-09-20] feat | Add the DeepSeek Harness Sabi bundle adapter
+
+Added the public `@vizuh/sabi-deepseek-harness` configuration bundle. It reuses DSH's native
+`@deepseek-ai/dsh-llm-pi-ai` OpenAI-compatible seam to expose `sabi/sabi-code` through the local
+Sabi proxy, adds privacy-safe `deepseek-harness` attribution, and records the adapter as
+inference-only in the controller inventory. Documentation pins DSH `0.1.6-alpha.2` at upstream
+revision `ddefc45fbc7f8e46dd73185e68295696d1297887` and labels live runtime evidence as pending.
+
+Validation is package/patch/static only because `dsh` is not installed locally; no paid request,
+secret, user configuration, deployment or publication was performed in this change set.
+
+## [2026-09-20] chore | Add the DeepSeek Harness package release lane
+
+Added `.github/workflows/deepseek-harness-release.yml`. The merged DSH bundle is released only by a
+matching `dsh-vX.Y.Z` tag, after `npm ci`, typecheck and the full suite; GitHub Actions publishes
+`@vizuh/sabi-deepseek-harness` with the existing npm token and provenance, then attaches the exact
+tarball to the GitHub Release. Local publication was blocked by missing npm authentication.
+
+## [2026-09-20] release | Publish and verify the DeepSeek Harness adapter
+
+Tag `dsh-v0.1.0` completed workflow `35526863398` successfully. The public npm packument resolves
+`@vizuh/sabi-deepseek-harness@0.1.0` (`latest: 0.1.0`), a clean package-name install passed, and
+the downloaded tarball SHA-256 `d229d80ac9e678f183f2582d09ed42292dc6b24eef3ae001c87551f4d92c484b`
+matches the asset on the GitHub Release `dsh-v0.1.0`. This is distribution evidence only; the
+DeepSeek Harness runtime is not installed locally, so live DSH boot and inference receipts remain
+unverified.
+
+## [2026-09-20] feat | Add opt-in OpenRouter free quality lane and stress it
+
+Added dynamic OpenRouter catalog selection for an explicit `--free-quality` setup. The selector
+requires exact zero prompt/completion pricing plus text I/O, tools and an output-token parameter;
+it does not hard-code a model name or treat `:free` alone as proof. Setup records the catalog URL,
+observation time, selected model and SHA-256 in provenance, writes `quality`/`sabi-quality`, maps
+verification to that lane, and preserves paid tiers. Command Code free-only registration refuses an
+adaptive alias that can still reach paid branches. Config writes are validated and backed up once;
+keys are never written.
+
+Validation: full suite 393/393, typecheck and diff check passed. Live catalog: 446 models, 20 eligible
+candidates, SHA-256 `902f62c1426fad7a3203a1485e034464651454e1ff35815098b66d8d771300ad`; selected
+`dots-studio/dots-3-note-preview:free`. Direct free-only stress: four candidates × three synthetic
+checks = 12 rounds, 7 non-empty receipts, 4 empty choice shapes, 1 HTTP 429. Temporary-config proxy
+stress: HTTP 200, `SABI_PROXY_FREE_OK`, decision `quality`, upstream
+`dots-studio/dots-3-note-preview:free`, outcome `ok`, 1387 ms. No paid fallback, private content,
+user config or secret value was used. These observations prove availability/receipt behavior only,
+not quality, entitlement or privacy.
+
+## [2026-09-20] feat | Add surplus inference shadow QA slice
+
+Added `sabi surplus inventory|review|history`. The review path selects a fixed exact-zero-cost text
+resource, sends only a bounded tracked diff through the local Sabi proxy, rejects secret paths and
+canaries, parses advisory JSON claims and persists only task/resource/hash/status/latency/count
+metadata. It records `verifiedClaimCount: 0`, never invokes tools, never falls back to paid tiers and
+does not alter the primary work. Full suite passed 400/400; seven focused tests pass. Live completed-task quality and claim
+verification are intentionally unverified.
+
+## [2026-09-20] fix | Harden surplus packet safety and free-lane compatibility
+
+Addressed the post-merge review findings from PR #51. Surplus review now reads NUL-delimited Git
+name-status entries with rename detection and checks both old and new paths before any proxy call.
+The sensitive filename gate now covers common credential files and suffixed variants. The OpenRouter
+free-quality config preserves the catalog's supported wire parameters for strict route validation.
+
+Validation: focused tests passed 10/10, full `npm test` passed 401/401, `npm run typecheck` passed
+and `git diff --check` passed. No provider request, secret, user configuration or deployment was
+used.
+
+## [2026-09-20] fix | Preserve proxy-injected stream options in free-quality metadata
+
+Follow-up to merged PR #52. When the OpenRouter upstream enables `streamUsage`, Sabi injects
+`stream_options` into streamed requests. Free-quality setup now includes that proxy-owned field in
+the generated capability allowlist so compatibility validation does not reject its own envelope.
+A fixed-lane streaming regression covers the behavior.

@@ -126,6 +126,18 @@ const BUILTIN_ADAPTERS: HarnessAdapterManifest[] = [
       dispatch: 'missing', 'observe-outcome': 'missing', uninstall: 'missing',
     },
   },
+  {
+    contractVersion: 1,
+    id: 'deepseek-harness',
+    displayName: 'DeepSeek Harness',
+    command: 'dsh',
+    status: 'inference-only',
+    consent: 'required',
+    operations: {
+      detect: 'native', install: 'missing', 'identify-session': 'missing', 'receive-prompt': 'missing',
+      dispatch: 'missing', 'observe-outcome': 'missing', uninstall: 'missing',
+    },
+  },
   ...(['hermes', 'prime-agent', 'pi', 'omp'] as const).map((id): HarnessAdapterManifest => ({
     contractVersion: 1,
     id,

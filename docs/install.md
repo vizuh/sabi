@@ -143,6 +143,27 @@ If the secrets live elsewhere, start Sabi with `SABI_SECRETS_FILE=/absolute/path
 Users without a central file can keep exporting provider variables normally, and users who do not
 use Jev can set `judge.enabled` to `false`.
 
+### Optional OpenRouter free quality lane
+
+The proxy can use the current zero-priced OpenRouter catalog for verification and other explicitly
+accepted quality checks. This is opt-in; plain `sabi setup` never refreshes a provider catalog.
+
+```bash
+export OPENROUTER_API_KEY=...
+sabi setup --free-quality
+```
+
+The command selects a current catalog model with exact zero prompt/completion pricing, text input and
+output, tools, and an output-token limit. It records the selected id, observation time and catalog
+hash in config provenance, adds `sabi-quality`, and maps `verification` to that fixed lane. It does
+not replace the paid `cheap`, `mid`, `strong` or `failure` tiers. Run it again to refresh the
+selection when the free catalog changes. A config backup is kept at `sabi.config.json.sabi-backup`.
+
+Free availability is not quality evidence: providers may rate-limit or retire these models, and
+their data policies may differ from paid providers. Do not use this lane for secrets or proprietary
+code without explicit provider-policy approval. The setup command fails before writing if the key,
+catalog or candidate is unavailable.
+
 ### Confirm it is up
 
 ```bash
@@ -174,6 +195,10 @@ Then pick `sabi/sabi-code` in `/model`, or pass `--model sabi/sabi-code`. The fi
 (`sabi-cheap`, `sabi-mid`, `sabi-strong`) bypass the policy and exist as baselines for comparison.
 `--include-local` also exposes `sabi-local` (Ollama); it is skipped by default because a 32k window
 is too small for harness prompts.
+
+When `--free-quality` has added `sabi-quality`, `npm run connect:command-code -- --free` exposes that
+fixed zero-priced lane. It does not expose `sabi-code` in free-only mode while that adaptive alias
+can still reach paid branches.
 
 To hard-disable a specific upstream regardless of `--paid`, set `"enabled": false` on it in
 `sabi.config.json` — see Configuration below. The kill switch is enforced again at request time, so

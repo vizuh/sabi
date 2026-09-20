@@ -36,6 +36,7 @@ After installation, open your normal harness. Choose an optional integration onl
 | Per-round model + reasoning-effort routing | [Command Code mod](docs/adapters/command-code.md) | Uses the host's native loop and subscription catalog | Command Code only |
 | Model/provider routing with your own credentials | [Local proxy](docs/install.md#optional-integration-local-openai-compatible-proxy) | Routes requests through an OpenAI-compatible endpoint | Model/provider routing; not native reasoning-effort switching |
 | Move work between sessions and worktrees | [Controller hooks](docs/adapters/README.md) | Coordinates bounded continue/delegate/spawn actions | Does not switch the model inside an existing native session |
+| Use Sabi from DeepSeek Harness | [DeepSeek Harness adapter](docs/adapters/deepseek-harness.md) | Adds `sabi/sabi-code` through DSH's native provider seam | Inference-only; DSH lifecycle support is not claimed |
 | Add another host | [Maintainer contract](docs/maintainers.md) | Defines the adapter boundary and evidence required | An adapter is not a second routing policy |
 
 ## The 60-second mental model
@@ -106,6 +107,27 @@ No Sabi provider key or local proxy is needed. The mod uses the Command Code sub
 ### Local OpenAI-compatible clients
 
 Use the proxy when a client accepts a `baseURL` and you want Sabi to route your own OpenRouter, Ollama, or other provider credentials. This is an optional BYOK inference surface; its model/provider routing does not provide the native reasoning-effort signals of the Command Code mod. See [Local proxy](docs/install.md#optional-integration-local-openai-compatible-proxy).
+
+To opt into a current zero-priced OpenRouter quality lane, set `OPENROUTER_API_KEY` (or use the
+configured Sabi secrets file) and run `sabi setup --free-quality`. Sabi refreshes the live catalog,
+adds the fixed `sabi-quality` alias and routes verification rounds there; paid tiers remain intact.
+The catalog refresh is availability evidence, not a model-quality or privacy guarantee.
+
+### Surplus inference: shadow QA
+
+Sabi can use a configured zero-cost fixed lane to try to find a problem in the primary work without
+changing it. The first slice is explicit, read-only and shadow-only:
+
+~~~bash
+sabi surplus inventory
+sabi surplus review --intent=bug-hunt
+sabi surplus history
+~~~
+
+Only a bounded tracked diff is sent through the local Sabi proxy. Secret paths, secret-like markers,
+tools, environment values and absolute paths are refused; receipts store hashes and counts, not the
+diff or model claims. A claim is advisory until a deterministic verifier proves it. See
+[Surplus inference](docs/specs/surplus-inference.md).
 
 ### Controller hooks
 
@@ -199,7 +221,7 @@ expectations, and how to propose an adapter without creating a second policy imp
 ~~~text
 packages/core/                 shared state, policy, routing, telemetry
 packages/server/               local OpenAI-compatible proxy
-packages/adapters/             Command Code, Hermes, OpenCode, Orca, Prime Agent
+packages/adapters/             Command Code, DeepSeek Harness, Hermes, OpenCode, Orca, Prime Agent
 packages/controller/           task/session controller and host hooks
 packages/evals/                frozen evals, client smoke checks, accounting
 docs/adapters/                 user-facing adapter guides

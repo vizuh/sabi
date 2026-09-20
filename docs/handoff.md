@@ -666,4 +666,84 @@ OpenRouter minimum output ceiling (128,000), which the connector advertises for 
 Muse remains a deferred native lane. OpenCode's Muse endpoint is Responses-native; Sabi's proxy is
 Chat Completions-only and cannot consume OpenCode's subscription credential. No Muse ID was added to
 the proxy config, no user config or credential store was changed, and no paid inference ran. See
-`docs/specs/opencode-muse-cheap-lane.md` and `docs/tasks/opencode-muse-cheap-lane.md`.
+`docs/specs/opencode-muse-cheap-lane.md` and `docs/tasks/opencode-muse-cheap-lane.md`.## DeepSeek Harness bundle adapter — 2026-09-20
+
+Added the public `@vizuh/sabi-deepseek-harness` DSH bundle. It adds a `sabi/sabi-code` route through
+DSH's native `@deepseek-ai/dsh-llm-pi-ai` provider and attributes requests as `deepseek-harness`.
+The controller inventory labels DSH `inference-only`; no lifecycle/controller capability is implied.
+
+The package is pinned in documentation to DSH `0.1.6-alpha.2`, upstream revision
+`ddefc45fbc7f8e46dd73185e68295696d1297887`. The local runtime did not include `dsh`, so the current
+gate is package/patch/static validation only. A live DSH boot, stream receipt and mock-upstream probe
+remain the next release gate. No secrets, paid inference or user configuration were used.
+
+The source is merged in PR #47 at `09dc693`. Local npm publication was not possible because this
+machine is not authenticated to npm. The follow-up `deepseek-harness-release` workflow publishes
+with the repository's existing `NPM_TOKEN` and provenance on tag `dsh-v0.1.0`; registry presence and
+the GitHub release remain to be verified after that tag run.
+
+## DeepSeek Harness package publication verified — 2026-09-20
+
+The release lane was merged in PR #48 at `e8ea222` and completed successfully in workflow run
+`35526863398` on tag `dsh-v0.1.0`. The public npm packument now resolves
+`@vizuh/sabi-deepseek-harness@0.1.0` with `latest: 0.1.0`; a clean install by package name passed,
+and its tarball SHA-256 is `d229d80ac9e678f183f2582d09ed42292dc6b24eef3ae001c87551f4d92c484b`,
+matching the GitHub Release asset. This verifies distribution, not a live DSH runtime: `dsh` is
+still not installed on this host, so boot, stream receipt and proxy execution remain unverified.
+
+## OpenRouter free quality lane — 2026-09-20
+
+Added the opt-in `--free-quality` setup path to the controller and maintainer wizard. It refreshes
+the live OpenRouter `/models` catalog, selects a generic zero-priced text/tool candidate, records
+catalog provenance, writes `quality`/`sabi-quality`, and maps verification rounds to the fixed lane.
+Paid tiers remain unchanged; plain setup remains offline. Command Code free-only registration
+exposes the fixed quality lane but not `sabi-code` while its adaptive branches can spend paid
+credits. A config backup is written once and no key value is stored.
+
+Validation: `npm test` passed 393/393, `npm run typecheck` passed and `git diff --check` passed. The
+live catalog on 2026-09-20 returned 446 models and 20 candidates under the selector; catalog SHA-256
+was `902f62c1426fad7a3203a1485e034464651454e1ff35815098b66d8d771300ad`, and setup selected
+`dots-studio/dots-3-note-preview:free`. A bounded direct free-only run covered four candidates and
+12 synthetic rounds: 7 non-empty receipts, 4 empty choice shapes and 1 HTTP 429. A separate
+temporary-config Sabi proxy run returned HTTP 200 with `SABI_PROXY_FREE_OK`; the decision was
+`quality` → `dots-studio/dots-3-note-preview:free`, outcome `ok`, latency 1387 ms. These are
+availability/receipt observations, not model-quality or privacy claims; no paid fallback or private
+content was used.
+
+Remaining gates: receipt-aware free-model health/demotion, a privacy-approved completed-task set,
+held-out comparison, and only then any multi-model debate or learned quality profile.
+
+## Surplus inference shadow QA — 2026-09-20
+
+Added the first explicit surplus-inference slice on branch `feat/surplus-inference-shadow`. It
+discovers fixed zero-cost text resources from config, builds a bounded tracked-diff packet, calls the
+local `sabi-quality` proxy alias in shadow mode, parses bounded advisory claims and writes durable
+metadata-only receipts to `SABI_SURPLUS_LOG` or the user Sabi config directory. Secret paths/markers,
+adaptive aliases, tools, credentials and paid fallback are refused by construction.
+
+Validation so far: `npm test` passed 400/400; seven focused tests pass and typecheck/diff check pass. This is not yet a live
+completed-task quality result: claim verification, multi-resource fan-out, Jev intent assignment,
+held-out evaluation and automatic handoff remain gated tasks.
+
+## Surplus/free-quality review hardening — 2026-09-20
+
+Follow-up work hardens the merged free-quality and surplus shadow paths. Surplus review input now
+collects both endpoints of Git renames before applying the sensitive-path gate, and the gate covers
+common credential filenames such as `.npmrc`, `credentials.json`, `secrets.yaml`, `token.txt` and
+SSH key names without treating ordinary `tokens.ts` source as a secret file. Free-quality setup now
+retains the catalog's `supported_parameters` in model capabilities, so strict compatibility can
+prove the fixed `sabi-quality` request is dispatchable.
+
+Validation in the follow-up worktree: focused tests passed 10/10, full `npm test` passed 401/401,
+`npm run typecheck` passed and `git diff --check` passed. The PR is not yet merged; no provider
+request, secret, user configuration, deployment or live quality result was used.
+
+## Free-quality proxy parameter hardening — 2026-09-20
+
+After PR #52 merged, review found that the generated catalog allowlist did not include Sabi's
+proxy-injected `stream_options` field when OpenRouter `streamUsage` was enabled. The generated
+quality model now adds that field conditionally, and a streaming fixed-lane route regression covers
+the legacy compatibility path.
+
+Validation in the follow-up worktree: focused free-quality tests pass; the full suite and remote CI
+remain the delivery gates for the new PR. No provider request or live quality claim was used.

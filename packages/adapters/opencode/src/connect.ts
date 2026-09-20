@@ -39,6 +39,7 @@ const displayNames: Record<string, string> = {
   'sabi-cheap': 'Sabi Cheap (baseline)',
   'sabi-mid': 'Sabi Mid (baseline)',
   'sabi-strong': 'Sabi Strong (baseline)',
+  'sabi-quality': 'Sabi Quality (free OpenRouter lane)',
   'sabi-local': 'Sabi Local (ollama)',
 }
 

@@ -133,7 +133,7 @@ function sendError(res: ServerResponse, status: number, message: string, type = 
   sendJson(res, status, { error: { message, type, code: status } })
 }
 
-const CLIENTS = new Set<DecisionRecord['client']>(['hermes', 'opencode', 'kilo-cli', 'kilo-vscode', 'prime-agent', 'unknown'])
+const CLIENTS = new Set<DecisionRecord['client']>(['hermes', 'opencode', 'kilo-cli', 'kilo-vscode', 'prime-agent', 'deepseek-harness', 'command-code', 'sabi-surplus', 'unknown'])
 const OPAQUE_ID = /^[A-Za-z0-9._:-]{1,128}$/
 
 function requestIdentity(req: IncomingMessage): Pick<DecisionRecord, 'client' | 'sessionId' | 'sessionKnown' | 'requestId' | 'turnId'> {

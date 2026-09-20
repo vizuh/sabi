@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { isFreeUpstream, minContextWindow, resolveConsent } from '../src/connect.ts'
+import { isFreeTier, isFreeUpstream, minContextWindow, resolveConsent } from '../src/connect.ts'
 import { isEnabledUpstream, tiersFor, type SabiConfig } from '@sabi/core'
 
 const connectPath = fileURLToPath(new URL('../src/connect.ts', import.meta.url))
@@ -68,6 +68,19 @@ test('isEnabledUpstream / isFreeUpstream truth table', () => {
   assert.equal(isFreeUpstream(undefined), false)
 })
 
+test('explicit zero-priced model is free even when its OpenRouter upstream needs a key', () => {
+  const config = baseConfig({
+    models: {
+      cheap: { upstream: 'paid', model: 'p-cheap', contextWindow: 1000 },
+      strong: { upstream: 'paid', model: 'p-strong', contextWindow: 2000 },
+      quality: { upstream: 'paid', model: 'p-free', contextWindow: 3000, cost: { input: 0, output: 0 } },
+      local: { upstream: 'local', model: 'l-local', contextWindow: 500 },
+    },
+  })
+  assert.equal(isFreeTier(config, 'quality'), true)
+  assert.equal(isFreeTier(config, 'cheap'), false)
+})
+
 test('minContextWindow: smallest window among the given tiers, undefined when none declare one', () => {
   const config = baseConfig()
   assert.equal(minContextWindow(config, ['cheap', 'strong']), 1000)
@@ -122,6 +135,22 @@ test('--free explicitly skips paid upstreams the same as no flags', () => {
   const { status, written } = run(['--free'], baseConfig())
   assert.equal(status, 0)
   assert.deepEqual(written.provider.sabi.models, {})
+})
+
+test('--free registers a fixed zero-priced quality lane but not an adaptive alias that can reach paid tiers', () => {
+  const config = baseConfig({
+    models: {
+      cheap: { upstream: 'paid', model: 'p-cheap', contextWindow: 1000 },
+      strong: { upstream: 'paid', model: 'p-strong', contextWindow: 2000 },
+      quality: { upstream: 'paid', model: 'p-free', contextWindow: 3000, cost: { input: 0, output: 0 } },
+      local: { upstream: 'local', model: 'l-local', contextWindow: 500 },
+    },
+    aliases: { 'sabi-code': 'auto', 'sabi-quality': 'quality', 'sabi-local': 'local' },
+    policy: { unclassified: 'cheap', failure: 'strong', verification: 'quality' },
+  })
+  const { status, written } = run(['--free'], config)
+  assert.equal(status, 0)
+  assert.deepEqual(Object.keys(written.provider.sabi.models), ['sabi-quality'])
 })
 
 test('an unrelated existing provider entry survives the run', () => {

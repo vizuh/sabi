@@ -110,6 +110,32 @@ test('explicit IDs are hashed, client-scoped and stripped with spoofed authority
   }
 })
 
+test('DeepSeek Harness attribution is accepted and remains local', async (t) => {
+  const { post, sabi, seen } = await fixture(t)
+  const response = await post({}, {
+    'x-sabi-client': 'deepseek-harness',
+    'x-sabi-session': 'dsh-session-1',
+    'x-sabi-turn': 'dsh-turn-1',
+  })
+  assert.equal(response.status, 200)
+  assert.equal(seen[0]?.headers['x-sabi-client'], undefined)
+  assert.equal(sabi.recent[0]?.client, 'deepseek-harness')
+  assert.equal(sabi.recent[0]?.sessionKnown, true)
+})
+
+test('surplus review attribution is accepted and remains local', async (t) => {
+  const { post, sabi, seen } = await fixture(t)
+  const response = await post({}, {
+    'x-sabi-client': 'sabi-surplus',
+    'x-sabi-session': 'surplus-review',
+    'x-sabi-turn': 'bug-hunt',
+  })
+  assert.equal(response.status, 200)
+  assert.equal(seen[0]?.headers['x-sabi-client'], undefined)
+  assert.equal(sabi.recent[0]?.client, 'sabi-surplus')
+  assert.equal(sabi.recent[0]?.sessionKnown, true)
+})
+
 test('invalid opaque identity headers are rejected before any upstream call', async (t) => {
   const { post, seen } = await fixture(t)
   const invalidHeaders: Array<Record<string, string>> = [{ 'x-sabi-client': 'administrator' }, { 'x-sabi-session': 'bad value' },
