@@ -804,3 +804,19 @@ The install/run instructions now include the exact `SABI_HERMES_BASE_URL` attrib
 fresh-profile rule, three-terminal startup, native OpenCode Go/ChatGPT Plus boundary, and this
 Qwen limitation. Temporary validation servers and the proxy were stopped after the receipt was
 captured; the existing Hermes profile and checkout worktree were preserved.
+
+## Public package release — 2026-09-20
+
+PR [#54](https://github.com/vizuh/sabi/pull/54) merged at `9cb67626e977c5b9afba452e1d3b47966659967`.
+Tags `v0.1.3` and `controller-v0.1.0` completed their release workflows successfully:
+[Command Code workflow](https://github.com/vizuh/sabi/actions/runs/35539333133) and
+[controller workflow](https://github.com/vizuh/sabi/actions/runs/35539332925). The public npm
+packuments now resolve [`@vizuh/sabi@0.1.3`](https://www.npmjs.com/package/@vizuh/sabi/v/0.1.3)
+and [`@vizuh/sabi-controller@0.1.0`](https://www.npmjs.com/package/@vizuh/sabi-controller/v/0.1.0);
+the matching GitHub assets are attached to the
+[`v0.1.3`](https://github.com/vizuh/sabi/releases/tag/v0.1.3) and
+[`controller-v0.1.0`](https://github.com/vizuh/sabi/releases/tag/controller-v0.1.0) releases.
+
+This proves source, CI, package build and public distribution. It does not prove universal host
+activation, cross-terminal completion, provider entitlement, quota behavior or task quality; those
+remain runtime evidence gates.
