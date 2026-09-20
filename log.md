@@ -532,3 +532,21 @@ the native OpenCode session, with no cross-session dispatch, paid upstream reque
 The first attempt was discarded from evidence because OpenCode resolved the canonical dirty
 checkout; the corrected `--dir` run is the only accepted result. Full validation: 366 tests passed,
 `npm run typecheck` passed, and `git diff --check` passed.
+
+## [2026-09-20] feat | Record harness model catalogs as bounded routing evidence
+
+Added the first executable slice for the harness × model × provider/plan × effort × session
+contract. The controller now probes verified OpenCode/Command Code catalog commands, records model
+IDs with deterministic `worker`/`judge` roles, marks only explicit `free` suffixes as
+`explicit-free`, and preserves runtime version, observation time, model count, truncation state and
+full-output SHA-256. Missing source revision, entitlement, price, quota and token usage remain
+unknown; native OpenCode sessions are not silently switched.
+
+Added focused inventory coverage for parser classification and the real discovered OpenCode spawn
+candidate path, plus `docs/research/harness-model-token-routing.md`. Updated context, decisions,
+handoff, README, install and research-plan docs to separate implemented catalog evidence from
+planned token receipts, AgentRun-style replay/lessons and SoL-Pi-style harness optimization.
+
+Validation: `npm test` passed 368 tests, `npm run typecheck` passed, focused controller/inventory
+tests passed, and `git diff --check` passed. No user configuration, secrets, paid inference or live
+terminal execution was changed.

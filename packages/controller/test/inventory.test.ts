@@ -3,13 +3,71 @@ import assert from 'node:assert/strict'
 import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { discoverAgents, parseModelList, selectPreferredModel } from '../src/inventory.ts'
+import { discoverAgents, parseModelCatalog, parseModelList, selectPreferredModel } from '../src/inventory.ts'
 
 test('local harness model catalog matching stays exact and provider-free', () => {
   const output = 'opencode-go/kimi-k3\nopencode-go/gpt-5.6-luna\nAvailable models · 2 models'
   assert.deepEqual(parseModelList(output), ['opencode-go/kimi-k3', 'opencode-go/gpt-5.6-luna'])
   assert.equal(selectPreferredModel(output, ['opencode-go/kimi-k3']), 'opencode-go/kimi-k3')
   assert.equal(selectPreferredModel(output, ['moonshotai/kimi-k3']), undefined)
+})
+
+test('runtime catalog evidence classifies free markers and Jev without inventing entitlement', () => {
+  const output = [
+    'opencode/jev-1.13-free',
+    'opencode/muse-spark-1.3-contributor-free',
+    'opencode-go/kimi-k3',
+  ].join('\n')
+  const catalog = parseModelCatalog(output, { command: 'opencode', runtimeVersion: '1.18.31', observedAt: 123 })
+
+  assert.equal(catalog.command, 'opencode')
+  assert.equal(catalog.runtimeVersion, '1.18.31')
+  assert.equal(catalog.observedAt, 123)
+  assert.equal(catalog.modelCount, 3)
+  assert.equal(catalog.truncated, undefined)
+  assert.match(catalog.outputSha256, /^[a-f0-9]{64}$/)
+  assert.equal(catalog.sourceRevision, undefined)
+  assert.deepEqual(catalog.models, [
+    { id: 'opencode/jev-1.13-free', costClass: 'explicit-free', role: 'judge' },
+    { id: 'opencode/muse-spark-1.3-contributor-free', costClass: 'explicit-free', role: 'worker' },
+    { id: 'opencode-go/kimi-k3', costClass: 'unknown', role: 'worker' },
+  ])
+})
+
+test('discovered OpenCode spawn candidates carry the observed runtime catalog', () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-catalog-cwd-'))
+  const harnessDir = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-catalog-bin-'))
+  const opencode = path.join(harnessDir, 'opencode')
+  writeFileSync(opencode, '#!/bin/sh\ncase "$1" in --version) echo 1.18.31-test;; models) printf "opencode/jev-1.13-free\\nopencode/muse-spark-1.3-contributor-free\\n";; esac\n')
+  chmodSync(opencode, 0o755)
+  const previousCommand = process.env.ORCA_CLI_COMMAND
+  const previousHandle = process.env.ORCA_TERMINAL_HANDLE
+  const previousHarnesses = process.env.SABI_CONTROLLER_HARNESSES
+  const previousPath = process.env.PATH
+  process.env.ORCA_CLI_COMMAND = fakeOrca(cwd)
+  process.env.ORCA_TERMINAL_HANDLE = 'term-idle'
+  process.env.SABI_CONTROLLER_HARNESSES = 'opencode'
+  process.env.PATH = `${harnessDir}${path.delimiter}${previousPath ?? ''}`
+  try {
+    const inventory = discoverAgents(cwd)
+    const candidate = inventory.spawnCandidates.find((entry) => entry.agent === 'opencode')
+    assert.equal(candidate?.catalog?.runtimeVersion, '1.18.31-test')
+    assert.deepEqual(candidate?.catalog?.models.map((model) => model.id), [
+      'opencode/jev-1.13-free',
+      'opencode/muse-spark-1.3-contributor-free',
+    ])
+    assert.equal(candidate?.catalog?.models[0]?.role, 'judge')
+    assert.equal(candidate?.catalog?.models[1]?.costClass, 'explicit-free')
+  } finally {
+    if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
+    else process.env.ORCA_CLI_COMMAND = previousCommand
+    if (previousHandle === undefined) delete process.env.ORCA_TERMINAL_HANDLE
+    else process.env.ORCA_TERMINAL_HANDLE = previousHandle
+    if (previousHarnesses === undefined) delete process.env.SABI_CONTROLLER_HARNESSES
+    else process.env.SABI_CONTROLLER_HARNESSES = previousHarnesses
+    if (previousPath === undefined) delete process.env.PATH
+    else process.env.PATH = previousPath
+  }
 })
 
 function fakeOrca(cwd: string): string {

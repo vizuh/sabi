@@ -1,12 +1,13 @@
 # Multi-harness support plan
 
-> Scope note (2026-09-19): PR #22 adds an experimental controller host-hook surface for Claude,
-> Codex and OpenCode. That bridge routes controller actions and does not change the inference-routing
-> status below; native per-round model/effort routing still requires the separate evidence gates in
-> this document.
+> Scope note (2026-09-20): the experimental controller host-hook surface now includes the merged
+> global inventory/handoff and runtime catalog evidence for Claude, Codex and OpenCode. It adds
+> task-level controller routing but does not change the inference-routing status below; native
+> per-round model/effort routing still requires the separate evidence gates in this document and
+> [the harness/model/token contract](harness-model-token-routing.md).
 
-Proposal for approval, 2026-09-18. All four have a documented custom-provider path;
-none has passed a Sabi integration test in this review. [Pinned evidence and limits](harness-support-evidence.md).
+Proposal for approval, 2026-09-18. All four have a documented custom-provider path; none has passed
+the native per-round Sabi integration gate in this review. [Pinned evidence and limits](harness-support-evidence.md).
 
 ## Goal and scope
 
@@ -41,7 +42,7 @@ All proxy recipes target `http://127.0.0.1:8787/v1` and the `sabi-code` alias.
 | Surface | First integration | Native follow-up / gate |
 |---|---|---|
 | Hermes Agent | Custom provider; explicitly select `chat_completions` | Per-request middleware exists upstream; test compatible model/effort rewrites, fail-open behavior and attribution |
-| OpenCode 1.18.30 | Custom `@ai-sdk/openai-compatible` provider | Local plugin 1.18.4 differs from CLI; defer native routing until matched hooks prove it |
+| OpenCode 1.18.31 | Custom `@ai-sdk/openai-compatible` provider | Runtime catalog and controller spawn evidence exist; native per-round routing still needs matched hooks and receipts |
 | Kilo CLI | Documented `openai-compatible` provider, explicit model and limits | Test actual installed build; do not assume OpenCode parity |
 | Kilo VS Code | Custom provider → **OpenAI Compatible**, manual alias and limits | Test extension separately; UI setup is not protocol certification |
 | Prime Agent 0.9.5 | Custom model/provider with `api: "openai-completions"` | Documented model/effort setters need same-parent-round timing tests; `spawn` is not a substitute |

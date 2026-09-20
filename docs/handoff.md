@@ -2,11 +2,35 @@
 
 ## Current status
 
-`main` includes PR #22, merged as `4c88fdb`, with the user-level controller daemon, Claude/Codex hooks, the OpenCode bridge, trace schema v1 and read-only replay. The source/test boundary is validated; installed user-config mutation, live OpenCode plugin activation inside Orca, and real cross-terminal execution remain separate evidence gates. The current latest package release is `v0.1.2` at `35560c0` and publishes only `@vizuh/sabi` (the Command Code adapter). The current controller implementation branch adds the separate `@vizuh/sabi-controller` bundle and release lane, but it is not published or merged yet.
+`main` includes the global controller, Claude/Codex hooks, OpenCode bridge, Orca inventory/handoff,
+bounded reroute, trace schema v1, runtime-pinned free-catalog evidence and read-only replay. The
+source/test boundary is validated; installed user-config mutation, universal Orca activation and
+real cross-terminal completion remain separate evidence gates. The public `@vizuh/sabi` release
+still publishes the inference adapter; `@vizuh/sabi-controller` remains a separate bundle/release
+lane until its live receipt gates pass.
 
 ## Last meaningful update
 
 2026-09-20
+
+## Harness × model × token routing contract — 2026-09-20
+
+Added `docs/research/harness-model-token-routing.md` and the first executable catalog slice. The
+controller now retains bounded runtime evidence for verified OpenCode/Command Code catalog probes:
+model IDs, deterministic `worker`/`judge` role, explicit-free/unknown cost class, runtime version,
+observation timestamp and full-output SHA-256. It deliberately does not infer paid status, plan
+entitlement, quota or source commit when the installed runtime does not expose them. Existing
+OpenCode sessions keep their current model; only a controller-spawned terminal receives an exact
+`--model` selection.
+
+The design now explicitly treats `(harness, model, provider/plan, effort, session)` as the route
+unit and puts availability, capability, quota and measured-token gates before Jev. The current
+`sabi replay` remains telemetry aggregation; AgentRun-style lessons, policy compilation, controller
+token receipts and SoL-Pi-style harness optimization are planned gates, not shipped behavior.
+
+Verification in the dedicated phase worktree: 368 tests passed, including the new catalog tests,
+and `npm run typecheck` passed. No user configuration, secrets, paid request or live terminal was
+changed by this phase.
 
 ## OpenCode image modalities — 2026-09-20
 

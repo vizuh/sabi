@@ -153,6 +153,13 @@ is eligible only when its executable/session is actually present. Existing sessi
 currently selected model; exact model selection is guaranteed only for a controller-spawned terminal
 (`opencode --model ...` or `cmd --model ...`).
 
+The controller also retains the verified local catalog as bounded evidence: model IDs, runtime
+version, full-output hash, and deterministic `worker`/`judge` plus explicit-free/unknown markers.
+Catalog presence is not proof of plan entitlement, pricing or quota. Native OpenCode free models
+remain OpenCode resources; Sabi does not silently turn them into proxy upstreams or switch an
+already-running native session. See [Harness × model × token routing](docs/research/harness-model-token-routing.md)
+for the current contract and the token/learning gates.
+
 Controller records use trace schema v1: bounded candidate descriptors, the closed valid-action set,
 the selected route, execution status and elapsed time. Raw requests, handoffs, diffs and terminal
 handles are omitted from persisted controller logs by default; the live handoff is sent only to the
