@@ -88,6 +88,5 @@ policy evaluation and promotion gates.
 - Repo: https://github.com/vizuh/sabi (public)
 - Local: `www/products/sabi`
 - Prior-art survey: `docs/research/github-landscape.md`
-- Related but separate product: Sabido (`www/products/sabido`)
 - Production / Staging: none
 - ClickUp: not created yet (bootstrap checklist item pending)

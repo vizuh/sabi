@@ -259,7 +259,7 @@ Planejado: `evals`, adaptadores `prime-agent` e `opencode`, perfis de modelo apr
 
 ## Nome
 
-Nome do produto: **Sabi**. Os handles `sabi`, `uasabi` e `sabido` no GitHub já estavam tomados, então o repositório vive no namespace Vizuh: https://github.com/vizuh/sabi (público). Sem relação com o Sabido, o outro produto de aprendizagem da Vizuh.
+Nome do produto: **Sabi**. Os handles `sabi` e `uasabi` no GitHub já estavam tomados, então o repositório vive no namespace Vizuh: https://github.com/vizuh/sabi (público).
 
 ## Documentação
 

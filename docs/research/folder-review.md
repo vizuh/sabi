@@ -1,7 +1,7 @@
 # Folder review and agent tasks
 
 Read-only source review, 2026-09-18. No runtime changes or live product/evaluation calls.
-Sabi is the product; Sabido remains separate. Recommendations below are not shipped features.
+Recommendations below are not shipped features.
 
 ## First conclusion
 
