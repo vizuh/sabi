@@ -1,6 +1,6 @@
 {
   "name": "@vizuh/sabi-deepseek-harness",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Sabi inference adapter bundle for DeepSeek Harness (DSH).",
   "license": "MIT",
   "type": "module",
