@@ -22,5 +22,8 @@ Status: complete for the local controller-selection slice, 2026-09-20.
 - no first-token claim until the host exposes that timestamp;
 - no durable learned policy or economic optimization in this slice.
 
-The next live gate is a bounded free OpenCode receipt, an unknown/paid receipt, an explicit quota
-failure and a fallback, with runtime versions and spend boundaries recorded separately.
+The free OpenCode receipt gate is complete for native execution evidence. It does not exercise a
+controller-spawned model-health receipt because the live session remained a safe `CONTINUE`. The
+remaining live gates are an explicitly approved unknown/paid observation and a quota failure with
+successful fallback on an addressable controller target; both require separate spend and runtime
+evidence.

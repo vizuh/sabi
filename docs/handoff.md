@@ -26,13 +26,34 @@ the first valid worker as a fail-open boundary. The model and health record are 
 bounded execution evidence and candidate telemetry.
 
 This is not first-token telemetry, entitlement/quota proof, durable health, learned economics or
-automatic paid probing. `unverifiable` stays unknown. The next live gate remains a bounded free
-OpenCode run that records runtime, model, receipt latency and outcome, including a quota/fallback
-case without changing user configuration.
+automatic paid probing. `unverifiable` stays unknown. A bounded free OpenCode receipt has now been
+observed below; it proves the native free-model/plugin path and a `CONTINUE` controller decision,
+not a controller-spawned model-health execution receipt. The remaining live gate is an explicit
+quota/fallback observation without a paid request or user configuration change.
 
 Validation: `npm test` passed 381/381, `npm run typecheck` passed, and `git diff --check` passed.
-No live provider request, secret, user configuration, deployment or publication was changed by
-this phase.
+No paid provider request, secret, user configuration, deployment or publication was changed by
+this phase; the bounded free OpenCode request is documented below.
+
+## OpenCode free receipt probe — 2026-09-20
+
+A temporary loopback run used Node `v24.15.0`, OpenCode `1.18.31`, Orca `orca-ide 1.4.201`, the
+Sabi OpenCode plugin from the PR #38 tree and an isolated controller daemon on `127.0.0.1:7543`.
+The current local catalog reported 46 entries, including seven explicit `opencode/*-free` worker
+IDs; the full catalog output hash remained
+`4b1c758f744cc2d004827fb2dea8c331ef645e6fbb971d57bbcd4ef882f9afd6`.
+
+`opencode run --dir /tmp/sabi-live-model-health.iakYwm --model
+opencode/ling-3.0-flash-fin-free` read only a temporary README and returned
+`OPENCODE_SABI_MODEL_HEALTH_OK` with exit code 0. The plugin registered the native OpenCode
+session, Sabi observed live Orca inventory (36 worktrees, 17 sessions, one harness candidate),
+and the bounded action set was `CONTINUE`; the controller execution remained `not-started` because
+the native current session was sufficient. No file in the Sabi checkout, user harness config or
+paid provider was changed.
+
+This is accepted as free-model execution evidence, not as proof that per-turn OpenCode model
+switching or controller model-health recording works for a spawned terminal. That path still needs
+a real addressable target and an explicit quota/fallback receipt.
 
 ## Product narrative and controller hardening — 2026-09-20
 

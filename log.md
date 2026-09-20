@@ -640,3 +640,18 @@ gate as the next step.
 
 Validation: `npm test` passed 381/381, `npm run typecheck` passed, and `git diff --check` passed.
 No live provider request, user configuration, secret, deployment or publication was performed.
+
+## [2026-09-20] verify | Observe a bounded free OpenCode receipt through Sabi
+
+Ran a temporary read-only OpenCode session with OpenCode `1.18.31`, Node `v24.15.0`, Orca
+`orca-ide 1.4.201`, `opencode/ling-3.0-flash-fin-free`, the Sabi plugin and an isolated loopback
+daemon at `127.0.0.1:7543`. The model read only a temporary README and returned
+`OPENCODE_SABI_MODEL_HEALTH_OK` with exit code 0. The plugin registered the session; Sabi observed
+36 Orca worktrees and 17 sessions, chose deterministic `CONTINUE` from the bounded action set, and
+left controller execution `not-started` because the native current session was sufficient.
+
+The catalog contained 46 entries and seven explicit free OpenCode worker IDs; output SHA-256 was
+`4b1c758f744cc2d004827fb2dea8c331ef645e6fbb971d57bbcd4ef882f9afd6`.
+
+This is free-model/native-plugin evidence, not controller-spawned model-health or fallback proof.
+No Sabi checkout, user harness configuration, secret or paid provider was changed.
