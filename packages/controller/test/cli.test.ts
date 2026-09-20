@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { createServer } from 'node:http'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -30,6 +31,22 @@ function run(args: string[], cwd: string, env: Record<string, string> = {}) {
     env: { ...process.env, SABI_LOG: undefined, ORCA_CLI_COMMAND: '/nonexistent/sabi-test-orca-binary', ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
     encoding: 'utf8',
+  })
+}
+
+function runAsync(args: string[], cwd: string, env: Record<string, string> = {}): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cliPath, ...args], {
+      cwd,
+      env: { ...process.env, SABI_LOG: undefined, ORCA_CLI_COMMAND: '/nonexistent/sabi-test-orca-binary', ...env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => { stdout += String(chunk) })
+    child.stderr.on('data', (chunk) => { stderr += String(chunk) })
+    child.on('error', reject)
+    child.on('close', (status) => resolve({ status, stdout, stderr }))
   })
 }
 
@@ -225,6 +242,49 @@ test('setup can opt out of user hooks without mutating harness configuration', (
   const status = run(['status', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
   assert.equal(status.status, 0)
   assert.equal(JSON.parse(status.stdout).runtime.daemon, 'stopped')
+})
+
+test('setup --free-quality refreshes a local OpenRouter-compatible catalog before installing state', async () => {
+  const cwd = workspace()
+  const stateDir = path.join(cwd, 'controller-state')
+  const config = {
+    upstreams: { openrouter: { baseURL: '', apiKey: '$OPENROUTER_API_KEY' } },
+    models: { mid: { upstream: 'openrouter', model: 'paid/mid' } },
+    aliases: { 'sabi-code': 'auto' },
+    policy: { verification: 'mid', unclassified: 'mid' },
+  }
+  const server = createServer((request, response) => {
+    assert.equal(request.headers.authorization, 'Bearer sk-test-free-quality')
+    response.setHeader('content-type', 'application/json')
+    response.end(JSON.stringify({ data: [{
+      id: 'fixture/free-quality',
+      context_length: 131072,
+      pricing: { prompt: '0', completion: '0' },
+      architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+      supported_parameters: ['max_tokens', 'tools', 'structured_outputs'],
+      top_provider: { context_length: 131072, max_completion_tokens: 32768 },
+    }] }))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  assert.ok(address && typeof address === 'object')
+  config.upstreams.openrouter.baseURL = `http://127.0.0.1:${address.port}/v1`
+  writeFileSync(path.join(cwd, 'sabi.config.json'), JSON.stringify(config, null, 2))
+  try {
+    const setup = await runAsync(['setup', '--no-start', '--no-hooks', '--free-quality', '--json'], cwd, {
+      SABI_CONTROLLER_HOME: stateDir,
+      OPENROUTER_API_KEY: 'sk-test-free-quality',
+    })
+    assert.equal(setup.status, 0, setup.stderr)
+    const record = JSON.parse(setup.stdout)
+    assert.equal(record.freeQuality.model, 'fixture/free-quality')
+    const patched = JSON.parse(readFileSync(path.join(cwd, 'sabi.config.json'), 'utf8'))
+    assert.equal(patched.models.quality.model, 'fixture/free-quality')
+    assert.equal(patched.policy.verification, 'quality')
+    assert.equal(patched.aliases['sabi-quality'], 'quality')
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+  }
 })
 
 test('setup reports the detached fallback when the user service backend is disabled', () => {

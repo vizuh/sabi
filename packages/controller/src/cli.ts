@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { defaultConfigPath } from '@sabi/core'
+import { configureFreeQuality, defaultConfigPath } from '@sabi/core'
 import {
   controllerPreferencesPath,
   controllerStateDir,
@@ -66,7 +66,7 @@ function printHelp(): void {
   sabi config [--cwd=<path>] [--json]
   sabi logs [--cwd=<path>] [--tail=<n>] [--json]
   sabi replay [--cwd=<path>] [--last=<n>] [--json]
-  sabi setup [--no-start] [--no-hooks] [--json]
+  sabi setup [--no-start] [--no-hooks] [--free-quality] [--json]
   sabi integrations [list|repair] [--json]
   sabi upgrade [--version=<semver>|latest] [--json]
   sabi uninstall [--keep-config] [--json]
@@ -176,6 +176,10 @@ async function runDoctor(argv: string[]): Promise<void> {
 }
 
 async function runSetup(argv: string[]): Promise<void> {
+  const cwd = resolvedCwd(argv)
+  const quality = argv.includes('--free-quality')
+    ? await configureFreeQuality(defaultConfigPath({ cwd }))
+    : undefined
   const stateDir = controllerStateDir()
   const detected = configuredHarnesses()
   const hookTargets = detected
@@ -223,6 +227,7 @@ async function runSetup(argv: string[]): Promise<void> {
       unsupported: detected.map(({ agent }) => agent).filter((agent) => !hookTargets.includes(agent as InstalledHook)),
     },
     hooks: hooks.map(({ harness, path: file }) => ({ harness, path: file })),
+    ...(quality ? { freeQuality: quality } : {}),
   }
   if (jsonRequested(argv)) {
     console.log(JSON.stringify(result, null, 2))
@@ -234,6 +239,7 @@ async function runSetup(argv: string[]): Promise<void> {
   console.log(`user service: ${service.installed ? `${service.backend} ✓` : `not installed (${service.detail ?? 'unsupported'})`}`)
   console.log('automatic routing: ON')
   console.log(`decision engines: rules ✓ · Jev ${result.decisionEngines.jev} · Laya not-configured`)
+  if (quality) console.log(`free quality: ${quality.model} · verification → quality · catalog ${quality.observedAt}`)
   console.log(`harnesses: ${detected.length ? detected.map(({ agent }) => `${agent} ✓`).join(' · ') : 'none detected'}`)
   console.log(hooks.length ? `hooks: installed — ${hooks.map(({ harness }) => harness).join(', ')}` : 'hooks: not installed — no supported harness detected or disabled with --no-hooks')
   console.log(`preferences: ${preferencesPath}`)

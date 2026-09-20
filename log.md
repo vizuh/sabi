@@ -716,3 +716,22 @@ the downloaded tarball SHA-256 `d229d80ac9e678f183f2582d09ed42292dc6b24eef3ae001
 matches the asset on the GitHub Release `dsh-v0.1.0`. This is distribution evidence only; the
 DeepSeek Harness runtime is not installed locally, so live DSH boot and inference receipts remain
 unverified.
+
+## [2026-09-20] feat | Add opt-in OpenRouter free quality lane and stress it
+
+Added dynamic OpenRouter catalog selection for an explicit `--free-quality` setup. The selector
+requires exact zero prompt/completion pricing plus text I/O, tools and an output-token parameter;
+it does not hard-code a model name or treat `:free` alone as proof. Setup records the catalog URL,
+observation time, selected model and SHA-256 in provenance, writes `quality`/`sabi-quality`, maps
+verification to that lane, and preserves paid tiers. Command Code free-only registration refuses an
+adaptive alias that can still reach paid branches. Config writes are validated and backed up once;
+keys are never written.
+
+Validation: full suite 393/393, typecheck and diff check passed. Live catalog: 446 models, 20 eligible
+candidates, SHA-256 `902f62c1426fad7a3203a1485e034464651454e1ff35815098b66d8d771300ad`; selected
+`dots-studio/dots-3-note-preview:free`. Direct free-only stress: four candidates × three synthetic
+checks = 12 rounds, 7 non-empty receipts, 4 empty choice shapes, 1 HTTP 429. Temporary-config proxy
+stress: HTTP 200, `SABI_PROXY_FREE_OK`, decision `quality`, upstream
+`dots-studio/dots-3-note-preview:free`, outcome `ok`, 1387 ms. No paid fallback, private content,
+user config or secret value was used. These observations prove availability/receipt behavior only,
+not quality, entitlement or privacy.

@@ -894,3 +894,30 @@ A bundle is the smallest supported DSH extension surface and reuses DSH's mainta
 stream translation. A custom `ctx.llm` adapter would duplicate that surface before the DSH runtime
 is stable. The package does not make Sabi the DSH default model automatically and carries no model
 price, plan, quota, image, or reasoning-effort claim.
+
+## [2026-09-20] OpenRouter free quality is an opt-in fixed lane
+
+### Decision
+
+Refresh OpenRouter's live `/models` catalog only when the operator passes `--free-quality`. Select
+the first deterministic candidate whose catalog reports exact zero prompt/completion pricing, text
+input/output, tools and an output-token parameter. Write it as `quality`, expose `sabi-quality`, and
+map only `verification` to that lane. Keep paid tiers and recovery escalation unchanged.
+
+### Why
+
+Verification and review are useful places to test opportunistic capacity, but a model name or
+catalog presence is not enough to call a model free or good. Exact catalog pricing, provenance and a
+fixed alias make the boundary inspectable. Free-only Command Code registration refuses the adaptive
+alias while it can still reach paid branches.
+
+### Limits
+
+The live 2026-09-20 stress run found availability, response-shape and rate-limit behavior, not
+quality: four current candidates handled 12 synthetic rounds with 7 non-empty receipts, 4 empty
+choice shapes and 1 HTTP 429. A complete Sabi proxy round through `sabi-quality` returned HTTP 200,
+the required marker and a `quality` decision using `dots-studio/dots-3-note-preview:free`. No paid
+fallback, private prompt or completed-task quality claim was used.
+
+The next gate is a user-approved privacy-safe task set with receipt-aware demotion and held-out
+evaluation. Debate and learned quality profiles remain out of the first lane.

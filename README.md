@@ -108,6 +108,11 @@ No Sabi provider key or local proxy is needed. The mod uses the Command Code sub
 
 Use the proxy when a client accepts a `baseURL` and you want Sabi to route your own OpenRouter, Ollama, or other provider credentials. This is an optional BYOK inference surface; its model/provider routing does not provide the native reasoning-effort signals of the Command Code mod. See [Local proxy](docs/install.md#optional-integration-local-openai-compatible-proxy).
 
+To opt into a current zero-priced OpenRouter quality lane, set `OPENROUTER_API_KEY` (or use the
+configured Sabi secrets file) and run `sabi setup --free-quality`. Sabi refreshes the live catalog,
+adds the fixed `sabi-quality` alias and routes verification rounds there; paid tiers remain intact.
+The catalog refresh is availability evidence, not a model-quality or privacy guarantee.
+
 ### Controller hooks
 
 The user-level controller installed above can coordinate supported Claude Code, Codex, OpenCode, and Orca workflows. It is a task/session surface, not a generic way to rewrite the model inside an existing host session. See [Adapters](docs/adapters/README.md) for the evidence and boundary of each host.
