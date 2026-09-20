@@ -120,8 +120,11 @@ test('council ledger receipts preserve harness provenance without raw content', 
     assert.equal(rows[0]?.verifiedClaimCount, 0)
     assert.equal(rows[0]?.transportStatus, undefined)
     assert.ok(!readFileSync(file, 'utf8').includes('raw content'))
+    appendCouncilLedgerReceipt({ ...receipt, rawPrompt: 'do not persist', credentials: 'do not persist' } as typeof receipt, file)
+    assert.equal(readCouncilLedgerReceipts(file).length, 2)
+    assert.doesNotMatch(readFileSync(file, 'utf8'), /do not persist/)
     appendFileSync(file, `${JSON.stringify({ ...receipt, intent: 'invalid' })}\n`)
-    assert.equal(readCouncilLedgerReceipts(file).length, 1)
+    assert.equal(readCouncilLedgerReceipts(file).length, 2)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

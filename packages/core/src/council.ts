@@ -172,7 +172,33 @@ export function newCouncilLedgerReceipt(input: {
 
 export function appendCouncilLedgerReceipt(receipt: CouncilLedgerReceipt, logFile = defaultCouncilLedgerPath()): void {
   mkdirSync(path.dirname(logFile), { recursive: true })
-  appendFileSync(logFile, `${JSON.stringify(receipt)}\n`)
+  const ledgerReceipt: CouncilLedgerReceipt = {
+    version: receipt.version,
+    receiptId: receipt.receiptId,
+    ts: receipt.ts,
+    ...(receipt.taskKey === undefined ? {} : { taskKey: receipt.taskKey }),
+    harness: receipt.harness,
+    ...(receipt.runtimeVersion === undefined ? {} : { runtimeVersion: receipt.runtimeVersion }),
+    ...(receipt.provider === undefined ? {} : { provider: receipt.provider }),
+    ...(receipt.model === undefined ? {} : { model: receipt.model }),
+    ...(receipt.seatId === undefined ? {} : { seatId: receipt.seatId }),
+    stage: receipt.stage,
+    mode: receipt.mode,
+    intent: receipt.intent,
+    status: receipt.status,
+    evidence: receipt.evidence,
+    source: receipt.source,
+    ...(receipt.inputSha256 === undefined ? {} : { inputSha256: receipt.inputSha256 }),
+    ...(receipt.outputSha256 === undefined ? {} : { outputSha256: receipt.outputSha256 }),
+    claimCount: receipt.claimCount,
+    verifiedClaimCount: receipt.verifiedClaimCount,
+    ...(receipt.inputTokens === undefined ? {} : { inputTokens: receipt.inputTokens }),
+    ...(receipt.outputTokens === undefined ? {} : { outputTokens: receipt.outputTokens }),
+    ...(receipt.latencyMs === undefined ? {} : { latencyMs: receipt.latencyMs }),
+    ...(receipt.transportStatus === undefined ? {} : { transportStatus: receipt.transportStatus }),
+    ...(receipt.errorCode === undefined ? {} : { errorCode: receipt.errorCode }),
+  }
+  appendFileSync(logFile, `${JSON.stringify(ledgerReceipt)}\n`)
 }
 
 export function readCouncilLedgerReceipts(logFile = defaultCouncilLedgerPath()): CouncilLedgerReceipt[] {
