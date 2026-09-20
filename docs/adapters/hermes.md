@@ -1,5 +1,7 @@
 # Hermes adapter
 
+**English** · [Português (BR)](hermes.pt-BR.md)
+
 Sabi integrates with Hermes through its supported llm_request middleware seam and an explicit
 Chat Completions custom provider.
 
@@ -23,15 +25,57 @@ loop or policy implementation.
 
 ## Start
 
-Use the isolated template and follow the package-level recipe:
+For an end-user Hermes profile, use the setup wizard. In Orca, open three terminal tabs on this
+worktree and run the marked blocks in separate tabs:
 
 ~~~bash
-cp packages/adapters/hermes/config.yaml.example /tmp/sabi-hermes-config.yaml
-# edit an isolated HERMES_HOME; keep the real upstream key in Sabi's environment
+npm run setup -- --harness=hermes --hermes-home="$HOME/.config/sabi/hermes" --no-jev
+export HERMES_HOME="$HOME/.config/sabi/hermes"
+hermes auth add nous --type oauth
+
+# Terminal 1
+HERMES_HOME="$HERMES_HOME" hermes proxy start --provider nous --host 127.0.0.1 --port 8645
+
+# Terminal 2
+SABI_CONFIG="$HERMES_HOME/sabi.config.json" npm start
+
+# Terminal 3
+export SABI_HERMES_BASE_URL="http://127.0.0.1:8787/v1"
+HERMES_HOME="$HERMES_HOME" SABI_HERMES_BASE_URL="$SABI_HERMES_BASE_URL" hermes chat
 ~~~
 
-Read the detailed [Hermes adapter README](../../packages/adapters/hermes/README.md) before
-running a profile. Do not install this template into an existing .hermes directory.
+For a single-key OpenRouter setup, replace the first command with:
+
+~~~bash
+npm run setup -- --harness=hermes --upstream=openrouter \
+  --hermes-home="$HOME/.config/sabi/hermes" --no-jev
+~~~
+
+The OpenRouter profile does not run `hermes proxy` or ask for a Nous login. It uses only
+`OPENROUTER_API_KEY`; provider BYOK, priority and fallback remain configured in OpenRouter.
+Use `--explain=local` for a free localized explanation, or `--explain=ai` for one explicit
+OpenRouter explanation request.
+
+For that mode, skip the Nous login and proxy lines above and use two terminals:
+
+~~~bash
+SABI_CONFIG="$HOME/.config/sabi/hermes/sabi.config.json" npm start
+HERMES_HOME="$HOME/.config/sabi/hermes" hermes chat
+~~~
+
+The wizard creates an isolated `HERMES_HOME`, copies the plugin, and writes a
+Nous-backed or OpenRouter-backed Sabi config according to `--upstream`. Read the detailed [Hermes adapter README](../../packages/adapters/hermes/README.md)
+before changing the profile. The target directory must be new or empty; keep an existing
+personal `.hermes`/Hermes profile untouched.
+
+The exact loopback base must be present in `SABI_HERMES_BASE_URL`; the plugin fails open for
+another host or an unrecognised endpoint. On this host, `qwen2.5-coder:7b` has a 32768-token
+context and Hermes 0.21.3 requires at least 64000 for a custom model. Use Nous or a local model
+with a verified context of at least 64000 for the Hermes path; Qwen remains available through a
+direct Sabi/Ollama path.
+
+OpenCode Go and ChatGPT Plus remain native Hermes providers. Select them with Hermes' own
+`hermes model` flow; their subscription entitlements are not silently transferred into Sabi.
 
 ## Maintainer note
 

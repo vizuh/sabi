@@ -738,6 +738,32 @@ Promote only after live free-model and fallback receipts provide runtime-pinned 
 durable health or learned profiles only if cross-process recovery and held-out outcome data justify
 them. Keep paid probing and subscription claims outside the automatic path.
 
+## [2026-09-20] OpenCode Muse is a deferred native lane, not a proxy model ID
+
+### Decision
+
+Raise the OpenCode adapter's advertised output ceiling from its unknown-metadata fallback by
+declaring the verified minimum across the current OpenRouter tiers (`128000`). Keep the current
+Sabi proxy as the adaptive action path. Do not add `opencode/muse-spark-1.3-contributor-free` to
+`sabi.config.json`: the installed OpenCode catalog exposes it through a native Responses provider,
+while Sabi's proxy forwards Chat Completions to configured OpenRouter/Ollama upstreams.
+
+### Why
+
+The observed short value was `limit.output: 4096`, not the adaptive context window (`1000000`).
+Muse's larger output metadata does not make its native provider reachable from the current proxy, and
+the free offer is temporary. `small_model` can be an explicit OpenCode utility choice, but it is not
+a Sabi per-round model-selection hook. The connector accepts an explicit
+`--small-model=provider/model` override for that utility lane and leaves the adaptive main model
+unchanged.
+
+### Revisit later?
+
+Only add Muse as an action tier after a Responses upstream, explicit credential boundary, tool and
+stream translation, context-fit checks and safe cross-model reasoning behavior have focused tests
+and a bounded free-only smoke. The issue and task list are in
+`docs/specs/opencode-muse-cheap-lane.md` and `docs/tasks/opencode-muse-cheap-lane.md`.
+
 ## [2026-09-20] Same-harness model fallback precedes unrelated session fallback
 
 ### Decision
@@ -942,7 +968,6 @@ Rate limits and proxy failures are recorded and fail open for the primary task.
 
 Add verifiers, approved completed-task/held-out data, independent receipts per free resource and
 Jev intent selection before fan-out, advisory handoff or learned model-by-intent promotion.
-
 ## [2026-09-20] Surplus review uses a bounded council protocol
 
 ### Decision
@@ -963,3 +988,48 @@ and actual receipt level before any council quality claim.
 
 The ledger and protocol are shipped before automatic planning or debate. Add adapters, verifiers,
 held-out replay and learned promotion only after privacy and completion-receipt gates pass.
+
+## [2026-09-20] Hermes-first setup uses the native Nous proxy boundary
+
+### Decision
+
+Make the Hermes onboarding wizard create an isolated, ready-to-copy profile:
+`Hermes sabi-code → Sabi → Hermes Nous proxy`. Keep OpenCode Go and ChatGPT Plus as native
+Hermes providers; do not claim that the V1 middleware can transfer their subscriptions into Sabi.
+
+### Why
+
+Hermes owns authentication and its supported `llm_request` seam, while Sabi owns per-request routing
+behind the local custom provider. The generated profile contains no credentials, does not mutate the
+checkout's main config, and uses only model ids observed in the Nous catalog; catalog presence is not
+entitlement. The standalone `@vizuh/sabi-controller` package was not available on npm at this check,
+so the documented Hermes path is the repository checkout.
+
+### Revisit later?
+
+Run a bounded paid smoke with the user's logged-in Nous account, then separately decide whether a
+Nous API-key profile is needed. Do not promote mock compatibility or catalog presence into provider
+quality, quota or plan evidence.
+
+## [2026-09-20] Host-AI onboarding uses one explicit OpenRouter credential
+
+### Decision
+
+The setup wizard and host-AI runbook ask for `OPENROUTER_API_KEY` only when a proxy route or the
+optional AI explanation is selected. Native Command Code uses its own subscription without a Sabi
+key; Claude/Codex hooks use controller state without a provider key; Hermes may still choose its
+isolated Nous proxy. Provider BYOK keys, priority and fallback remain configured in OpenRouter,
+not copied into Sabi or a host config.
+
+### Why
+
+This gives users one understandable credential boundary while preserving each host's supported
+loop, auth store, tools, permissions and subscription semantics. Jev is a separate optional judge
+and therefore no longer appears as a default second-key question. The explanation option is local by
+default; AI explanation is explicit, bounded and allowed to fall back locally.
+
+### Revisit later?
+
+Move the flow behind the released `@vizuh/sabi-controller` package only after its controller-v*
+tag, clean-machine package proof and host-specific live receipts exist. Do not describe Claude/Codex
+hooks as native per-round model switching, or OpenRouter BYOK configuration as verified entitlement.

@@ -3,9 +3,10 @@
 Checked 2026-09-20. **The pinned Hermes main conversation and resume path route through
 Sabi's native OpenAI-compatible proxy.** The adapter uses Hermes' public `llm_request`
 middleware for attribution; Sabi's shared core performs the per-request model/effort/provider
-decision. This is certified against the pinned synthetic native probe, not against every Hermes
-auxiliary or a real paid provider. No Python policy copy, provider rebinding, planner API, tool
-wrapper, or second agent loop was added.
+decision. The recorded evidence combines the pinned synthetic native probe with one bounded live
+Nous smoke; it is not a certification of every Hermes auxiliary, model quality, entitlement, quota
+or production use.
+No Python policy copy, provider rebinding, planner API, tool wrapper, or second agent loop was added.
 
 ## Version and installation
 
@@ -15,8 +16,9 @@ wrapper, or second agent loop was added.
   commit `01382698`, CPython **3.13.13**, OpenAI SDK **2.24.0**.
 - `uv sync --frozen --no-dev --python 3.13` (uv **0.11.14**) installed
   **64 packages**, including the editable checkout, under `.sabi/compat/hermes/env`.
-  `pyproject.toml` and `setup.py` were inspected first. No shell installer,
-  extras, global install, login, paid inference, or upstream test suite ran.
+  `pyproject.toml` and `setup.py` were inspected first. No shell installer, extras,
+  global install or upstream test suite ran for the pinned checkout. The later live smoke
+  used an existing ignored Hermes auth profile; no credential entered the repository.
 - The checkout, interpreter, cache, isolated profiles and synthetic captures
   stay under ignored `.sabi/compat/hermes/`. `HOME` and XDG paths were isolated.
   Native probes used `bwrap` with an isolated network namespace and masked
@@ -91,6 +93,26 @@ recorded direct and Sabi runs at `20260920T095355901450Z` and `20260920T09531006
 tracked `probe_client.py --via-sabi` starts the real local `createSabiServer` through
 `probe_sabi.mjs` with synthetic capability/config fixtures. No real model is contacted.
 
+## Bounded live smoke — 2026-09-20
+
+One real one-shot request completed in Orca through the installed Hermes 0.21.3 client and an
+isolated Sabi configuration:
+
+```text
+Hermes (sabi-code) → Sabi :8789 → Hermes Nous proxy :8645 → Nous Portal
+```
+
+Hermes returned `NOUS_SABI_OK` with exit code `0` in `7378 ms`. Its result reported 12413 input
+and 6 output tokens. The Sabi receipt recorded `client: hermes`, `sessionKnown: true`,
+`alias: sabi-code`, `outcome: ok`, and upstream model `upstage/solar-pro4:free`. The `:free`
+model id is recorded as observed metadata only; this run does not prove entitlement, cost,
+savings, quality or production readiness.
+
+On this host, `qwen2.5-coder:7b` exposes a 32768-token Ollama context while Hermes 0.21.3 rejects
+custom models below 64000 tokens. Qwen is therefore not certified through Hermes; it remains
+available through a direct Sabi/Ollama path. A local Hermes smoke used `llama3.2:3b` with an
+observed 131072-token context instead.
+
 ## Source evidence and remaining gates
 
 Pinned-source references:
@@ -111,7 +133,7 @@ Covered surface: CLI main conversation and resumed main conversation. Title-mode
 upgrade was disabled; other auxiliary calls, compaction, subagents, MoA, gateway
 and desktop were not exercised. No claim that they carry these headers.
 
-Still gated: real-provider end-to-end behavior and paid smoke;
+Still gated: broader real-provider end-to-end behavior and paid smoke;
 parallel tool calls, cancellation, disconnects, permission denial, retries/429,
 images, cross-model tool history and compaction. Header-only tests do not prove
 native model/effort changes reach the next inference. Any future routing bridge

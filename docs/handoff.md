@@ -6,8 +6,9 @@
 bounded reroute, trace schema v1, runtime-pinned free-catalog evidence and read-only replay. The
 source/test boundary is validated; installed user-config mutation, universal Orca activation and
 real cross-terminal completion remain separate evidence gates. The public `@vizuh/sabi` release
-still publishes the inference adapter; `@vizuh/sabi-controller` remains a separate bundle/release
-lane until its live receipt gates pass.
+publishes the inference adapter, and `@vizuh/sabi-controller@0.1.0` is the separate bundled controller
+release for supported hooks and the user-level daemon. Publication does not promote live host receipts
+or universal Orca activation into verified runtime support.
 
 The pinned Hermes 0.21.3 adapter is now a completed V1 native proxy-routing path: Hermes owns its
 loop and execution, the public `llm_request` middleware adds opaque session/turn attribution, and
@@ -15,6 +16,25 @@ Sabi schedules each request behind the `sabi-code` alias. The isolated native pr
 tool loop, resume, three unique Sabi request receipts and shared-core routing `mid → cheap → mid`.
 Direct provider rebinding, auxiliary/subagent calls, compaction replacement and paid-provider
 quality remain explicit separate gates.
+
+## Host-AI onboarding and OpenRouter-only credential path — 2026-09-20
+
+The checkout setup wizard now supports a localized, question-led onboarding path for the existing
+Command Code, OpenCode and Hermes adapter surfaces: `--language=en|pt-BR`, explicit Hermes
+`--upstream=openrouter|hermes-nous`, and `--explain=local|ai`. OpenRouter is the only credential it
+can collect, using hidden TTY input and a user-scoped mode-0600 secrets file; Jev is opt-in through
+`--jev` and is no longer an interactive second-key question. `--explain=ai` is one explicit direct
+OpenRouter request with a local fallback, not a Sabi-routed coding turn.
+
+The new `docs/install.ai.md` is the canonical runbook for a host AI. It distinguishes native
+Command Code subscription routing, OpenCode/Hermes proxy routing, and Claude/Codex controller hooks.
+OpenRouter BYOK priority/fallback remains an OpenRouter account setting; Sabi never receives the
+underlying provider keys or transfers OpenCode Go, ChatGPT Plus, Nous or Claude subscriptions.
+
+Validation: `npm test` passed 387/387, `npm run typecheck` passed, `git diff --check` passed, and the
+generated OpenRouter Hermes profile passed config validation through the setup integration test.
+The controller and Command Code package release gates are tracked separately below; no real key, paid
+request or user harness configuration was used by this onboarding work.
 
 ## OpenCode model health and fail-open selection — 2026-09-20
 
@@ -736,7 +756,6 @@ the legacy compatibility path.
 
 Validation in the follow-up worktree: focused free-quality tests pass; the full suite and remote CI
 remain the delivery gates for the new PR. No provider request or live quality claim was used.
-
 ## Surplus council protocol and ledger — 2026-09-20
 
 Added `docs/specs/surplus-council.md` and `docs/tasks/surplus-council.md`. The protocol defines
@@ -766,3 +785,80 @@ Both returned observable review responses with `status=completed` and `evidence=
 Neither was independently verified, so both receipts retain `verifiedClaimCount=0`. This is
 live review evidence, not evidence that Sabi automatically plans or delegates council seats;
 the Phase 1–4 adapter and verifier gates remain open.
+
+## OpenCode Muse cheap-lane issue — 2026-09-20
+
+The installed OpenCode 1.18.31 catalog exposes `opencode/muse-spark-1.3-contributor-free` with a
+large context/output limit and a temporary free label. The current Sabi adaptive profile was not
+actually context-short: it advertised 1,000,000 context tokens but fell back to 4,096 output tokens
+because the proxy tiers had no declared output ceiling. The shipped config now declares the verified
+OpenRouter minimum output ceiling (128,000), which the connector advertises for `sabi-code`.
+
+Muse remains a deferred native lane. OpenCode's Muse endpoint is Responses-native; Sabi's proxy is
+Chat Completions-only and cannot consume OpenCode's subscription credential. No Muse ID was added to
+the proxy config, no user config or credential store was changed, and no paid inference ran. See
+`docs/specs/opencode-muse-cheap-lane.md` and `docs/tasks/opencode-muse-cheap-lane.md`.
+
+## Hermes-first onboarding — 2026-09-20
+
+The Hermes setup path now creates an isolated `HERMES_HOME` with the native attribution plugin, a
+ready `config.yaml`, and a separate `sabi.config.json` pointed at the Hermes Nous proxy on
+`127.0.0.1:8645`. It prints the Nous OAuth login and the three-terminal startup sequence. Jev, when
+requested, is written only to that profile; the checkout's main config is untouched. No credentials
+are copied into the profile or repository.
+
+The user docs now include official Hermes installation, Nous login, OpenCode Go/ChatGPT Plus native
+selection, and the explicit V1 boundary: those subscriptions are not provider-rebound into Sabi.
+Model ids in the generated profile are catalog observations, not entitlement proof. The controller
+package remains unpublished, so Hermes onboarding is checkout-based until a controller release exists.
+
+Validation: `npm test` passed 384/384, `npm run typecheck` passed, the generated Hermes config passed
+the pinned Hermes config check, and a Sabi health smoke passed on temporary port `18787`. No paid
+provider request or external publication was performed.
+
+## Hermes live smoke — 2026-09-20
+
+The Orca validation tab has Hermes Agent `0.21.3` available with an isolated Nous profile. A bounded
+real request completed as `Hermes (sabi-code) → Sabi :8789 → Hermes Nous proxy :8645 → Nous Portal`:
+Hermes returned `NOUS_SABI_OK`, exit `0`, in `7378 ms`; Sabi recorded `client: hermes`,
+`sessionKnown: true`, `alias: sabi-code`, `outcome: ok`, and `upstage/solar-pro4:free` upstream.
+This proves transport, auth and attribution for one request only; it does not prove quality, quota,
+entitlement, savings, paid spend or production readiness.
+
+The local Qwen path has a hard compatibility limit on this host: `qwen2.5-coder:7b` exposes 32768
+context tokens, below Hermes 0.21.3's 64000-token minimum. Use a local model with at least 64000
+context or the Nous path for Hermes; keep Qwen on direct Sabi/Ollama until a larger-context local
+model is selected.
+
+The install/run instructions now include the exact `SABI_HERMES_BASE_URL` attribution boundary,
+fresh-profile rule, three-terminal startup, native OpenCode Go/ChatGPT Plus boundary, and this
+Qwen limitation. Temporary validation servers and the proxy were stopped after the receipt was
+captured; the existing Hermes profile and checkout worktree were preserved.
+
+## Public package release — 2026-09-20
+
+PR [#54](https://github.com/vizuh/sabi/pull/54) merged at `9cb67626e977c5b9afba452e1d3b47966659967`.
+Tags `v0.1.3` and `controller-v0.1.0` completed their release workflows successfully:
+[Command Code workflow](https://github.com/vizuh/sabi/actions/runs/35539333133) and
+[controller workflow](https://github.com/vizuh/sabi/actions/runs/35539332925). The public npm
+packuments now resolve [`@vizuh/sabi@0.1.3`](https://www.npmjs.com/package/@vizuh/sabi/v/0.1.3)
+and [`@vizuh/sabi-controller@0.1.0`](https://www.npmjs.com/package/@vizuh/sabi-controller/v/0.1.0);
+the matching GitHub assets are attached to the
+[`v0.1.3`](https://github.com/vizuh/sabi/releases/tag/v0.1.3) and
+[`controller-v0.1.0`](https://github.com/vizuh/sabi/releases/tag/controller-v0.1.0) releases.
+
+This proves source, CI, package build and public distribution. It does not prove universal host
+activation, cross-terminal completion, provider entitlement, quota behavior or task quality; those
+remain runtime evidence gates.
+
+## Portuguese user-facing onboarding — 2026-09-20
+
+Added `docs/install.ai.pt-BR.md` as the Portuguese host-AI runbook and linked it from the Portuguese
+README and installation guide. The English runbooks now expose the pt-BR language switch. The
+translated surface covers the primary Hermes path, OpenRouter-only proxy credential collection,
+native OpenCode Go/ChatGPT Plus boundaries, BYOK guidance and layered completion checks. Internal
+architecture, decision and research documents remain English unless a user-facing translation is
+needed.
+
+The Portuguese adapter navigation now includes a localized index and Hermes guide, while package
+implementation READMEs remain English developer references.

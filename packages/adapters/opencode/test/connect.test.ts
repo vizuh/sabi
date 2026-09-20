@@ -109,6 +109,18 @@ test('--set-default opts the session into the adaptive alias, and --include-loca
   }
 })
 
+test('--small-model opts utility work into a native provider without changing Sabi routing', () => {
+  const { dir, file } = workspace()
+  try {
+    assert.equal(connect(dir, file, ['--set-default', '--small-model=opencode/muse-spark-1.3-contributor-free']).status, 0)
+    const written = JSON.parse(readFileSync(file, 'utf8'))
+    assert.equal(written.model, 'sabi/sabi-code')
+    assert.equal(written.small_model, 'opencode/muse-spark-1.3-contributor-free')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('the backup is written once and never overwritten by a re-run', () => {
   const { dir, file } = workspace()
   try {
