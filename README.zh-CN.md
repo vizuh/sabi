@@ -6,6 +6,23 @@ Sabi 位于编码 harness 与模型提供方之间。harness 保持自己原有�
 
 [English](README.md) · [Português (BR)](README.pt-BR.md) · **中文**
 
+## 一次性安装 Sabi
+
+Sabi 按用户/机器安装一次。安装时不需要选择 harness，不需要为每个 worktree 安装，也不需要保留仓库 checkout 才能使用 controller。
+
+~~~bash
+npm install --global @vizuh/sabi-controller
+sabi setup
+sabi status
+~~~
+
+`setup` 是幂等的：它使用用户级 daemon 和状态目录，检测受支持的 host，只安装已经验证的 Sabi hook；如果 Sabi 不可用，原来的 harness 路径仍可继续运行。需要在不修改 host 配置的情况下初始化 daemon 时，使用 `sabi setup --no-hooks`。
+
+controller 包通过 `controller-v*` 标签单独发布。如果 npm 上还没有可用版本，请暂时使用维护者 checkout 流程；那不是普通用户的安装方式。
+
+安装之后，照常打开你的 harness。Command Code、代理和 controller 都是可选集成，不是安装 Sabi 的前置条件。
+
+
 ## 双适配器，一个内核
 
 | | A 类 — 进程内 mod | B 类 — 本地代理 |
@@ -18,7 +35,7 @@ Sabi 位于编码 harness 与模型提供方之间。harness 保持自己原有�
 
 两者共用 `packages/core` 的路由规则，但信号与行为不同。mod 使用显式的工具错误信号并规划后续轮次；代理从文本推断失败，并可调用 Jev。`harness.tiers` 存放 Command Code 目录 id；`models` 存放上游模型 id。请分别比较两个适配器。
 
-`npm run setup` 会交互式地选择合适的一条 — 见 [Quick setup](docs/install.md#quick-setup)。
+安装本身不会要求选择 harness。需要了解可选集成时，请阅读 [安装与安全](docs/install.md)。
 
 ## 策略
 
@@ -59,7 +76,7 @@ Sabi 位于编码 harness 与模型提供方之间。harness 保持自己原有�
 
 声明的模态必须按模型 id 逐一核实，不能由系列推断：在 OpenRouter 上 `deepseek/deepseek-v4-flash-0731` 仅文本，而 `deepseek/deepseek-v4-flash-vision-exp` 接受图片；在 Command Code 目录中 `gpt-5.6-luna` 接受图片，而 `zai-org/GLM-5.3` 不接受。
 
-## 安装 — Command Code mod（推荐）
+## 可选集成 — Command Code 原生 mod
 
 要求：Node 22.6+、Command Code、git（本仓库是公开的），以及一个覆盖 `harness.tiers` 中模型的套餐（见 [套餐覆盖范围](#套餐覆盖范围)）。
 
@@ -87,7 +104,7 @@ cmd -p "Read package.json and reply with only the value of its name field." \
 
 第 1 轮运行在会话模型上；第 2 轮（读取轮次 → `exploration` → cheap）运行在 cheap 层级。无头 `-p` 运行不加载项目级 mod，因此该验证显式传入 `--mod`。
 
-## 安装 — 本地代理（BYOK / 其他 harness）
+## 可选集成 — 本地代理（BYOK / 其他 harness）
 
 ```bash
 npm install
