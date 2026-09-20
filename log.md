@@ -707,3 +707,12 @@ Added `.github/workflows/deepseek-harness-release.yml`. The merged DSH bundle is
 matching `dsh-vX.Y.Z` tag, after `npm ci`, typecheck and the full suite; GitHub Actions publishes
 `@vizuh/sabi-deepseek-harness` with the existing npm token and provenance, then attaches the exact
 tarball to the GitHub Release. Local publication was blocked by missing npm authentication.
+
+## [2026-09-20] release | Publish and verify the DeepSeek Harness adapter
+
+Tag `dsh-v0.1.0` completed workflow `35526863398` successfully. The public npm packument resolves
+`@vizuh/sabi-deepseek-harness@0.1.0` (`latest: 0.1.0`), a clean package-name install passed, and
+the downloaded tarball SHA-256 `d229d80ac9e678f183f2582d09ed42292dc6b24eef3ae001c87551f4d92c484b`
+matches the asset on the GitHub Release `dsh-v0.1.0`. This is distribution evidence only; the
+DeepSeek Harness runtime is not installed locally, so live DSH boot and inference receipts remain
+unverified.

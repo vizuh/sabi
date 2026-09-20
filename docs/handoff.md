@@ -670,3 +670,12 @@ The source is merged in PR #47 at `09dc693`. Local npm publication was not possi
 machine is not authenticated to npm. The follow-up `deepseek-harness-release` workflow publishes
 with the repository's existing `NPM_TOKEN` and provenance on tag `dsh-v0.1.0`; registry presence and
 the GitHub release remain to be verified after that tag run.
+
+## DeepSeek Harness package publication verified — 2026-09-20
+
+The release lane was merged in PR #48 at `e8ea222` and completed successfully in workflow run
+`35526863398` on tag `dsh-v0.1.0`. The public npm packument now resolves
+`@vizuh/sabi-deepseek-harness@0.1.0` with `latest: 0.1.0`; a clean install by package name passed,
+and its tarball SHA-256 is `d229d80ac9e678f183f2582d09ed42292dc6b24eef3ae001c87551f4d92c484b`,
+matching the GitHub Release asset. This verifies distribution, not a live DSH runtime: `dsh` is
+still not installed on this host, so boot, stream receipt and proxy execution remain unverified.
