@@ -23,19 +23,16 @@ controller 包通过 `controller-v*` 标签单独发布。如果 npm 上还没�
 安装之后，照常打开你的 harness。Command Code、代理和 controller 都是可选集成，不是安装 Sabi 的前置条件。
 
 
-## 双适配器，一个内核
+## 选择可选集成
 
-| | A 类 — 进程内 mod | B 类 — 本地代理 |
-|---|---|---|
-| 运行形态 | Command Code mod（挂在 harness 循环上的 hook） | `127.0.0.1:8787` 上的 OpenAI 兼容端点 |
-| 可决定 | 模型**和**推理强度，来自 Command Code 目录 | 仅模型名，来自你自己的上游 |
-| 需要密钥 | 不需要 — 路由你已有的订阅 | 需要 — 你的上游凭据（OpenRouter、Ollama……） |
-| 失败信号 | harness 自身的 `isError`（事实来源） | 从工具输出文本推断 |
-| 适用对象 | Command Code | 任何只接受 `baseURL` 的 harness |
+| 目标 | 集成 | Sabi 做什么 | 当前边界 |
+|---|---|---|---|
+| 按轮次路由模型 + reasoning effort | [Command Code mod](docs/adapters/command-code.md) | 使用 host 的原生循环和订阅目录 | 仅限 Command Code |
+| 使用自己的凭据进行模型/提供方路由 | [本地代理](docs/install.md#optional-integration-local-openai-compatible-proxy) | 通过 OpenAI 兼容端点转发请求 | 只负责模型/提供方，不提供原生 reasoning-effort 切换 |
+| 在会话和 worktree 之间移动工作 | [Controller hooks](docs/adapters/README.md) | 协调受边界限制的继续/委派/创建动作 | 不会切换现有原生会话中的模型 |
+| 添加其他 host | [维护者契约](docs/maintainers.md) | 定义适配器边界和所需证据 | 适配器不能创建第二套路由策略 |
 
-两者共用 `packages/core` 的路由规则，但信号与行为不同。mod 使用显式的工具错误信号并规划后续轮次；代理从文本推断失败，并可调用 Jev。`harness.tiers` 存放 Command Code 目录 id；`models` 存放上游模型 id。请分别比较两个适配器。
-
-安装本身不会要求选择 harness。需要了解可选集成时，请阅读 [安装与安全](docs/install.md)。
+这些集成共享 Sabi core，但不是安装步骤。先安装一次 Sabi；只有在需要某项能力时才选择对应的集成。
 
 ## 策略
 
