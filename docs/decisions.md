@@ -613,3 +613,44 @@ Session discovery must not turn that into `sabi status` output or a persisted ca
 
 Expand the redaction canary corpus when a new provider/harness exposes a credential format; never
 replace it with storing full terminal transcripts.
+
+## [2026-09-20] Sabi routes independently of Orca supervision; lifecycle adapter stays Orca-side
+
+### Decision
+
+Sabi's routing contract ends at the model-request layer (observe request → classify → choose
+model/config → execute → observe result → update routing). Orca supervision is an optional higher
+layer, not a dependency of routing. Any full-lifecycle supervision of a harness process (Orca
+`worker_done` settlement) is delivered by a thin Orca-side adapter, never by modifying a harness
+or by making Sabi depend on Orca's worker protocol.
+
+### Why
+
+A live Orca trial (2026-09-20) separated the two questions. Orca launched `opencode run` and an
+interactive `opencode` TUI in managed terminals; the TUI completed an injected task
+(`ORCA_TRIAL_OK`, served by `sabi-code` in 6.0s) with matching `ok` routing rounds in the decision
+log — so the Orca → terminal → harness → Sabi → model chain is real. What failed is a different
+layer: `worker-start --terminal` refused the raw process (`agent_unconfigured`; only recognized
+agents qualify), and the inject lane (`dispatch --inject`) carries Task context without supervision
+(opencode cannot send `worker_done`; release stays refused). Routing worked throughout; supervision
+did not — proving they are independent.
+
+### Alternatives considered
+- Make Sabi an Orca plugin so supervision comes free — rejected; it would inherit one
+  controller's limitations and violate the harness-loop-native rule (all harnesses stay peers).
+- Patch OpenCode to speak Orca's worker protocol — rejected; never fork a host harness beyond its
+  supported extension surface.
+- Keystroke-inject the TUI to fake `worker_done` — rejected; observation only, no simulated input.
+
+### Tradeoffs
+- Headless runs already expose a completion signal (process exit → transcript + `ok` round), so the
+  shim only needs to map exit to `worker_done`; interactive-TUI settlement (idle ≠ done) stays an
+  explicitly deferred question.
+- An Orca-side adapter must be a recognized agent process; its design depends on Orca's agent
+  contract, not Sabi's.
+
+### Revisit later?
+
+Prototype the headless shim first. Before building, read the in-flight controller daemon,
+user-service, CLI, hooks and Orca-bridge implementation on `main` — it may already own half of
+the adapter box. Never duplicate it by accident.
