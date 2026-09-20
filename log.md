@@ -666,3 +666,15 @@ inventory, second-model spawn and successful completion receipt.
 Validation: focused controller/inventory/model-health tests passed 18/18, full `npm test` passed
 382/382, `npm run typecheck` passed, and `git diff --check` passed. The fake-Orca test is not live
 quota evidence; no paid request, secret, user configuration or deployment was changed.
+
+## [2026-09-20] docs | Reframe Sabi around its adapters
+
+Reorganized the public docs around Sabi as a multi-harness routing product. The root README now
+separates per-round inference adapters from controller and session adapters and links guides for
+Command Code, OpenCode, Hermes, Prime Agent, Kilo, Claude Code, Codex, and Orca. Added a maintainer
+contract, an evidence ladder, worked token and cost estimates with explicit assumptions, and
+architecture diagrams. Updated the npm package README to state that `@vizuh/sabi` is the Command Code
+adapter, not the whole product.
+
+No code, credentials, user configuration, live task, paid inference, deployment or package
+publication was changed by this documentation set.

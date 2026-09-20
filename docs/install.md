@@ -3,11 +3,16 @@
 For putting Sabi on a machine that is not this one. The repo (`https://github.com/vizuh/sabi`) is
 public; you need a Command Code account for the class-A path.
 
-**Quick setup**: `npm run setup` walks you through picking a harness and, optionally, Jev — see
+This page covers the two **inference** paths. Sabi also has a separate, experimental **controller**
+surface for Claude Code, Codex, OpenCode and Orca. It coordinates sessions and worktrees but does
+not silently switch the model inside an existing host session. Start with the
+[adapter directory](adapters/README.md) if you are unsure which boundary you need.
+
+**Quick setup**: `npm run setup` walks you through picking a harness and, optionally, Jev. See
 [Quick setup](#quick-setup) below. The sections after it are the detailed manual steps it runs
 for you; read them if you want to script around a single piece instead.
 
-Two ways in, and they are alternatives rather than stages:
+There are two entry points. They are alternatives, not stages:
 
 - **A — the mod** (recommended if you use Command Code): Sabi runs inside the harness, routes the
   subscription catalog, and needs no proxy and no API keys.
@@ -15,6 +20,23 @@ Two ways in, and they are alternatives rather than stages:
   accept a `baseURL`, or to route your own OpenRouter/Ollama models.
 
 You can install both; they do not interfere (different mechanisms, different model namespaces).
+
+## Controller setup (Claude Code, Codex, OpenCode and Orca)
+
+The controller is currently checkout-based; do not assume a public registry release of the
+Sabi controller package. From the Sabi checkout:
+
+~~~bash
+npm install
+npm run controller -- setup
+npm run controller -- doctor
+npm run controller -- integrations list
+~~~
+
+Setup is explicit and idempotent. It installs hooks only for detected supported hosts, starts a
+loopback daemon when the platform permits it, and keeps backups for rollback. Hooks fail open if
+Sabi is unavailable. See the individual [Claude Code](adapters/claude-code.md), [Codex](adapters/codex.md),
+[OpenCode](adapters/opencode.md), and [Orca](adapters/orca.md) pages for their exact boundaries.
 
 ## Quick setup
 

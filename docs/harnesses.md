@@ -1,7 +1,22 @@
 # Harness compatibility
 
-Status: 2026-09-18. A local mock test proves client/proxy compatibility, not model quality,
+Status: 2026-09-20. A local mock test proves client/proxy compatibility, not model quality,
 provider entitlement or savings. No paid provider smoke test has run in this implementation.
+
+This page is the evidence ledger. For user-facing setup, use the
+[adapter directory](adapters/README.md). In addition to the proxy clients below, the current
+checkout contains a separate controller boundary:
+
+| Controller surface | What is implemented | What is not claimed |
+|---|---|---|
+| Claude Code | UserPromptSubmit hook, bounded controller plan/route, fail-open install/rollback | In-session model switching or subscription transfer |
+| Codex | SessionStart, UserPromptSubmit and SessionEnd hooks, bounded controller plan/route | In-session model switching or approval bypass |
+| OpenCode | Optional controller plugin plus the proxy adapter below | Native model replacement inside a running session |
+| Orca | Worktree/terminal inventory and capability-gated dispatch plugin | Universal model routing or provider identity from a terminal handle |
+
+An executable on PATH is detection evidence only. A hook file is installation evidence only.
+Controller support is promoted only when a typed execution receipt and the relevant live host
+boundary are observed.
 
 | Client | Evidence | Limit |
 |---|---|---|
