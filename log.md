@@ -762,3 +762,49 @@ Follow-up to merged PR #52. When the OpenRouter upstream enables `streamUsage`, 
 `stream_options` into streamed requests. Free-quality setup now includes that proxy-owned field in
 the generated capability allowlist so compatibility validation does not reject its own envelope.
 A fixed-lane streaming regression covers the behavior.
+## [2026-09-20] spec | OpenCode Muse cheap lane and output metadata
+
+Confirmed with OpenCode 1.18.31 and the local catalog that `sabi-code` was context-safe at
+1,000,000 tokens but advertised only the connector fallback output cap of 4,096. Declared the
+verified 128,000-token minimum output ceiling across the current OpenRouter adaptive tiers.
+
+The Sabi/Orca read-only review (`ctx_193cf942ae7d`) confirmed that native Muse is not reachable by
+the current Chat Completions proxy. Added the spec/task contract and deferred a Responses bridge;
+no native model ID, credential, user config, paid request or deployment was changed.
+
+## [2026-09-20] feat | Hermes-first setup and Nous login path
+
+Added the Hermes-first setup path: an isolated profile with the native metadata plugin, ready
+Hermes config, and a separate Sabi config routing through `hermes proxy` at `127.0.0.1:8645`.
+Documentation now covers official Hermes installation, Nous OAuth login, three-terminal startup,
+native OpenCode Go/ChatGPT Plus selection, and the V1 provider-rebinding boundary.
+
+Validation: `npm test` passed 384/384, `npm run typecheck` passed, the generated profile passed the
+pinned Hermes config check, and `GET /healthz` passed on temporary Sabi port `18787`. No credential,
+paid request, deployment or package publication was performed.
+
+## [2026-09-20] verify | Hermes through Sabi with Nous and local fallback boundary
+
+Ran a bounded real Hermes request in Orca with the isolated profile: `Hermes (sabi-code) → Sabi
+:8789 → Hermes Nous proxy :8645 → Nous Portal`. Hermes returned `NOUS_SABI_OK`, exit `0`, in
+7378 ms. The Sabi receipt recorded `client: hermes`, `sessionKnown: true`, `alias: sabi-code`,
+`outcome: ok`, and upstream `upstage/solar-pro4:free`. This is transport/auth/attribution evidence
+for one request; it is not quality, entitlement, quota, savings, paid-spend or production evidence.
+
+The local smoke also passed through Sabi to Ollama `llama3.2:3b`. `qwen2.5-coder:7b` was not
+Hermes-compatible on this host because its 32768-token context is below Hermes 0.21.3's 64000-token
+minimum; it remains a direct Sabi/Ollama option. Temporary validation processes were stopped after
+the receipt was captured. No credential was copied to Git, and no external publication occurred.
+
+## [2026-09-20] feat | Host-AI onboarding and OpenRouter-only Hermes route
+
+Added the canonical `docs/install.ai.md` flow for a user asking Command Code, OpenCode, Hermes,
+Claude Code or Codex to install Sabi. The checkout wizard now localizes questions/explanations,
+keeps Jev opt-in, can collect only `OPENROUTER_API_KEY` with hidden TTY input into the user-scoped
+mode-0600 secrets file, and supports `--upstream=openrouter` for an isolated Hermes profile without
+a Nous login. `--explain=local|ai` provides a free local explanation or one explicit OpenRouter
+explanation request with a local fallback. Native subscriptions remain native and Claude/Codex
+controller hooks remain clearly separate from in-session model switching.
+
+Validation: `npm test` 387/387, `npm run typecheck`, `git diff --check`. No real credential, paid
+inference, user configuration, deployment or publication changed.

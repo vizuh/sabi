@@ -1,11 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { resolveHarness, resolveYesNo, setJevEnabled } from '../setup.ts'
+import { resolveExplainMode, resolveHarness, resolveHermesUpstream, resolveLanguage, resolveYesNo, saveOpenRouterKey, setJevEnabled } from '../setup.ts'
 
 const setupPath = fileURLToPath(new URL('../setup.ts', import.meta.url))
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
@@ -67,6 +67,32 @@ test('resolveHarness: an unrecognized flag value is a hard error, not silently "
   assert.equal(result, undefined)
   assert.equal(process.exitCode, 1, 'a typo must fail loudly, not swallow into the usage-print path')
   process.exitCode = before
+})
+
+test('language, Hermes upstream and explanation flags are explicit and safe by default', async () => {
+  assert.equal(resolveLanguage(['--language=pt-BR']), 'pt-BR')
+  assert.equal(resolveLanguage([]), process.env.LC_ALL?.toLowerCase().startsWith('pt') || process.env.LC_MESSAGES?.toLowerCase().startsWith('pt') || process.env.LANG?.toLowerCase().startsWith('pt') ? 'pt-BR' : 'en')
+  assert.equal(await resolveHermesUpstream(['--upstream=openrouter'], false), 'openrouter')
+  assert.equal(await resolveHermesUpstream([], false), 'hermes-nous')
+  assert.equal(await resolveExplainMode([], false), 'none')
+  assert.equal(await resolveExplainMode(['--explain=local'], false), 'local')
+  assert.equal(await resolveExplainMode(['--explain=ai'], false), 'ai')
+})
+
+test('saveOpenRouterKey writes a mode-0600 user secret without returning the value', () => {
+  const dir = workspace()
+  const file = path.join(dir, 'secrets.env')
+  const previous = process.env.SABI_SECRETS_FILE
+  process.env.SABI_SECRETS_FILE = file
+  try {
+    assert.equal(saveOpenRouterKey('test-router-value'), file)
+    assert.match(readFileSync(file, 'utf8'), /OPENROUTER_API_KEY="test-router-value"/)
+    assert.equal(statSync(file).mode & 0o777, 0o600)
+    assert.doesNotMatch(readFileSync(file, 'utf8'), /sk-or-/)
+  } finally {
+    if (previous === undefined) delete process.env.SABI_SECRETS_FILE
+    else process.env.SABI_SECRETS_FILE = previous
+  }
 })
 
 test('setJevEnabled: declining actively turns Jev off, not just leaves it as-is', () => {
@@ -214,19 +240,53 @@ test('a failing writer is surfaced as this process\'s own non-zero exit code', (
   assert.notEqual(status, 0, 'connect.ts refuses invalid JSON and exits 1 — setup.ts must not swallow that')
 })
 
-test('--harness=hermes creates HERMES_HOME with the plugin and config, no __pycache__', () => {
+test('--harness=hermes creates an isolated profile with the plugin and Sabi config', () => {
   const dir = workspace()
   const home = path.join(dir, 'hermes-home')
   const { status, stdout } = run(['--harness=hermes', `--hermes-home=${home}`, '--no-jev'], {
     SABI_CONFIG: tempSabiConfig(),
   })
   assert.equal(status, 0)
-  assert.match(stdout, /uncertified/)
+  assert.match(stdout, /Login once in this profile/)
   assert.ok(existsSync(path.join(home, 'config.yaml')))
+  assert.ok(existsSync(path.join(home, 'sabi.config.json')))
   assert.ok(existsSync(path.join(home, 'plugins', 'sabi-metadata', '__init__.py')))
   assert.equal(existsSync(path.join(home, 'plugins', 'sabi-metadata', '__pycache__')), false)
   const yaml = readFileSync(path.join(home, 'config.yaml'), 'utf8')
-  assert.match(yaml, /REPLACE_WITH_VERIFIED_CONTEXT_TOKENS/)
+  assert.match(yaml, /context_length: &context 65536/)
+  assert.match(yaml, /supports_tools: true/)
+  const profile = JSON.parse(readFileSync(path.join(home, 'sabi.config.json'), 'utf8'))
+  assert.equal(profile.upstreams['hermes-nous'].baseURL, 'http://127.0.0.1:8645/v1')
+  assert.equal(profile.judge.enabled, false)
+})
+
+test('--harness=hermes --upstream=openrouter creates a key-only proxy profile without Nous login', () => {
+  const dir = workspace()
+  const home = path.join(dir, 'hermes-openrouter-home')
+  const { status, stdout } = run(['--harness=hermes', '--upstream=openrouter', '--no-jev', '--no-openrouter-key', `--hermes-home=${home}`], {
+    SABI_CONFIG: tempSabiConfig(),
+  })
+  assert.equal(status, 0)
+  assert.match(stdout, /OpenRouter is the only Sabi credential/)
+  assert.doesNotMatch(stdout, /hermes auth add nous/)
+  const profile = JSON.parse(readFileSync(path.join(home, 'sabi.config.json'), 'utf8'))
+  assert.equal(profile.upstreams.openrouter.apiKey, '$OPENROUTER_API_KEY')
+  assert.equal(profile.upstreams['hermes-nous'], undefined)
+  assert.equal(profile.judge, undefined, 'the one-key profile must not even declare a TypeSafe credential reference')
+})
+
+test('--harness=hermes --jev writes Jev only to the isolated profile', () => {
+  const dir = workspace()
+  const home = path.join(dir, 'hermes-home')
+  const rootConfig = tempSabiConfig()
+  const before = readFileSync(rootConfig, 'utf8')
+  const { status } = run(['--harness=hermes', `--hermes-home=${home}`, '--jev'], {
+    SABI_CONFIG: rootConfig,
+  })
+  assert.equal(status, 0)
+  assert.equal(readFileSync(rootConfig, 'utf8'), before)
+  const profile = JSON.parse(readFileSync(path.join(home, 'sabi.config.json'), 'utf8'))
+  assert.equal(profile.judge.enabled, true)
 })
 
 test('--harness=hermes refuses a non-empty target directory', () => {

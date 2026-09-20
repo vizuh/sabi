@@ -2,18 +2,21 @@
 
 O Sabi é instalado uma vez por usuário/máquina. Ele não é um plugin do Command Code e não exige um harness específico. O core/controller é a instalação para usuários; Command Code, OpenCode, Hermes, Claude Code, Codex, Orca e outros hosts são integrações opcionais.
 
+Se o usuário pedir ao próprio AI do host para instalar o Sabi, use o [fluxo de instalação por host-AI](install.ai.md). Ele define as perguntas, o caminho de uma única chave do OpenRouter, a opção de explicação no idioma do usuário e as evidências que o agente deve reportar.
+
+Para Claude Code, Codex e os fluxos de OpenCode apoiados pelo controller, instale o pacote público. Para Hermes ou para inferência do OpenCode pelo proxy local, continue usando o checkout, pois o pacote do controller não contém o servidor proxy nem o perfil do Hermes.
+
 ## Instalação única para usuários
 
 ~~~bash
-npm install --global @vizuh/sabi-controller
+npm install --global @vizuh/sabi-controller@0.1.0
 sabi setup
-sabi status
 sabi doctor
 ~~~
 
 O `setup` é idempotente. Ele mantém o daemon e o estado no escopo do usuário, detecta hosts compatíveis, instala apenas hooks do Sabi com suporte e permite que o harness continue normalmente se o Sabi estiver indisponível. Use `sabi setup --no-hooks` se quiser o daemon sem alterar a configuração do host. Não é necessário ter conta do Command Code, checkout do repositório ou instalação por worktree.
 
-O pacote do controller é publicado separadamente por tags `controller-v*`. Se o npm ainda não tiver uma versão publicada, use o checkout abaixo apenas como fallback de mantenedor/desenvolvimento; não o trate como a instalação normal do usuário.
+A primeira release pública do controller é `controller-v0.1.0`. Não use `npm link` em uma instalação de usuário.
 
 ## O que é instalado?
 
@@ -38,7 +41,8 @@ npm run controller -- doctor
 npm run controller -- integrations list
 ~~~
 
-O antigo `npm run setup` também é um utilitário de desenvolvimento para escrever uma configuração específica de proxy ou Hermes. Ele não é o caminho de instalação para usuários.
+O `npm run setup` é o caminho baseado em checkout para configurar o proxy do Hermes/OpenCode; para hooks
+do controller, use o pacote global acima.
 
 ## Requisitos por superfície
 
@@ -47,6 +51,7 @@ O antigo `npm run setup` também é um utilitário de desenvolvimento para escre
 | Controller base | Node 22.6+ e o pacote publicado `@vizuh/sabi-controller` |
 | Mod do Command Code | Command Code, plano cobrindo `harness.tiers` e o mod publicado `@vizuh/sabi` |
 | Proxy local | Node 22.6+, cliente compatível com OpenAI e credenciais dos upstreams pagos habilitados |
+| Setup Hermes-first | Hermes, Node 22.6+ e checkout do Sabi; login Nous ou chave OpenRouter depende do upstream escolhido |
 | Checkout do mantenedor | Node 22.6+, git e o repositório |
 
 ## Integração opcional — mod nativo do Command Code
@@ -328,10 +333,9 @@ sabi setup --hooks
 ```
 
 Este é o fluxo pretendido para usuários. A release pública `@vizuh/sabi` contém apenas o adaptador do
-Command Code; ela não instala o controller nem a ponte Orca. Antes da primeira tag de
-`@vizuh/sabi-controller`, o pacote ainda não está disponível de propósito; não substitua esse fluxo
-por `npm link` numa instalação de usuário. Mantenedores podem executar `npm run build:controller` e
-o teste de pacote em prefixo limpo a partir do repositório.
+Command Code; ela não instala o controller nem a ponte Orca. O controller público `controller-v0.1.0`
+é instalado pelo pacote global acima; mantenedores podem executar `npm run build:controller` e o teste
+de pacote em prefixo limpo a partir do repositório.
 
 O plugin consulta o daemon loopback, despacha apenas `DELEGATE`, `SPAWN` e `ORCHESTRATE`, e substitui
 a mensagem atual somente depois que o daemon informa execução aceita. `CONTINUE` permanece no
@@ -350,12 +354,77 @@ Isto resume o tráfego registrado; não chama harness nem repete uma tarefa paga
 
 ### Hermes
 
-O Hermes é atendido pelo mesmo proxy, mais um plugin opcional que adiciona atribuição estável. Isto segue `packages/adapters/hermes/README.md`: o caminho principal e de resume do Hermes está certificado pela sonda nativa Hermes → Sabi → mock com runtime fixado. Chamadas auxiliares, rebinding direto de provider e qualidade com provider real continuam gates separados; isto não é certificação de provider pago.
+O Hermes é atendido pelo seam nativo `llm_request` e pelo proxy local dele. O setup abaixo cria um perfil isolado, mantém o login do Hermes e inicia o caminho:
 
-1. Crie um `HERMES_HOME` novo. Não aponte para um perfil pessoal existente.
-2. Copie `packages/adapters/hermes/plugin/` para `$HERMES_HOME/plugins/sabi-metadata/`.
-3. Adapte `packages/adapters/hermes/config.yaml.example`: troque o placeholder de contexto por um limite verificado e mantenha `supports_tools`, `supports_vision` e `supports_reasoning` conservadores até verificar todos os níveis para os quais o Sabi pode rotear. O template traz `false`, o que significa sem ferramentas.
-4. `HERMES_HOME=… hermes chat`, e selecione `sabi-code`.
+~~~text
+Hermes → sabi-code → Sabi → proxy Nous do Hermes → Nous Portal
+~~~
+
+Ele não transfere silenciosamente os planos OpenCode Go ou ChatGPT Plus para o Sabi. Esses continuam sendo providers nativos do Hermes e podem ser escolhidos com `hermes model`; a rota Sabi usa o perfil Nous autenticado. O adapter tem um probe sintético fixado e um smoke live limitado no Nous; nenhum dos dois prova qualidade, quota, economia ou prontidão de produção.
+
+#### Instalar, fazer login e começar
+
+Se o Hermes ainda não estiver instalado, use o instalador oficial e recarregue o shell:
+
+~~~bash
+curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+source ~/.bashrc
+hermes --version
+~~~
+
+Em um checkout novo:
+
+~~~bash
+git clone https://github.com/vizuh/sabi
+cd sabi
+npm install
+npm run setup -- --harness=hermes --hermes-home="$HOME/.config/sabi/hermes" --no-jev
+export HERMES_HOME="$HOME/.config/sabi/hermes"
+~~~
+
+Use um `HERMES_HOME` novo ou vazio; não sobrescreva um perfil pessoal existente. Se o diretório
+já existir, escolha outro caminho isolado e mantenha o auth store existente intacto.
+
+Faça login no Nous no perfil Hermes isolado:
+
+~~~bash
+hermes auth add nous --type oauth
+hermes auth status nous
+~~~
+
+Use três terminais, mantendo o segundo no checkout do Sabi:
+
+~~~bash
+# Terminal 1
+HERMES_HOME="$HERMES_HOME" hermes proxy start --provider nous --host 127.0.0.1 --port 8645
+
+# Terminal 2
+SABI_CONFIG="$HERMES_HOME/sabi.config.json" npm start
+
+# Terminal 3
+export SABI_HERMES_BASE_URL="http://127.0.0.1:8787/v1"
+HERMES_HOME="$HERMES_HOME" SABI_HERMES_BASE_URL="$SABI_HERMES_BASE_URL" hermes chat
+~~~
+
+O perfil gerado já seleciona `sabi-code`. Antes da primeira requisição paga:
+
+~~~bash
+curl -fsS http://127.0.0.1:8787/healthz
+HERMES_HOME="$HERMES_HOME" hermes proxy status
+~~~
+
+Para usar as outras contas nativamente no Hermes, autentique pelo fluxo de providers do Hermes e escolha com `hermes model`; voltar para `sabi-code` retorna ao roteamento do Sabi. Os ids e modos de autenticação dependem da versão e da conta:
+
+~~~bash
+HERMES_HOME="$HERMES_HOME" hermes model
+~~~
+
+A elegibilidade exata do ChatGPT Plus e o saldo do Nous são fatos da conta; erros de quota ou entitlement devem aparecer diretamente no Hermes. Se os `$20` forem uma API key independente do Nous, use a receita de upstream por API key em vez do `hermes proxy`; nunca coloque a chave no `config.yaml` ou no Git.
+
+No host de validação, `qwen2.5-coder:7b` tem contexto de 32768 tokens, enquanto o Hermes 0.21.3
+exige pelo menos 64000 para um modelo customizado. Use Nous ou um modelo local com contexto
+verificado de pelo menos 64000 no Hermes; o Qwen continua disponível numa configuração direta
+Sabi/Ollama.
 
 ### Jev para esses clientes
 

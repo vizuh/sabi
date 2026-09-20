@@ -1,6 +1,6 @@
 # Public installation and host integration plan
 
-Status: implementation plan, 2026-09-19. This replaces the development-only `npm link` assumption
+Status: Phase A release complete, 2026-09-20. This replaces the development-only `npm link` assumption
 for users who install Sabi on their own machines.
 
 ## Phase A implementation status
@@ -22,8 +22,8 @@ The first packaging slice is now implemented in the controller workstream:
 - the authenticated daemon now accepts bounded adapter session register/heartbeat/outcome events;
   `sabi sessions` exposes hash-based identities while registered sessions remain non-dispatchable
   until an adapter proves its transport;
-- no registry publication is claimed until the release tag, npm package and clean-machine proof all
-  exist.
+- `controller-v0.1.0` publishes the clean-machine artifact as `@vizuh/sabi-controller`; the existing
+  `v0.1.3` lane publishes the Command Code adapter as `@vizuh/sabi`.
 
 This phase does not yet claim live cross-platform service validation, universal Orca prompt
 interception, or live cross-terminal execution. The platform installers are implementation slices;
@@ -52,8 +52,8 @@ gets its own public package and release lane so the existing adapter contract is
 
 ## Remaining blockers
 
-- The generated package and release workflow exist, but no `controller-v*` tag or npm publication has
-  been made yet.
+- The published packages prove distribution and clean-prefix installation, not live cross-terminal
+  completion, host task correctness or provider/model entitlement.
 - Linux has a `systemd --user` installer with an explicit lazy fallback when the user bus is
   unavailable; macOS LaunchAgent and Windows Task Scheduler installers are implemented and
   contract-tested, but still require one live validation run on each operating system.
