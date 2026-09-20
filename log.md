@@ -689,3 +689,14 @@ recovery, catalogs, replay/promotion and learned routing; no Jev/catalog/cost be
 Validation: focused Command Code tests passed 15/15, full `npm test` passed 384/384, `npm run
 typecheck` passed, and `git diff --check` passed. No live provider request, secret, user configuration,
 deployment or publication was performed.
+
+## [2026-09-20] feat | Add the DeepSeek Harness Sabi bundle adapter
+
+Added the public `@vizuh/sabi-deepseek-harness` configuration bundle. It reuses DSH's native
+`@deepseek-ai/dsh-llm-pi-ai` OpenAI-compatible seam to expose `sabi/sabi-code` through the local
+Sabi proxy, adds privacy-safe `deepseek-harness` attribution, and records the adapter as
+inference-only in the controller inventory. Documentation pins DSH `0.1.6-alpha.2` at upstream
+revision `ddefc45fbc7f8e46dd73185e68295696d1297887` and labels live runtime evidence as pending.
+
+Validation is package/patch/static only because `dsh` is not installed locally; no paid request,
+secret, user configuration, deployment or publication was performed in this change set.

@@ -1,0 +1,22 @@
+# Sabi is a provider route, not a replacement for DSH's agent loop.
+# The DSH base bundle already mounts this plugin; this layer gives it one
+# explicit OpenAI-compatible route backed by the local Sabi proxy.
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      sabi:
+        displayName: Sabi
+        api: openai-completions
+        baseURL: !!js process.env.SABI_DSH_BASE_URL ?? 'http://127.0.0.1:8787/v1'
+        headers:
+          Authorization: 'Bearer sabi-local-placeholder'
+          X-Sabi-Client: deepseek-harness
+        defaultContextWindow: 1000000
+        defaultMaxTokens: 4096
+        models:
+          - id: sabi-code
+            name: Sabi Adaptive
+            contextWindow: 1000000
+            maxTokens: 4096
+            input: [text]

@@ -13,6 +13,7 @@ checkout contains a separate controller boundary:
 | Codex | SessionStart, UserPromptSubmit and SessionEnd hooks, bounded controller plan/route | In-session model switching or approval bypass |
 | OpenCode | Optional controller plugin plus the proxy adapter below | Native model replacement inside a running session |
 | Orca | Worktree/terminal inventory and capability-gated dispatch plugin | Universal model routing or provider identity from a terminal handle |
+| DeepSeek Harness | Published DSH bundle adds `sabi/sabi-code` through the native OpenAI-compatible provider seam | DSH process supervision, session/controller routing, or live DSH receipt |
 
 An executable on PATH is detection evidence only. A hook file is installation evidence only.
 Controller support is promoted only when a typed execution receipt and the relevant live host
@@ -44,6 +45,7 @@ placeholder. Host subscription credits and login tokens are not transferred to S
 | Kilo VS Code | Custom provider → **OpenAI Compatible**, base URL above, manual alias; set tool/context/output metadata in `kilo.jsonc`, not guessed UI defaults |
 | Prime Agent | Isolated custom `models.json` provider with `api: "openai-completions"`; see [tested limits](research/prime-agent-compatibility.md) |
 | Hermes | Explicit `chat_completions` custom provider and Sabi `llm_request` attribution middleware; see [adapter](../packages/adapters/hermes/README.md) |
+| DeepSeek Harness | `@vizuh/sabi-deepseek-harness` bundle; pinned DSH `0.1.6-alpha.2`; live runtime pending |
 
 All aliases need conservative tool/modality/context/output metadata across the eligible
 model set. Missing Kilo limits can disable compaction. Do not copy synthetic fixture limits
@@ -74,7 +76,8 @@ require a fixed alias. Unsupported requests fail clearly instead of dropping fie
 
 ## Identity, cancellation and privacy
 
-Optional `X-Sabi-Client` accepts `hermes`, `opencode`, `kilo-cli`, `kilo-vscode`, `prime-agent`
+Optional `X-Sabi-Client` accepts `hermes`, `opencode`, `kilo-cli`, `kilo-vscode`, `prime-agent`,
+`deepseek-harness`
 or `unknown`. `X-Sabi-Session` and `X-Sabi-Turn` accept 1–128 ASCII token characters
 (`[A-Za-z0-9._:-]`). Duplicate or invalid values return 400. Do not put content or keys here.
 Identifiers are hashed before logging. Missing session IDs remain ungrouped/unknown;

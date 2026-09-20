@@ -35,6 +35,7 @@ Current boundary:
 | OpenCode | partial | clean-machine consent and live prompt/outcome receipt |
 | Orca | inventory-only | official consented plugin install and universal prompt event |
 | Command Code | inference-only | controller prompt/dispatch contract |
+| DeepSeek Harness | inference-only | pinned DSH boot, Sabi request/stream receipt and bounded live probe |
 | Hermes, Prime Agent, Pi, OMP | unsupported | installed runtime contract and end-to-end adapter |
 
 An adapter must fail closed at the controller boundary when it cannot prove the target operation.

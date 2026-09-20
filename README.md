@@ -36,6 +36,7 @@ After installation, open your normal harness. Choose an optional integration onl
 | Per-round model + reasoning-effort routing | [Command Code mod](docs/adapters/command-code.md) | Uses the host's native loop and subscription catalog | Command Code only |
 | Model/provider routing with your own credentials | [Local proxy](docs/install.md#optional-integration-local-openai-compatible-proxy) | Routes requests through an OpenAI-compatible endpoint | Model/provider routing; not native reasoning-effort switching |
 | Move work between sessions and worktrees | [Controller hooks](docs/adapters/README.md) | Coordinates bounded continue/delegate/spawn actions | Does not switch the model inside an existing native session |
+| Use Sabi from DeepSeek Harness | [DeepSeek Harness adapter](docs/adapters/deepseek-harness.md) | Adds `sabi/sabi-code` through DSH's native provider seam | Inference-only; DSH lifecycle support is not claimed |
 | Add another host | [Maintainer contract](docs/maintainers.md) | Defines the adapter boundary and evidence required | An adapter is not a second routing policy |
 
 ## The 60-second mental model
@@ -199,7 +200,7 @@ expectations, and how to propose an adapter without creating a second policy imp
 ~~~text
 packages/core/                 shared state, policy, routing, telemetry
 packages/server/               local OpenAI-compatible proxy
-packages/adapters/             Command Code, Hermes, OpenCode, Orca, Prime Agent
+packages/adapters/             Command Code, DeepSeek Harness, Hermes, OpenCode, Orca, Prime Agent
 packages/controller/           task/session controller and host hooks
 packages/evals/                frozen evals, client smoke checks, accounting
 docs/adapters/                 user-facing adapter guides

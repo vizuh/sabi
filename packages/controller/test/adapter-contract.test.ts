@@ -12,6 +12,8 @@ test('built-in adapter manifests expose every required operation without oversta
   assert.deepEqual(manifests.find(({ id }) => id === 'claude')?.operations && Object.keys(manifests.find(({ id }) => id === 'claude')!.operations).sort(), [...ADAPTER_OPERATIONS].sort())
   assert.equal(adapterReady(manifests.find(({ id }) => id === 'claude')!), false)
   assert.equal(manifests.find(({ id }) => id === 'orca')?.operations['receive-prompt'], 'missing')
+  assert.equal(manifests.find(({ id }) => id === 'deepseek-harness')?.status, 'inference-only')
+  assert.equal(manifests.find(({ id }) => id === 'deepseek-harness')?.operations['receive-prompt'], 'missing')
   assert.equal(manifests.find(({ id }) => id === 'hermes')?.status, 'unsupported')
 })
 

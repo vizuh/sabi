@@ -44,6 +44,10 @@ commands (`opencode models` and `cmd --list-models`) with explicit-free markers,
 runtime version, observation time and output hash. Catalog presence is evidence only: it does not
 prove plan entitlement, pricing, quota or per-round native OpenCode model switching.
 
+A public DeepSeek Harness bundle adapter provides the same Sabi proxy boundary through DSH's native
+`@deepseek-ai/dsh-llm-pi-ai` seam. It is inference-only and pinned to DSH `0.1.6-alpha.2` until a
+live DSH boot/request/receipt probe is recorded; it does not add DSH lifecycle supervision.
+
 The controller execution boundary now accepts only explicit typed Orca receipts, carries a
 controller-side idempotency key through plan/route/outcome, reuses inventory for at most two seconds,
 forces a fresh inventory before retrying a quota/rate-limit failure, and sends Jev only bounded

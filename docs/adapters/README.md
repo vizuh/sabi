@@ -30,6 +30,7 @@ If a host has no verified execution seam, Sabi can still document or observe the
 | [Claude Code](claude-code.md) | User-prompt controller hook | Partial controller integration | sabi setup |
 | [Codex](codex.md) | Lifecycle/prompt controller hooks | Partial controller integration | sabi setup |
 | [Orca](orca.md) | Plugin + inventory/dispatch bridge | Inventory and bounded dispatch surface | sabi setup + Orca |
+| DeepSeek Harness | DSH bundle + Sabi proxy | Inference-only; developer-preview runtime, live DSH receipt pending | `dsh plugin --profile <name> add @vizuh/sabi-deepseek-harness` |
 
 ## Read support correctly
 
@@ -44,5 +45,6 @@ model families, subscriptions, child agents, extensions, or future releases are 
 
 The package-level README is the implementation reference where one exists:
 [Command Code](../../packages/adapters/command-code/README.md),
-[Hermes](../../packages/adapters/hermes/README.md), and
+[Hermes](../../packages/adapters/hermes/README.md),
+[DeepSeek Harness](../../packages/adapters/deepseek-harness/README.md), and
 [Orca](../../packages/adapters/orca/README.md).
