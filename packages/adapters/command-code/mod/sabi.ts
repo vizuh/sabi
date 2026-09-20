@@ -1,24 +1,31 @@
 import type { AgentState, ModApi, ModContext, ModelRequestEvent, TurnUsage } from '@commandcode/harness'
 import {
+  appendDecision,
+  hashIdentity,
   loadConfig,
   measuredContextTokens,
   modalitiesOf,
   planRound,
   sanitizeReason,
+  sessionIdFor,
   telemetryPolicy,
   transcriptStats,
   trajectoryFromRound,
   type CatalogTier,
+  type DecisionRecord,
   type HarnessRound,
   type HarnessToolCall,
   type RoundPlan,
   type SabiConfig,
   type TranscriptStats,
   type TrajectoryState,
+  type UsageTotals,
 } from '@sabi/core'
+import path from 'node:path'
 
 const MOD_ID = 'sabi'
 const DECISION_TYPE = 'sabi/decision'
+const CLIENT_ID = 'command-code'
 
 type ConfigWithHarness = SabiConfig & { harness?: { tiers?: Record<string, CatalogTier> } }
 
@@ -35,6 +42,8 @@ interface Ledger {
   hasTools: boolean
   lastModel?: string
   lastUsage?: TurnUsage
+  /** Stable per-mod-session identity; created once and never derived from prompt content. */
+  sessionId?: string
 }
 
 function readLedger(state: AgentState): Ledger {
@@ -49,6 +58,7 @@ function readLedger(state: AgentState): Ledger {
     hasTools: raw.hasTools === true,
     lastModel: raw.lastModel,
     lastUsage: raw.lastUsage,
+    sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
   }
 }
 
@@ -59,6 +69,36 @@ function writeLedger(state: AgentState, ledger: Ledger): AgentState {
 /** A transcript that came back shorter than the last turn's is a host rewrite, not drift. */
 function compactedSince(ledger: Ledger, stats: TranscriptStats): boolean {
   return ledger.messageCount > 0 && stats.messageCount > 0 && stats.messageCount < ledger.messageCount
+}
+
+/** Match the proxy's stable tool identity without persisting raw tool names. */
+function hashedToolNames(names: string[]): string[] {
+  return names.map((name) => hashIdentity('tool', name))
+}
+
+/** Convert valid measured TurnUsage to UsageTotals; leave absent if no usage or invalid values. */
+function toUsageTotals(usage: TurnUsage | undefined): UsageTotals | undefined {
+  if (!usage) return undefined
+  const validTokens = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+  if (!validTokens(usage.inputTokens) || !validTokens(usage.outputTokens)) return undefined
+  const cachedTokens = usage.cachedInputTokens === undefined ? 0 : usage.cachedInputTokens
+  if (!validTokens(cachedTokens) || cachedTokens > usage.inputTokens) return undefined
+  const promptTokens = usage.inputTokens
+  const completionTokens = usage.outputTokens
+  const totalTokens = promptTokens + completionTokens
+  if (!Number.isSafeInteger(totalTokens)) return undefined
+  return {
+    promptTokens,
+    completionTokens,
+    cachedTokens,
+    totalTokens,
+  }
+}
+
+/** Derive the log path from the mod context's cwd, not process.cwd(). */
+function logPathFor(ctx: ModContext | undefined): string | undefined {
+  return ctx?.cwd?.trim() ? path.join(ctx.cwd, '.sabi', 'decisions.jsonl') : undefined
 }
 
 export default function sabi(cmd: ModApi): void {
@@ -95,6 +135,10 @@ export default function sabi(cmd: ModApi): void {
       nextPlan = undefined
       servedBy = undefined
       const ledger = readLedger(state)
+      // Create a stable session identity on the first turn; never derive from prompt content.
+      if (!ledger.sessionId) {
+        ledger.sessionId = sessionIdFor(undefined, CLIENT_ID)
+      }
       return writeLedger(state, { ...ledger, rounds: turnNumber })
     },
 
@@ -173,7 +217,9 @@ export default function sabi(cmd: ModApi): void {
         lastUsage: usedThisTurn ? usage : undefined,
       }
       previousFailure = adopted ? { failure: adopted.state.failure, failureEvidence: adopted.state.failureEvidence } : undefined
-      recordDecision(ctx, {
+
+      // Persist the existing custom entry for backwards compatibility.
+      recordCustomEntry(ctx, {
         turn: turnNumber,
         planned: servingPlan
           ? {
@@ -197,12 +243,53 @@ export default function sabi(cmd: ModApi): void {
         // Decision records never embed raw tool output by default; snippet capture is opt-in.
         captureSnippets: telemetry.captureSnippets,
       })
+
+      // Persist a normalized DecisionRecord only for rounds that actually had a Sabi serving plan.
+      // The first host-served round (no servingPlan) is not a planned decision.
+      if (servingPlan) {
+        const sessionId = ledger.sessionId ?? sessionIdFor(undefined, CLIENT_ID)
+        const usageTotals = toUsageTotals(usage)
+        const decision: DecisionRecord = {
+          ts: new Date().toISOString(),
+          sessionId,
+          // sessionKnown stays false: the host does not expose a real session ID to the mod.
+          client: CLIENT_ID,
+          turnId: hashIdentity('turn', sessionId, String(turnNumber)),
+          servedModel: servedBy ?? undefined,
+          alias: 'sabi-code',
+          mode: 'auto',
+          rule: servingPlan.rule,
+          tier: servingPlan.tier,
+          reason: sanitizeReason(String(servingPlan.reason ?? ''), telemetry),
+          // This is the host adapter, not a provider entitlement claim.
+          upstream: CLIENT_ID,
+          upstreamModel: servingPlan.model,
+          stream: false,
+          state: {
+            ...servingPlan.state,
+            // Hash tool names; never persist raw tool outputs or args.
+            toolNames: hashedToolNames(servingPlan.state.toolNames),
+            lastToolNames: hashedToolNames(servingPlan.state.lastToolNames),
+          },
+          sessionKnown: false,
+          ...(usageTotals ? { usage: usageTotals } : {}),
+          // outcome means the model request round completed, not that the whole task succeeded.
+          outcome: 'ok',
+        }
+        const logFile = logPathFor(ctx)
+        if (logFile) {
+          // Logging is evidence, not a reason to break the host harness on a full or read-only disk.
+          try { appendDecision(decision, logFile) } catch { /* fail open */ }
+        }
+      }
+
       return writeLedger(state, next)
     },
   })
 }
 
-function recordDecision(ctx: ModContext | undefined, data: Record<string, unknown>): void {
+/** Persist the existing custom entry format for backwards compatibility. */
+function recordCustomEntry(ctx: ModContext | undefined, data: Record<string, unknown>): void {
   // A bare unit-test harness has no session store; the decision is simply not persisted.
   ctx?.session?.appendCustomEntry({ customType: DECISION_TYPE, data })
 }

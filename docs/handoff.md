@@ -638,3 +638,19 @@ The public docs now describe Sabi as a multi-adapter routing product.
 The evidence boundaries stay explicit. The published `@vizuh/sabi` package is still the Command Code
 mod. The controller is checkout-based and experimental. Claude and Codex hooks do not imply
 in-session model switching, and the project does not publish a quality or universal savings benchmark.
+
+## Command Code evidence parity — 2026-09-20
+
+The Command Code mod now writes planned rounds to the shared core `DecisionRecord` JSONL beside the
+harness workspace, while preserving its existing custom entries. Tool identities are hashed with the
+proxy convention; invalid usage and harness subscription prices remain unknown; log failures are
+fail-open. The first host-served round is intentionally not recorded as a Sabi plan.
+
+The Spec Kit-shaped VNext plan and ordered agent tasks are in
+`docs/specs/adaptive-inference-scheduler-vnext.md` and
+`docs/tasks/adaptive-inference-scheduler-vnext.md`. The next dependency is provenance/verification,
+not a learned router or an unconditional Jev call.
+
+Validation in this worktree: focused Command Code tests passed 15/15, full `npm test` passed 384/384,
+and `npm run typecheck` passed. No provider request, secret, user configuration, deployment or
+publication was performed.

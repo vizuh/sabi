@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import type { AgentState, ModApi, ModContext, ModHooks } from '@commandcode/harness'
 import sabi from '../mod/sabi.ts'
 
@@ -11,10 +14,10 @@ interface Harness {
   ctx: ModContext
 }
 
-function loadMod(): Harness {
+function loadMod(cwd = process.cwd()): Harness {
   const harness: Partial<Harness> = { notices: [], decisions: [], events: new Map() }
   harness.ctx = {
-    cwd: process.cwd(),
+    cwd,
     session: {
       appendCustomEntry: (entry) => {
         harness.decisions?.push(entry.data as Record<string, unknown>)
@@ -40,6 +43,16 @@ function loadMod(): Harness {
 
 function round(h: Harness, turn: number, state: AgentState): Promise<AgentState> {
   return Promise.resolve(h.hooks.onTurnStart!({ state, turnNumber: turn }, h.ctx))
+}
+
+function readDecisionLog(cwd: string): Array<Record<string, unknown>> {
+  const file = path.join(cwd, '.sabi', 'decisions.jsonl')
+  if (!existsSync(file)) return []
+  return readFileSync(file, 'utf8')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
 }
 
 test('the mod registers the routing seam and a model observer', () => {
@@ -449,4 +462,92 @@ test('a host compaction resets the repeated-failure streak and records its gener
   // The pre-compaction measured size is not carried across the boundary.
   assert.notEqual(planned.contextTokens, 9100)
   assert.deepEqual(next, { model: 'zai-org/glm-5.3', effort: 'high' })
+})
+
+test('planned rounds write common evidence beside the harness workspace', async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-command-code-'))
+  try {
+    const h = loadMod(cwd)
+    let state: AgentState = await round(h, 1, {
+      modState: { sabi: { toolNames: ['read_file'], hasTools: true } },
+    })
+    await h.hooks.afterToolCall!({
+      toolCallId: 't1',
+      toolName: 'read_file',
+      input: { absolute_path: '/repo/private.txt', token: 'sk-live-secret' },
+      result: 'private body sk-live-secret',
+      isError: false,
+      state,
+    }, h.ctx)
+    await h.hooks.prepareNextTurn!({ state, turnNumber: 1 }, h.ctx)
+    state = await h.hooks.onTurnEnd!({
+      state,
+      turnNumber: 1,
+      hadToolCalls: true,
+      usage: { inputTokens: 100, outputTokens: 20 },
+    }, h.ctx)
+
+    // The host-served first round has no Sabi plan, but keeps the legacy custom entry.
+    assert.equal(readDecisionLog(cwd).length, 0)
+    assert.equal(h.decisions.length, 1)
+
+    state = await round(h, 2, state)
+    h.events.get('model_request_end')?.({ type: 'model_request_end', model: 'deepseek/deepseek-v4-flash' })
+    await h.hooks.onTurnEnd!({
+      state,
+      turnNumber: 2,
+      hadToolCalls: false,
+      usage: { inputTokens: 200, outputTokens: 40, cachedInputTokens: 20 },
+    }, h.ctx)
+
+    const records = readDecisionLog(cwd)
+    assert.equal(records.length, 1)
+    const record = records[0]!
+    assert.equal(record.client, 'command-code')
+    assert.equal(record.alias, 'sabi-code')
+    assert.equal(record.upstream, 'command-code')
+    assert.equal(record.sessionKnown, false)
+    assert.equal(typeof record.turnId, 'string')
+    assert.equal(record.upstreamModel, 'deepseek/deepseek-v4-flash')
+    assert.deepEqual(record.usage, { promptTokens: 200, completionTokens: 40, cachedTokens: 20, totalTokens: 240 })
+    const persistedToolNames = (record.state as Record<string, unknown>).toolNames as string[]
+    assert.equal(persistedToolNames.length, 1)
+    assert.match(persistedToolNames[0]!, /^[a-f0-9]{64}$/)
+    assert.notEqual(persistedToolNames[0], 'read_file')
+    assert.equal(h.decisions.length, 2)
+    const serialized = JSON.stringify(records)
+    assert.ok(!serialized.includes('sk-live-secret'))
+    assert.ok(!serialized.includes('/repo/private.txt'))
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('invalid measured usage is omitted instead of becoming a cost-like zero', async () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-command-code-'))
+  try {
+    const h = loadMod(cwd)
+    let state: AgentState = await round(h, 1, { modState: {} })
+    await h.hooks.afterToolCall!({
+      toolCallId: 't1',
+      toolName: 'read_file',
+      input: {},
+      result: 'body',
+      isError: false,
+      state,
+    }, h.ctx)
+    await h.hooks.prepareNextTurn!({ state, turnNumber: 1 }, h.ctx)
+    state = await h.hooks.onTurnEnd!({ state, turnNumber: 1, hadToolCalls: true, usage: undefined }, h.ctx)
+    state = await round(h, 2, state)
+    await h.hooks.onTurnEnd!({
+      state,
+      turnNumber: 2,
+      hadToolCalls: false,
+      usage: { inputTokens: -1, outputTokens: 40 },
+    }, h.ctx)
+    const record = readDecisionLog(cwd)[0]
+    assert.equal(record?.usage, undefined)
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
 })

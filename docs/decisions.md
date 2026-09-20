@@ -847,3 +847,24 @@ a second Python policy implementation.
 Auxiliary/subagent calls, real-provider quality, and ContextEngine behavior need a pinned runtime
 contract, rollback path and separate held-out test. The V1 contract/checklist are in
 `docs/specs/hermes-sabi-routing.md` and `docs/tasks/hermes-sabi-routing.md`.
+
+## 2026-09-20 — Command Code receipts reuse the core evidence schema
+
+### Decision
+
+Persist only rounds with an actual Sabi serving plan as a normalized `DecisionRecord` beside the
+Command Code workspace. Keep the legacy custom entry, use an opaque `sessionId` with
+`sessionKnown: false`, hash tool identities with the proxy helper, and omit price/cost because a
+harness subscription catalog is not a verified BYOK rate.
+
+### Why
+
+The shared log is the smallest common evidence surface for later reports, replay and recovery
+learning. It avoids a second adapter-specific ledger and does not pretend that a host round or
+subscription receipt proves task success or spend.
+
+### Limits
+
+The host currently exposes no real session ID, model-request latency, task-level outcome or
+provider cost. The first host-served round has no Sabi plan and is therefore not recorded as one.
+Jev, catalog fallback and learned policy remain separate follow-up slices.
