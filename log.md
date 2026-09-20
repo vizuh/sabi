@@ -744,3 +744,14 @@ canaries, parses advisory JSON claims and persists only task/resource/hash/statu
 metadata. It records `verifiedClaimCount: 0`, never invokes tools, never falls back to paid tiers and
 does not alter the primary work. Full suite passed 400/400; seven focused tests pass. Live completed-task quality and claim
 verification are intentionally unverified.
+
+## [2026-09-20] fix | Harden surplus packet safety and free-lane compatibility
+
+Addressed the post-merge review findings from PR #51. Surplus review now reads NUL-delimited Git
+name-status entries with rename detection and checks both old and new paths before any proxy call.
+The sensitive filename gate now covers common credential files and suffixed variants. The OpenRouter
+free-quality config preserves the catalog's supported wire parameters for strict route validation.
+
+Validation: focused tests passed 10/10, full `npm test` passed 401/401, `npm run typecheck` passed
+and `git diff --check` passed. No provider request, secret, user configuration or deployment was
+used.

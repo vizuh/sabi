@@ -58,6 +58,7 @@ test('free quality config adds a fixed lane without changing paid tiers', () => 
   assert.equal(checked.models.mid.model, 'paid/mid')
   assert.equal(checked.models.quality.model, 'vendor/quality')
   assert.equal(checked.models.quality.cost?.input, 0)
+  assert.deepEqual(checked.models.quality.capabilities?.supportedParameters, ['max_tokens', 'tools', 'structured_outputs', 'reasoning_effort'])
   assert.equal(checked.aliases['sabi-quality'], 'quality')
   assert.equal(checked.policy.verification, 'quality')
   assert.match(checked.provenance ?? '', /catalog-hash/)

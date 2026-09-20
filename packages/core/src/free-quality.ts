@@ -18,6 +18,7 @@ export interface FreeQualityCandidate {
   contextWindow: number
   maxOutputTokens?: number
   inputModalities: ModelModality[]
+  supportedParameters: string[]
   score: number
   supportsStructuredOutput: boolean
 }
@@ -79,7 +80,8 @@ export function freeQualityCandidates(models: OpenRouterCatalogModel[]): FreeQua
     const id = catalogModelId(model)
     const inputModalities = modalities(model.architecture?.input_modalities)
     const outputModalities = modalities(model.architecture?.output_modalities)
-    const supported = new Set(strings(model.supported_parameters))
+    const supportedParameters = [...new Set(strings(model.supported_parameters))]
+    const supported = new Set(supportedParameters)
     const contextWindow = positiveInteger(model.top_provider?.context_length) ?? positiveInteger(model.context_length)
     const maxOutputTokens = positiveInteger(model.top_provider?.max_completion_tokens)
     if (!id || !isExplicitlyFree(model) || !inputModalities.includes('text') || !outputModalities.includes('text')) continue
@@ -93,7 +95,7 @@ export function freeQualityCandidates(models: OpenRouterCatalogModel[]): FreeQua
     if (contextWindow >= 131_072) score += 2
     if (inputModalities.includes('image')) score += 1
     if (maxOutputTokens && maxOutputTokens >= 16_384) score += 1
-    candidates.push({ id, contextWindow, maxOutputTokens, inputModalities, score, supportsStructuredOutput })
+    candidates.push({ id, contextWindow, maxOutputTokens, inputModalities, supportedParameters, score, supportsStructuredOutput })
   }
   return candidates.sort((a, b) =>
     b.score - a.score ||
@@ -166,6 +168,7 @@ export function applyFreeQualityConfig(
     tools: true,
     inputModalities: candidate.inputModalities,
     outputModalities: ['text'],
+    supportedParameters: candidate.supportedParameters,
   }
   if (candidate.supportsStructuredOutput) capabilities.structuredOutput = ['json_schema']
   const quality: Record<string, unknown> = {

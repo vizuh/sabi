@@ -33,10 +33,23 @@ function git(cwd: string, args: string[]): string {
   }
 }
 
+function changedFilesFromStatus(status: string): string[] {
+  const entries = status.split('\0').filter(Boolean)
+  const files: string[] = []
+  for (let index = 0; index < entries.length;) {
+    const code = entries[index++] ?? ''
+    const pathCount = code[0] === 'R' || code[0] === 'C' ? 2 : 1
+    for (let pathIndex = 0; pathIndex < pathCount && index < entries.length; pathIndex += 1) {
+      files.push(entries[index++]!)
+    }
+  }
+  return files
+}
+
 function reviewInput(cwd: string): { diff: string; changedFiles: string[] } {
   return {
     diff: git(cwd, ['diff', '--no-ext-diff', '--unified=3', 'HEAD', '--']),
-    changedFiles: git(cwd, ['diff', '--name-only', 'HEAD', '--']).split('\n').filter(Boolean),
+    changedFiles: changedFilesFromStatus(git(cwd, ['diff', '--name-status', '--find-renames=50%', '-z', 'HEAD', '--'])),
   }
 }
 

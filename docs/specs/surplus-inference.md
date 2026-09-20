@@ -23,10 +23,11 @@ primary execution -> diff/result
 
 - A resource must be a fixed alias with exact zero input/output cost, an enabled upstream and
   known text input capability. Adaptive aliases are excluded because they can reach paid tiers.
-- The packet is at most 64 changed paths and 24,000 diff characters from `git diff HEAD`; it has no
-  environment, credentials, tools, terminal handles or absolute paths.
-- `.env`, secret/credential/token/password paths, key/certificate files and secret-like markers are
-  refused before the network call.
+- The packet is at most 64 changed paths and 24,000 diff characters from `git diff HEAD`; both
+  endpoints of a Git rename are checked, and it has no environment, credentials, tools, terminal
+  handles or absolute paths.
+- `.env`, conventional secret/credential/token/password files, key/certificate files and
+  secret-like markers are refused before the network call.
 - The reviewer returns a bounded JSON claim list. Parsed claims are `unverified`; the receipt always
   records `verifiedClaimCount: 0`.
 - Receipts contain the intent, resource, packet hash, status, latency and counts only. Raw diff,
