@@ -72,6 +72,10 @@ test('2 + 2 remains CONTINUE even when another terminal shares the worktree', as
     {
       orcaAvailable: true,
       worktreeCount: 1,
+      observedAt: Date.now(),
+      cached: false,
+      matchingWorktree: true,
+      matchingTerminal: true,
       active,
       existingSessions: [session('session:claude', 'claude', 'term-claude')],
       spawnCandidates: [harness('harness:codex', 'codex')],
@@ -96,6 +100,10 @@ test('ordinary "start a new" wording does not spawn a real harness', async () =>
     {
       orcaAvailable: true,
       worktreeCount: 1,
+      observedAt: Date.now(),
+      cached: false,
+      matchingWorktree: true,
+      matchingTerminal: true,
       active,
       existingSessions: [],
       spawnCandidates: [harness('harness:claude', 'claude')],
@@ -149,7 +157,7 @@ if (args[0] === 'worktree' && args[1] === 'ps') {
   ] }
 } else if (args[0] === 'terminal' && args[1] === 'send') {
   if (handle === 'term-one') fs.writeFileSync(state, 'failed')
-  result = { requestId: handle + '-request', inputAccepted: true, turnStarted: true }
+  result = { requestId: handle + '-request', inputAccepted: handle !== 'term-one', turnStarted: handle !== 'term-one' }
 } else if (args[0] === 'terminal' && args[1] === 'wait') {
   result = { wait: { satisfied: true, status: 'running' } }
 } else if (args[0] === 'terminal' && args[1] === 'read') {

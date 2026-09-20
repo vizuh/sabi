@@ -6,6 +6,100 @@ Sabi sits between a coding harness and its model providers. The harness keeps it
 
 **English** · [Português (BR)](README.pt-BR.md) · [中文](README.zh-CN.md)
 
+## Start here
+
+### What Sabi gives you
+
+Sabi is a local scheduler for AI coding agents. It sends each inference round to the model and
+effort level that fit that round instead of running an entire task on one model.
+
+Repo exploration does not need your strongest model. Difficult debugging might. Sabi keeps the
+harness loop native, observes the trajectory, and routes the next round as the task changes.
+
+The practical promise is simpler model choice: use lighter capacity for lighter work, reserve
+stronger capacity for uncertainty and failure, and keep evidence about what happened in your own
+repositories. Sabi does not currently claim a universal quality score, a fixed savings percentage,
+or learned model rankings.
+
+### Is Sabi a model router or a harness router?
+
+Both, but at different boundaries:
+
+- The inference scheduler routes **inside a harness**: model, effort and provider can change from
+  round to round while the host keeps its own loop.
+- The experimental controller routes **between harness sessions**: it can continue, delegate or
+  spawn a target when capacity, worktree and local catalog evidence make that route eligible.
+
+Those surfaces share routing ideas but are separate contracts. The controller does not silently
+change the model inside an already-running Claude Code, Codex or OpenCode session.
+
+### Which path should I use?
+
+| If you want to… | Start with… | You get | You do not get yet |
+|---|---|---|---|
+| Try per-round routing in Command Code | the Command Code mod | native model + effort decisions, no extra provider key | automatic cross-harness execution |
+| Use an OpenAI-compatible client or BYOK provider | the local proxy | `sabi-code` and fixed baseline aliases on `127.0.0.1:8787` | a background service; the proxy must be running |
+| Coordinate existing agent sessions | the controller daemon | bounded inventory, handoff, receipts and fallback decisions | a published controller package or universal live harness activation |
+
+For a normal first run, use the **Command Code mod** and ignore the proxy/controller sections.
+The proxy is the compatibility path; the controller is an experimental user-level layer. See the
+[visual story](docs/visual-story.md) for the product narrative and evidence boundaries.
+
+### Compatibility at a glance
+
+This is a capability map, not a claim that every row has passed a live end-to-end task.
+
+| Harness | Install surface | Per-round model switching | Cross-harness controller |
+|---|---|---|---|
+| Command Code | native mod | **yes** — model + effort | separate experimental target |
+| OpenCode | proxy/provider + optional plugin | proxy model routing; native switching **not claimed** | source/tests + bounded local receipt path |
+| Claude Code | controller hook | **not claimed** inside the harness | source/tests; live receipt gate remains |
+| Codex | controller hook | **not claimed** inside the harness | source/tests; live receipt gate remains |
+| Hermes | OpenAI-compatible proxy path | proxy routing only | executable discovery is not support proof |
+
+### What does it look like?
+
+The important unit is one trajectory, not one prompt. This example is illustrative, not a Sabi
+benchmark:
+
+| Round | Work in the trajectory | Selected capacity | Evidence |
+|---:|---|---|---|
+| 1 | understand the task | mid | first instruction |
+| 2 | search the repository | cheap | exploration |
+| 3 | plan the auth change | mid | implementation setup |
+| 4 | implement | mid | code change |
+| 5 | tests fail | strong | failure evidence |
+| 6 | diagnose and repair | strong | recovery |
+| 7 | verify | mid | test/verification round |
+
+One agent. One task. Sabi handles the model decision for each continuing round.
+
+### Is Sabi adaptive already?
+
+Today, the shipped scheduler is deterministic policy plus optional Jev judgment on the proxy path.
+The controller has bounded Jev choices, local runtime catalog evidence and execution receipts. It
+does **not** yet learn that one model is objectively best at frontend work or compile lessons into
+live policy.
+
+The intended learning loop is: observed outcome → bounded local evidence → replay/held-out check →
+only then a promoted routing rule. See [Harness × model × token routing](docs/research/harness-model-token-routing.md).
+
+### Does it actually help?
+
+Run `npm run eval` for the frozen offline task set and `npm run report` for local token/cost
+accounting. There is no published completed-task benchmark yet. Do not read the illustrative
+trajectory above, catalog presence, or an all-strong counterfactual as proof of savings or quality
+parity. The current local eval is deliberately a warning fixture: 5/8 tasks passed and its latest
+offline repricing was `-388.4%` versus an all-mid baseline because deterministic routing still
+over-escalates some cases. That is a development signal, not a customer result.
+
+### What is Jev for?
+
+Jev is optional semantic judgment for ambiguous proxy rounds: it can veto a false escalation or
+choose difficulty from a closed set of valid actions. It is not required for the deterministic
+Command Code mod, and failures, timeouts and invalid answers fall back to policy. Jev is a judge,
+not a worker model.
+
 ## Two adapters, one core
 
 | | Class A — in-process mod | Class B — local proxy |

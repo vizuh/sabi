@@ -2,7 +2,7 @@ import path from 'node:path'
 import { defaultConfigPath, loadConfig } from '@sabi/core'
 import { appendControllerDecision, defaultControllerLogPath } from './log.ts'
 import { runController } from './controller.ts'
-import { gatherSignals } from './signals.ts'
+import { gatherSignals, stuckSessionSignal } from './signals.ts'
 import { discoverAgents } from './inventory.ts'
 import type { AgentHarness, AgentSession, ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
@@ -15,6 +15,7 @@ export interface RouteDispatchOptions {
   override?: ControllerOverride
   waitMs?: number
   execute?: boolean
+  idempotencyKey?: string
 }
 
 export interface InventoryRuntime {
@@ -58,6 +59,10 @@ export function inventorySnapshot(cwd: string, runtime: InventoryRuntime): Recor
       available: inventory.orcaAvailable,
       ...(inventory.errorCode ? { errorCode: inventory.errorCode } : {}),
       worktreeCount: inventory.worktreeCount,
+      observedAt: inventory.observedAt,
+      cached: inventory.cached,
+      matchingWorktree: inventory.matchingWorktree,
+      matchingTerminal: inventory.matchingTerminal,
     },
     active: summarizeAgent(inventory.active),
     sessions: inventory.existingSessions.map(summarizeAgent),
@@ -65,14 +70,21 @@ export function inventorySnapshot(cwd: string, runtime: InventoryRuntime): Recor
   }
 }
 
-export async function dispatchControllerRequest(options: RouteDispatchOptions): Promise<ControllerDecisionRecord> {
+async function dispatchControllerRequestOnce(options: RouteDispatchOptions): Promise<ControllerDecisionRecord> {
   const cwd = path.resolve(options.cwd)
   const request = options.request
   const orchestrate = options.orchestrate ?? false
   const waitMs = options.waitMs ?? 5000
   const controller = controllerConfigFor(cwd)
-  const signals = gatherSignals(cwd, request, orchestrate)
   const startedAt = Date.now()
+  const sampledStuck = stuckSessionSignal(cwd)
+  const inventory = discoverAgents(cwd, {
+    stuckSession: sampledStuck.stuck,
+    controller,
+    currentSession: options.currentSession,
+    currentHarness: options.currentHarness,
+  })
+  const signals = gatherSignals(cwd, request, orchestrate, inventory, sampledStuck)
   const result = await runController(
     request,
     cwd,
@@ -83,6 +95,8 @@ export async function dispatchControllerRequest(options: RouteDispatchOptions): 
     controller,
     options.currentSession,
     options.currentHarness,
+    inventory,
+    options.idempotencyKey,
   )
   const execution = { ...result.execution, durationMs: Math.max(0, Date.now() - startedAt) }
   const record: ControllerDecisionRecord = {
@@ -94,6 +108,7 @@ export async function dispatchControllerRequest(options: RouteDispatchOptions): 
     cwd,
     signals,
     ...(request ? { request } : {}),
+    ...(execution.idempotencyKey ? { idempotencyKey: execution.idempotencyKey } : {}),
     ...(options.override ? { override: options.override } : {}),
     handoff: result.handoff,
     target: result.selection.target,
@@ -102,4 +117,33 @@ export async function dispatchControllerRequest(options: RouteDispatchOptions): 
   }
   appendControllerDecision(record, defaultControllerLogPath(cwd))
   return record
+}
+
+// ponytail: process-local receipt cache; add durable cross-process receipts when multiple daemon workers exist.
+const completedRouteReceipts = new Map<string, ControllerDecisionRecord>()
+const inFlightRouteReceipts = new Map<string, Promise<ControllerDecisionRecord>>()
+
+export async function dispatchControllerRequest(options: RouteDispatchOptions): Promise<ControllerDecisionRecord> {
+  const candidateKey = options.idempotencyKey?.trim()
+  const key = options.execute === false || !candidateKey || !/^[A-Za-z0-9._:-]{1,128}$/.test(candidateKey)
+    ? undefined
+    : `${path.resolve(options.cwd)}\0${candidateKey}`
+  if (!key) return dispatchControllerRequestOnce(options)
+  const completed = completedRouteReceipts.get(key)
+  if (completed) return completed
+  const inFlight = inFlightRouteReceipts.get(key)
+  if (inFlight) return inFlight
+  const promise = dispatchControllerRequestOnce(options).then((record) => {
+    completedRouteReceipts.set(key, record)
+    while (completedRouteReceipts.size > 128) {
+      const oldest = completedRouteReceipts.keys().next().value
+      if (oldest === undefined) break
+      completedRouteReceipts.delete(oldest)
+    }
+    return record
+  }).finally(() => {
+    inFlightRouteReceipts.delete(key)
+  })
+  inFlightRouteReceipts.set(key, promise)
+  return promise
 }

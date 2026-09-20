@@ -229,7 +229,9 @@ function hookTargetOverride(action: string, target: JsonObject | undefined): Jso
 
 function executionAccepted(record: JsonObject): boolean {
   const execution = objectValue(record.execution ?? {}, 'controller execution')
-  return execution.status === 'started' || execution.status === 'completed' || execution.status === 'rerouted'
+  const receipt = objectValue(execution.receipt ?? {}, 'controller receipt')
+  return (execution.status === 'started' || execution.status === 'completed' || execution.status === 'rerouted') &&
+    (receipt?.phase === 'accepted' || receipt?.phase === 'started' || receipt?.phase === 'completed')
 }
 
 function delegationMessage(record: JsonObject): string {
@@ -275,6 +277,13 @@ function terminalHandleFrom(input: JsonObject): string | undefined {
   return undefined
 }
 
+function idempotencyKeyFrom(input: JsonObject): string | undefined {
+  for (const key of ['event_id', 'eventId', 'turn_id', 'turnId', 'request_id', 'requestId']) {
+    if (typeof input[key] === 'string' && input[key].trim()) return input[key].trim().slice(0, 200)
+  }
+  return undefined
+}
+
 export async function routeHookPrompt(
   harness: HookHarness,
   event: string,
@@ -289,6 +298,7 @@ export async function routeHookPrompt(
     const cwd = typeof input.cwd === 'string' && input.cwd.trim() ? path.resolve(input.cwd) : process.cwd()
     const sessionId = sessionIdFrom(input)
     const terminalHandle = terminalHandleFrom(input) ?? env.ORCA_TERMINAL_HANDLE?.trim()
+    const idempotencyKey = idempotencyKeyFrom(input)
     if (sessionId) {
       await requestControllerDaemon('/v1/sessions/register', {
         info,
@@ -318,6 +328,7 @@ export async function routeHookPrompt(
         orchestrate: action === 'ORCHESTRATE',
         ...(override ? { override } : {}),
         waitMs: 5000,
+        ...(idempotencyKey ? { idempotencyKey } : {}),
       },
     })
     return hookOutput(harness, event, result ?? undefined)

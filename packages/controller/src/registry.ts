@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { AgentCapacityStatus, AgentLifecycle } from './types.ts'
+import type { ControllerExecutionReceipt, ControllerReceiptPhase } from './types.ts'
 
 const MAX_SESSIONS = 128
 const SESSION_TTL_MS = 10 * 60_000
@@ -22,6 +23,7 @@ export interface RegisteredSession {
   lastSeenAt: number
   dispatchable: false
   lastOutcome?: 'started' | 'completed' | 'failed' | 'unverifiable'
+  lastReceipt?: ControllerExecutionReceipt
 }
 
 export interface RegisterSessionInput {
@@ -58,6 +60,18 @@ function stableId(adapter: string, sessionId: string): string {
   return `registry:${adapter}:${digest}`
 }
 
+function receipt(value: unknown): ControllerExecutionReceipt | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const object = value as Record<string, unknown>
+  const phases: ControllerReceiptPhase[] = ['accepted', 'started', 'completed', 'failed', 'unknown']
+  if (!phases.includes(object.phase as ControllerReceiptPhase) || typeof object.observedAt !== 'string' || !object.observedAt.trim()) return undefined
+  return {
+    phase: object.phase as ControllerReceiptPhase,
+    observedAt: object.observedAt.trim().slice(0, 80),
+    ...(typeof object.requestId === 'string' && object.requestId.trim() ? { requestId: object.requestId.trim().slice(0, 200) } : {}),
+  }
+}
+
 function validSession(value: unknown): value is RegisteredSession {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
   const session = value as Record<string, unknown>
@@ -66,7 +80,8 @@ function validSession(value: unknown): value is RegisteredSession {
     typeof session.worktree === 'string' && typeof session.lastSeenAt === 'number' && Number.isFinite(session.lastSeenAt) &&
     LIFECYCLES.includes(session.lifecycle as AgentLifecycle) && capacity !== null && typeof capacity === 'object' && !Array.isArray(capacity) &&
     CAPACITY_STATUSES.includes((capacity as Record<string, unknown>).status as AgentCapacityStatus) &&
-    Array.isArray(session.capabilities) && session.capabilities.every((item) => typeof item === 'string') && session.dispatchable === false
+    Array.isArray(session.capabilities) && session.capabilities.every((item) => typeof item === 'string') && session.dispatchable === false &&
+    (session.lastReceipt === undefined || receipt(session.lastReceipt) !== undefined)
 }
 
 function readAll(stateDir: string): RegisteredSession[] {
@@ -151,10 +166,14 @@ export function recordSessionOutcome(
   if (value.outcome !== 'started' && value.outcome !== 'completed' && value.outcome !== 'failed' && value.outcome !== 'unverifiable') {
     throw new Error('outcome must be started, completed, failed or unverifiable')
   }
+  const lastReceipt = value.receipt === undefined ? undefined : receipt(value.receipt)
+  if (value.receipt !== undefined && !lastReceipt) throw new Error('receipt must include a known phase and observedAt')
   const outcome = value.outcome as NonNullable<RegisteredSession['lastOutcome']>
   const session = registerSession(stateDir, input, now)
   const sessions = readAll(stateDir)
-  const updated = sessions.map((entry) => entry.id === session.id ? { ...entry, lastOutcome: outcome } : entry)
+  const updated = sessions.map((entry) => entry.id === session.id
+    ? { ...entry, lastOutcome: outcome, ...(lastReceipt ? { lastReceipt } : {}) }
+    : entry)
   writeAll(stateDir, updated)
   return updated.find((entry) => entry.id === session.id) ?? session
 }

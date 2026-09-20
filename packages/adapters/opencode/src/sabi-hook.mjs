@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -68,7 +69,9 @@ function targetOverride(action, target) {
 
 function accepted(record) {
   const status = record?.execution?.status
-  return status === 'started' || status === 'completed' || status === 'rerouted'
+  const phase = record?.execution?.receipt?.phase
+  return (status === 'started' || status === 'completed' || status === 'rerouted') &&
+    (phase === 'accepted' || phase === 'started' || phase === 'completed')
 }
 
 export async function SabiOpenCodePlugin(context) {
@@ -97,7 +100,8 @@ export async function SabiOpenCodePlugin(context) {
           lifecycle: 'active',
         })
       }
-      const plan = await post(controllerURL, '/plan', { request, cwd, currentSession: sessionId, currentHarness: 'opencode' })
+      const idempotencyKey = randomUUID()
+      const plan = await post(controllerURL, '/plan', { request, cwd, currentSession: sessionId, currentHarness: 'opencode', idempotencyKey })
       const action = typeof plan?.action === 'string' ? plan.action : ''
       if (!['DELEGATE', 'SPAWN', 'ORCHESTRATE'].includes(action)) return
       const override = targetOverride(action, plan.target)
@@ -108,6 +112,7 @@ export async function SabiOpenCodePlugin(context) {
         currentSession: sessionId,
         currentHarness: 'opencode',
         orchestrate: action === 'ORCHESTRATE',
+        idempotencyKey,
         ...(override ? { override } : {}),
       })
       // Record the receipt against the session that actually received the work, preserving
@@ -120,8 +125,8 @@ export async function SabiOpenCodePlugin(context) {
           : executionStatus === 'completed' ? 'completed'
           : executionStatus === 'started' || executionStatus === 'rerouted' ? 'started'
           : 'unverifiable'
-        const targetId = result.target && typeof result.target.id === 'string' ? result.target.id : undefined
-        const outcomeSessionId = action === 'DELEGATE' ? (targetId ?? sessionId) : undefined
+        const targetId = typeof result.execution.targetId === 'string' ? result.execution.targetId : undefined
+        const outcomeSessionId = action === 'DELEGATE' && targetId?.startsWith('session:') ? targetId : undefined
         if (outcomeSessionId) {
           await post(controllerURL, '/v1/sessions/outcome', {
             sessionId: outcomeSessionId,
@@ -129,6 +134,8 @@ export async function SabiOpenCodePlugin(context) {
             harness: 'opencode',
             worktree: cwd,
             outcome,
+            idempotencyKey,
+            ...(result.execution.receipt ? { receipt: result.execution.receipt } : {}),
           })
         }
       }

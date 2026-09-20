@@ -45,6 +45,18 @@ test('daemon serves health, live inventory and controller routing over loopback'
     assert.equal(typeof (route?.execution as Record<string, unknown>).durationMs, 'number')
     assert.equal(existsSync(path.join(cwd, '.sabi', 'controller-decisions.jsonl')), true)
 
+    const keyedRoute = await requestControllerDaemon('/route', {
+      info: daemon.info,
+      method: 'POST',
+      body: { request: '', cwd, idempotencyKey: 'daemon-receipt-test' },
+    })
+    const duplicateKeyedRoute = await requestControllerDaemon('/route', {
+      info: daemon.info,
+      method: 'POST',
+      body: { request: '', cwd, idempotencyKey: 'daemon-receipt-test' },
+    })
+    assert.equal(duplicateKeyedRoute?.ts, keyedRoute?.ts)
+
     const plan = await requestControllerDaemon('/plan', {
       info: daemon.info,
       method: 'POST',

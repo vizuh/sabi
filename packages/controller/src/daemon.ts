@@ -174,6 +174,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, info: Co
         override: controllerOverride(body.override),
         waitMs,
         execute: url.pathname === '/route',
+        idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() || undefined : undefined,
       })
       sendJson(res, 200, record)
       return

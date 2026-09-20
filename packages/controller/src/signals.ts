@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { readDecisions } from '@sabi/core'
 import { queryOrcaTerminals, queryOrcaWorktrees } from './orca.ts'
+import type { AgentInventory } from './inventory.ts'
 import type { ControllerSignals, MultiScopeKeyword } from './types.ts'
 
 // ponytail: recency proxy for "current session" — no live session identity exists anywhere in
@@ -49,7 +50,12 @@ function isPlainRecord(row: unknown): row is Record<string, unknown> {
   return typeof row === 'object' && row !== null && !Array.isArray(row)
 }
 
-function stuckSessionSignal(cwd: string): { stuck: boolean; sampled: number } {
+export interface StuckSessionSignal {
+  stuck: boolean
+  sampled: number
+}
+
+export function stuckSessionSignal(cwd: string): StuckSessionSignal {
   // Cast to unknown[] first so `.filter(isPlainRecord)` actually narrows the element type —
   // filtering a DecisionRecord[] with this predicate type-checks but doesn't narrow, since
   // Record<string, unknown> isn't a subtype of DecisionRecord (it has no index signature).
@@ -92,14 +98,20 @@ function matchesCwd(entries: unknown[] | undefined, field: string, cwd: string):
   })
 }
 
-export function gatherSignals(cwd: string, requestText: string | undefined, orchestrateFlag: boolean): ControllerSignals {
+export function gatherSignals(
+  cwd: string,
+  requestText: string | undefined,
+  orchestrateFlag: boolean,
+  inventory?: AgentInventory,
+  sampledStuck?: StuckSessionSignal,
+): ControllerSignals {
   const { multiScope, trigger } = detectMultiScope(requestText, orchestrateFlag)
-  const { stuck, sampled } = stuckSessionSignal(cwd)
-  const worktrees = queryOrcaWorktrees()
-  const terminals = queryOrcaTerminals()
-  const orcaAvailable = worktrees.ok || terminals.ok
-  const matchingWorktree = worktrees.ok && matchesCwd(worktrees.worktrees, 'path', cwd)
-  const matchingTerminal = terminals.ok && matchesCwd(terminals.terminals, 'worktreePath', cwd)
+  const { stuck, sampled } = sampledStuck ?? stuckSessionSignal(cwd)
+  const worktrees = inventory ? undefined : queryOrcaWorktrees()
+  const terminals = inventory ? undefined : queryOrcaTerminals()
+  const orcaAvailable = inventory?.orcaAvailable ?? Boolean(worktrees?.ok || terminals?.ok)
+  const matchingWorktree = inventory?.matchingWorktree ?? Boolean(worktrees?.ok && matchesCwd(worktrees.worktrees, 'path', cwd))
+  const matchingTerminal = inventory?.matchingTerminal ?? Boolean(terminals?.ok && matchesCwd(terminals.terminals, 'worktreePath', cwd))
 
   return {
     cwd,
@@ -110,7 +122,7 @@ export function gatherSignals(cwd: string, requestText: string | undefined, orch
     stuckSession: stuck,
     sabiLogSampled: sampled,
     orcaAvailable,
-    orcaErrorCode: orcaAvailable ? undefined : (worktrees.errorCode ?? terminals.errorCode),
+    orcaErrorCode: orcaAvailable ? undefined : inventory?.errorCode ?? worktrees?.errorCode ?? terminals?.errorCode,
     matchingWorktree,
     matchingTerminal,
   }
