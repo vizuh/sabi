@@ -6,6 +6,23 @@ O Sabi fica entre um harness de código e seus provedores de modelo. O harness m
 
 [English](README.md) · **Português (BR)** · [中文](README.zh-CN.md)
 
+## Instalar o Sabi uma vez
+
+O Sabi é instalado uma vez por usuário/máquina. Você não precisa escolher um harness, instalar por worktree ou manter um checkout do repositório para usar o controller.
+
+~~~bash
+npm install --global @vizuh/sabi-controller
+sabi setup
+sabi status
+~~~
+
+O `setup` é idempotente: mantém o daemon e o estado no escopo do usuário, detecta hosts compatíveis, instala apenas hooks do Sabi que tenham suporte e deixa o harness seguir normalmente se o Sabi estiver indisponível. Use `sabi setup --no-hooks` se quiser inicializar o daemon sem alterar a configuração do host.
+
+O pacote do controller é publicado separadamente por tags `controller-v*`. Se ainda não houver uma versão no npm, use temporariamente o [checkout de mantenedor](docs/install.pt-BR.md#checkout-do-mantenedor-somente-desenvolvimento); esse fluxo não é o modelo de instalação para usuários.
+
+Depois da instalação, abra seu harness normalmente. As integrações de Command Code, proxy e controller são opcionais e entram apenas quando você precisa daquela capacidade.
+
+
 ## Dois adaptadores, um núcleo
 
 | | Classe A — mod em processo | Classe B — proxy local |
@@ -18,7 +35,7 @@ O Sabi fica entre um harness de código e seus provedores de modelo. O harness m
 
 Os dois reutilizam as regras de roteamento de `packages/core`, mas seus sinais e comportamentos diferem. O mod usa sinais explícitos de erro de ferramenta e planeja as rodadas seguintes; o proxy infere falhas a partir de texto e pode chamar o Jev. `harness.tiers` contém ids do catálogo do Command Code; `models` contém ids de upstream. Compare os adaptadores separadamente.
 
-`npm run setup` escolhe o caminho certo interativamente — veja [Setup rápido](docs/install.pt-BR.md#setup-rápido).
+A instalação principal não escolhe um harness. Veja [Instalação e segurança](docs/install.pt-BR.md) para as integrações opcionais.
 
 ## Política
 
@@ -59,7 +76,7 @@ A mídia também é cobrada na estimativa de contexto: cada imagem custa 1500 to
 
 As modalidades declaradas precisam ser verificadas por id de modelo, não inferidas pela família: na OpenRouter, `deepseek/deepseek-v4-flash-0731` é só texto enquanto `deepseek/deepseek-v4-flash-vision-exp` aceita imagens; no catálogo do Command Code, `gpt-5.6-luna` aceita imagens enquanto `zai-org/GLM-5.3` não.
 
-## Instalar — mod do Command Code (recomendado)
+## Integração opcional — mod nativo do Command Code
 
 Requisitos: Node 22.6+, Command Code, git (este repositório é público), e um plano que cubra os modelos em `harness.tiers` (veja [Cobertura de plano](#cobertura-de-plano)).
 
@@ -87,7 +104,7 @@ cmd -p "Read package.json and reply with only the value of its name field." \
 
 A rodada 1 roda no modelo da sessão; a rodada 2 (leitura → `exploration` → cheap) roda no nível cheap. Execuções headless `-p` não carregam mods de escopo de projeto — por isso a verificação passa `--mod` explicitamente.
 
-## Instalar — proxy local (BYOK / outros harnesses)
+## Integração opcional — proxy local (BYOK / outros harnesses)
 
 ```bash
 npm install
