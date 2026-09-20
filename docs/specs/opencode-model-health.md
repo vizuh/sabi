@@ -14,6 +14,8 @@ Status: complete for the local controller-selection slice, 2026-09-20.
    catalog model. This is fail-open and does not invent a healthy or free claim.
 5. `started` and `completed` receipts are successful availability observations; `unverifiable`
    remains unknown and never becomes a success or failure.
+6. After a pre-acceptance spawned target fails, the controller tries the next available configured
+   model from that same harness before falling back to an unrelated idle session.
 
 ## Non-goals
 
@@ -22,8 +24,7 @@ Status: complete for the local controller-selection slice, 2026-09-20.
 - no first-token claim until the host exposes that timestamp;
 - no durable learned policy or economic optimization in this slice.
 
-The free OpenCode receipt gate is complete for native execution evidence. It does not exercise a
-controller-spawned model-health receipt because the live session remained a safe `CONTINUE`. The
-remaining live gates are an explicitly approved unknown/paid observation and a quota failure with
-successful fallback on an addressable controller target; both require separate spend and runtime
-evidence.
+The free OpenCode receipt gate is complete for native execution evidence. The controller now has a
+focused execution test for same-harness model fallback, but that test uses bounded fake Orca
+receipts. It does not close the live quota/fallback gate: an explicitly approved quota failure with
+successful fallback on an addressable controller target still requires separate runtime evidence.

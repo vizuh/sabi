@@ -655,3 +655,14 @@ The catalog contained 46 entries and seven explicit free OpenCode worker IDs; ou
 
 This is free-model/native-plugin evidence, not controller-spawned model-health or fallback proof.
 No Sabi checkout, user harness configuration, secret or paid provider was changed.
+
+## [2026-09-20] fix | Prefer same-harness model fallback after pre-acceptance failure
+
+The controller retry path now preserves the failed harness identity and chooses the next available
+configured worker from that harness before an unrelated idle session. Added a full controller test
+covering natural `SPAWN`, fake quota failure before acceptance, process-local model demotion, fresh
+inventory, second-model spawn and successful completion receipt.
+
+Validation: focused controller/inventory/model-health tests passed 18/18, full `npm test` passed
+382/382, `npm run typecheck` passed, and `git diff --check` passed. The fake-Orca test is not live
+quota evidence; no paid request, secret, user configuration or deployment was changed.
