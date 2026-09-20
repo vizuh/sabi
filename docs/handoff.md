@@ -665,3 +665,8 @@ The package is pinned in documentation to DSH `0.1.6-alpha.2`, upstream revision
 `ddefc45fbc7f8e46dd73185e68295696d1297887`. The local runtime did not include `dsh`, so the current
 gate is package/patch/static validation only. A live DSH boot, stream receipt and mock-upstream probe
 remain the next release gate. No secrets, paid inference or user configuration were used.
+
+The source is merged in PR #47 at `09dc693`. Local npm publication was not possible because this
+machine is not authenticated to npm. The follow-up `deepseek-harness-release` workflow publishes
+with the repository's existing `NPM_TOKEN` and provenance on tag `dsh-v0.1.0`; registry presence and
+the GitHub release remain to be verified after that tag run.

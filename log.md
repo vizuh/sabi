@@ -700,3 +700,10 @@ revision `ddefc45fbc7f8e46dd73185e68295696d1297887` and labels live runtime evid
 
 Validation is package/patch/static only because `dsh` is not installed locally; no paid request,
 secret, user configuration, deployment or publication was performed in this change set.
+
+## [2026-09-20] chore | Add the DeepSeek Harness package release lane
+
+Added `.github/workflows/deepseek-harness-release.yml`. The merged DSH bundle is released only by a
+matching `dsh-vX.Y.Z` tag, after `npm ci`, typecheck and the full suite; GitHub Actions publishes
+`@vizuh/sabi-deepseek-harness` with the existing npm token and provenance, then attaches the exact
+tarball to the GitHub Release. Local publication was blocked by missing npm authentication.

@@ -14,6 +14,7 @@ on:
       - 'package-lock.json'
       - 'tsconfig.json'
       - '.github/workflows/controller-ci.yml'
+      - '.github/workflows/deepseek-harness-release.yml'
   push:
     branches: [main]
     paths:
@@ -26,6 +27,7 @@ on:
       - 'package-lock.json'
       - 'tsconfig.json'
       - '.github/workflows/controller-ci.yml'
+      - '.github/workflows/deepseek-harness-release.yml'
 
 permissions:
   contents: read
