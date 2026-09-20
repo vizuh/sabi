@@ -829,3 +829,6 @@ translated surface covers the primary Hermes path, OpenRouter-only proxy credent
 native OpenCode Go/ChatGPT Plus boundaries, BYOK guidance and layered completion checks. Internal
 architecture, decision and research documents remain English unless a user-facing translation is
 needed.
+
+The Portuguese adapter navigation now includes a localized index and Hermes guide, while package
+implementation READMEs remain English developer references.

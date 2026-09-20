@@ -1,5 +1,7 @@
 # Hermes adapter
 
+**English** · [Português (BR)](hermes.pt-BR.md)
+
 Sabi integrates with Hermes through its supported llm_request middleware seam and an explicit
 Chat Completions custom provider.
 
