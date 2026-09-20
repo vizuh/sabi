@@ -17,20 +17,21 @@ Sabi is a host-agnostic routing layer, not another agent harness or editor. Adap
 
 Sabi is installed at user scope. You do not install it per worktree or choose a harness during installation.
 
-For Hermes today, use the [Hermes-first checkout guide](docs/install.md#hermes): the standalone
-`@vizuh/sabi-controller` package is not yet published to npm.
+For Claude Code, Codex and controller-backed OpenCode workflows, install the published controller:
+
+~~~bash
+npm install --global @vizuh/sabi-controller@0.1.0
+sabi setup
+sabi doctor
+~~~
+
+The `@vizuh/sabi-controller` package is released as `controller-v0.1.0`. For Hermes or OpenCode
+inference through the local Sabi proxy, use the [checkout-based proxy guide](docs/install.md): the
+controller package installs hooks and the daemon, not the proxy server or Hermes profile.
 
 If the user's current host AI is doing the installation, give it the [host-AI installation flow](docs/install.ai.md); it asks for the harness and route explicitly, and asks only for an OpenRouter key on proxy paths.
 
-~~~bash
-# Future standalone controller release; not yet available on npm.
-npm install --global @vizuh/sabi-controller
-~~~
-
 `setup` is idempotent: it keeps the daemon and state user-scoped, detects supported hosts, installs only supported Sabi-owned hooks, and keeps the normal harness path available if Sabi is unavailable. Use `sabi setup --no-hooks` when you want the daemon without changing host configuration.
-
-The controller package is released separately under `controller-v*` tags. Until a release exists, the
-checkout workflow is the supported Hermes onboarding path; do not use `npm link` as a user install.
 
 After installation, open your normal harness. Choose an optional integration only when you need the capability it provides.
 

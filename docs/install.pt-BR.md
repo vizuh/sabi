@@ -4,18 +4,19 @@ O Sabi é instalado uma vez por usuário/máquina. Ele não é um plugin do Comm
 
 Se o usuário pedir ao próprio AI do host para instalar o Sabi, use o [fluxo de instalação por host-AI](install.ai.md). Ele define as perguntas, o caminho de uma única chave do OpenRouter, a opção de explicação no idioma do usuário e as evidências que o agente deve reportar.
 
-Para Hermes, use hoje o fluxo de checkout abaixo: `@vizuh/sabi-controller` ainda não está publicado no npm, portanto o comando global não é um caminho executável de instalação do Hermes.
+Para Claude Code, Codex e os fluxos de OpenCode apoiados pelo controller, instale o pacote público. Para Hermes ou para inferência do OpenCode pelo proxy local, continue usando o checkout, pois o pacote do controller não contém o servidor proxy nem o perfil do Hermes.
 
 ## Instalação única para usuários
 
 ~~~bash
-# Futura release standalone do controller; ainda não disponível no npm.
-npm install --global @vizuh/sabi-controller
+npm install --global @vizuh/sabi-controller@0.1.0
+sabi setup
+sabi doctor
 ~~~
 
 O `setup` é idempotente. Ele mantém o daemon e o estado no escopo do usuário, detecta hosts compatíveis, instala apenas hooks do Sabi com suporte e permite que o harness continue normalmente se o Sabi estiver indisponível. Use `sabi setup --no-hooks` se quiser o daemon sem alterar a configuração do host. Não é necessário ter conta do Command Code, checkout do repositório ou instalação por worktree.
 
-O pacote do controller é publicado separadamente por tags `controller-v*`. Até existir uma release, use o checkout para Hermes; não use `npm link` nem trate o controller como instalado.
+A primeira release pública do controller é `controller-v0.1.0`. Não use `npm link` em uma instalação de usuário.
 
 ## O que é instalado?
 
@@ -40,8 +41,8 @@ npm run controller -- doctor
 npm run controller -- integrations list
 ~~~
 
-O `npm run setup` é hoje o caminho de usuário baseado em checkout para Hermes; para os outros harnesses,
-continua sendo um utilitário de mantenedor/desenvolvimento para escrever uma configuração específica de proxy.
+O `npm run setup` é o caminho baseado em checkout para configurar o proxy do Hermes/OpenCode; para hooks
+do controller, use o pacote global acima.
 
 ## Requisitos por superfície
 
@@ -332,10 +333,9 @@ sabi setup --hooks
 ```
 
 Este é o fluxo pretendido para usuários. A release pública `@vizuh/sabi` contém apenas o adaptador do
-Command Code; ela não instala o controller nem a ponte Orca. Antes da primeira tag de
-`@vizuh/sabi-controller`, o pacote ainda não está disponível de propósito; não substitua esse fluxo
-por `npm link` numa instalação de usuário. Mantenedores podem executar `npm run build:controller` e
-o teste de pacote em prefixo limpo a partir do repositório.
+Command Code; ela não instala o controller nem a ponte Orca. O controller público `controller-v0.1.0`
+é instalado pelo pacote global acima; mantenedores podem executar `npm run build:controller` e o teste
+de pacote em prefixo limpo a partir do repositório.
 
 O plugin consulta o daemon loopback, despacha apenas `DELEGATE`, `SPAWN` e `ORCHESTRATE`, e substitui
 a mensagem atual somente depois que o daemon informa execução aceita. `CONTINUE` permanece no

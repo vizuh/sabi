@@ -32,10 +32,19 @@ The AI must not paste a secret into chat, shell history, a config JSON, a prompt
 or a log. On a TTY the setup wizard asks for the OpenRouter key with hidden input
 and stores it in the user-scoped secrets file with mode `0600`.
 
-## Checkout command
+## Install command
 
-Until the separate `@vizuh/sabi-controller` package has a released `controller-v*`
-tag, use a Sabi checkout:
+For Claude Code, Codex and controller-backed OpenCode workflows, install the published
+controller first:
+
+~~~bash
+npm install --global @vizuh/sabi-controller@0.1.0
+sabi setup
+sabi doctor
+~~~
+
+For Hermes or OpenCode inference through the local Sabi proxy, use a Sabi checkout because the
+controller package contains hooks and the daemon, not the proxy server or Hermes profile:
 
 ~~~bash
 git clone https://github.com/vizuh/sabi
@@ -47,11 +56,11 @@ The host AI should use the command matching the confirmed harness:
 
 | Harness | First action | Credential asked by Sabi |
 |---|---|---|
-| Command Code | `cmd mods add -g npm:@vizuh/sabi` | none for the native mod |
+| Command Code | `cmd mods add -g npm:@vizuh/sabi@0.1.3` | none for the native mod |
 | OpenCode | `npm run setup -- --harness=opencode --no-jev` | OpenRouter only |
 | Hermes | `npm run setup -- --harness=hermes --upstream=openrouter --hermes-home="$HOME/.config/sabi/hermes" --no-jev` | OpenRouter only |
-| Claude Code | `npm run controller -- setup` | none for the controller hook |
-| Codex | `npm run controller -- setup` | none for the controller hook |
+| Claude Code | `sabi setup` | none for the controller hook |
+| Codex | `sabi setup` | none for the controller hook |
 
 For a native Command Code setup, Sabi uses the Command Code subscription and the
 local mod; it does not need the proxy or an OpenRouter key. The proxy class is a
@@ -81,10 +90,9 @@ the isolated Hermes Nous proxy instead. OpenCode Go and ChatGPT Plus remain nati
 Hermes providers selected with `hermes model`; Sabi does not transfer those plans
 into its proxy.
 
-Claude Code and Codex currently receive controller hooks for task/session routing.
+Claude Code and Codex receive controller hooks for task/session routing.
 That is a supported host integration, not an in-session model switch and not a
-subscription transfer. Run `npm run controller -- doctor` from the checkout
-(`sabi doctor` after the controller release) and report that boundary instead of
+subscription transfer. Run `sabi doctor` and report that boundary instead of
 claiming `sabi-code` is active inside their native turn.
 
 ## OpenRouter BYOK recommendation

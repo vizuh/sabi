@@ -6,8 +6,9 @@
 bounded reroute, trace schema v1, runtime-pinned free-catalog evidence and read-only replay. The
 source/test boundary is validated; installed user-config mutation, universal Orca activation and
 real cross-terminal completion remain separate evidence gates. The public `@vizuh/sabi` release
-still publishes the inference adapter; `@vizuh/sabi-controller` remains a separate bundle/release
-lane until its live receipt gates pass.
+publishes the inference adapter, and `@vizuh/sabi-controller@0.1.0` is the separate bundled controller
+release for supported hooks and the user-level daemon. Publication does not promote live host receipts
+or universal Orca activation into verified runtime support.
 
 The pinned Hermes 0.21.3 adapter is now a completed V1 native proxy-routing path: Hermes owns its
 loop and execution, the public `llm_request` middleware adds opaque session/turn attribution, and
@@ -32,8 +33,8 @@ underlying provider keys or transfers OpenCode Go, ChatGPT Plus, Nous or Claude 
 
 Validation: `npm test` passed 387/387, `npm run typecheck` passed, `git diff --check` passed, and the
 generated OpenRouter Hermes profile passed config validation through the setup integration test.
-No real key, paid request, user harness configuration, deployment, package publication, commit or
-push was performed.
+The controller and Command Code package release gates are tracked separately below; no real key, paid
+request or user harness configuration was used by this onboarding work.
 
 ## OpenCode model health and fail-open selection — 2026-09-20
 

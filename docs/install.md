@@ -4,18 +4,19 @@ Sabi is installed once per machine or user. It is not a Command Code plugin and 
 
 If the user asks the current host AI to install Sabi, use the [host-AI installation flow](install.ai.md). It defines the questions, the one-key OpenRouter path, the localized explanation option, and the evidence the agent must report.
 
-For Hermes, use the checkout flow below today: `@vizuh/sabi-controller` is not yet published to npm, so the global controller command is not an executable Hermes install path.
+For Claude Code, Codex and controller-backed OpenCode workflows, install the published controller. For Hermes or OpenCode inference through the local Sabi proxy, keep using the checkout flow because the controller package does not contain the proxy server or Hermes profile.
 
 ## One-time user install
 
 ~~~bash
-# Future standalone controller release; not yet available on npm.
-npm install --global @vizuh/sabi-controller
+npm install --global @vizuh/sabi-controller@0.1.0
+sabi setup
+sabi doctor
 ~~~
 
 The `setup` command is idempotent. It keeps the daemon and state user-scoped, detects supported hosts, installs only supported Sabi-owned hooks, and fails open when Sabi is unavailable. Use `sabi setup --no-hooks` if you want the daemon without changing host configuration. You do not need a Command Code account, a repository checkout, or a per-worktree installation.
 
-The controller package is released separately under `controller-v*` tags. Until a release exists, use the checkout flow for Hermes; do not use `npm link` or claim the controller package is installed.
+The first public controller release is `controller-v0.1.0`. Do not use `npm link` for a user installation.
 
 ## What gets installed?
 
@@ -40,8 +41,8 @@ npm run controller -- doctor
 npm run controller -- integrations list
 ~~~
 
-The `npm run setup` wizard is the current checkout-based user path for Hermes; for other harnesses it
-remains a maintainer/development helper for writing a specific proxy configuration.
+The `npm run setup` wizard is the checkout-based user path for Hermes/OpenCode proxy configuration; for
+controller-backed hooks, use the global package above.
 
 ## Requirements by surface
 
