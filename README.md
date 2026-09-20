@@ -44,7 +44,7 @@ flowchart LR
   S --> E["Decision + evidence"]
 ~~~
 
-A typical trajectory might look like:
+A **Command Code** trajectory might look like:
 
 | Round | Evidence | Decision |
 | ---: | --- | --- |
@@ -55,6 +55,8 @@ A typical trajectory might look like:
 | 5 | Failing tool result | Strong tier |
 | 6 | Recovery after the failure | Strong tier |
 | 7 | Verification passes | Mid tier |
+
+For proxy clients, the first request is classified as `first-turn` and routed to the configured tier (mid by default). Only the Command Code continuing-turn hook leaves round 1 on the session model.
 
 Sabi makes a decision at the boundary the host exposes. It does not fork the host loop, replay
 tools, or silently rewrite permissions.
@@ -113,7 +115,9 @@ alias sabi-code.
 
 Sabi reads only credential names referenced by sabi.config.json. Existing environment variables
 win, followed by SABI_SECRETS_FILE, a nearest workspace secrets/.env, and the per-user Sabi
-secrets file. Values never enter a harness config, worktree, log, or Git. See
+secrets file. Sabi does not copy the loaded values into generated harness configuration or logs.
+If you use a workspace secrets/.env, that source file is already inside the worktree: keep it
+outside version control, add it to .gitignore, and protect its file permissions. See
 [security and installation](docs/install.md).
 
 ### Controller surfaces

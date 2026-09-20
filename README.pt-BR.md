@@ -157,8 +157,9 @@ Na subida, o proxy carrega somente os nomes de credencial referenciados pela con
 Variáveis já presentes no ambiente vencem; depois vêm `SABI_SECRETS_FILE`, o `secrets/.env` mais
 próximo no workspace e, por fim, `~/.config/sabi/secrets.env` ou `~/.config/sabi/.env`. O arquivo
 dotenv pode usar `OPENROUTER_API_KEY=...` e `TYPESAFE_API_KEY=...`; o nome `typesafe=...` que já
-existe no workspace HugoOS também é aceito para a chave TypeSafe. Nenhum segredo é copiado para a
-configuração do harness, terminal, worktree, log ou Git. O mod do Command Code continua sem chave;
+existe no workspace HugoOS também é aceito para a chave TypeSafe. O Sabi não copia os valores carregados para configurações geradas do harness nem para os logs.
+Se você usa um secrets/.env no workspace, esse arquivo já está no worktree: mantenha-o fora do
+controle de versão, adicione-o ao .gitignore e proteja suas permissões. O mod do Command Code continua sem chave;
 OpenCode, Hermes, Kilo e outros clientes compatíveis com OpenAI apenas apontam para o proxy local,
 enquanto as credenciais próprias da conta continuam no harness.
 

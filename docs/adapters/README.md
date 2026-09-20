@@ -8,8 +8,8 @@ without creating a second agent loop.
 
 | Goal | Adapter(s) | Boundary |
 | --- | --- | --- |
-| Change the model and effort during one trajectory | Command Code mod, local proxy clients | Per-round inference |
-| Use your own OpenRouter/Ollama/provider credentials | OpenCode, Hermes, Prime Agent, Kilo, any OpenAI-compatible client | Local proxy |
+| Change model + reasoning effort inside Command Code | Command Code mod | Per-round model + effort |
+| Route model/provider requests using your own credentials | OpenCode, Hermes, Prime Agent, Kilo, any OpenAI-compatible client | Local proxy; model/provider only |
 | Move work between existing sessions/worktrees | Claude Code, Codex, OpenCode controller hooks + Orca | Task/session controller |
 | Add a new host | Follow [the maintainer contract](../maintainers.md) | Adapter proposal |
 

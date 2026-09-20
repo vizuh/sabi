@@ -146,8 +146,10 @@ O proxy carrega somente os nomes de ambiente referenciados pelo `sabi.config.jso
 já presentes no ambiente vencem; depois vêm `SABI_SECRETS_FILE`, o `secrets/.env` mais próximo no
 workspace e `~/.config/sabi/secrets.env` ou `~/.config/sabi/.env`. Use atribuições dotenv normais,
 como `OPENROUTER_API_KEY=...` e `TYPESAFE_API_KEY=...`; o alias `typesafe=...` do arquivo atual do
-HugoOS também é aceito. O Sabi nunca copia esses valores para OpenCode, Hermes, Kilo, Command Code,
-Orca, worktree, log ou Git. O caminho do mod do Command Code continua sem chave. Os outros harnesses
+HugoOS também é aceito. O Sabi não copia esses valores para configurações geradas do OpenCode, Hermes, Kilo, Command Code
+ou Orca, nem para os logs. Se a origem for um secrets/.env no workspace, esse arquivo já está no
+worktree: mantenha-o fora do controle de versão, adicione-o ao .gitignore e proteja suas permissões.
+O caminho do mod do Command Code continua sem chave. Os outros harnesses
 precisam apenas da URL do proxy local; as assinaturas e credenciais próprias continuam neles.
 
 Se os segredos estiverem em outro lugar, inicie com `SABI_SECRETS_FILE=/caminho/absoluto/.env npm start`.

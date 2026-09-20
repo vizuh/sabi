@@ -22,8 +22,9 @@ The two paths are independent:
 
 For the proxy, Sabi loads only the credential names referenced by `sabi.config.json`. Existing
 environment variables win, followed by `SABI_SECRETS_FILE`, the nearest workspace `secrets/.env`,
-and `~/.config/sabi/secrets.env` or `~/.config/sabi/.env`. It never copies secret values into a
-harness config, terminal, worktree, log or Git. Users who do not use Jev can set `judge.enabled` to
+and `~/.config/sabi/secrets.env` or `~/.config/sabi/.env`. It does not copy loaded values into generated harness configuration or logs. If you use a workspace
+secrets/.env, that source file is already in the worktree: keep it out of version control, add it to
+.gitignore, and protect its file permissions. Users who do not use Jev can set `judge.enabled` to
 `false`; users without a central secrets file can keep exporting provider variables normally.
 
 ## Install
