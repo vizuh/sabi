@@ -19,8 +19,9 @@ recovery.
   the selected id, observation time, endpoint and catalog SHA-256 are recorded in provenance.
 - Setup writes a fixed `sabi-quality` alias and maps `verification` to the `quality` tier. It does
   not replace `cheap`, `mid`, `strong`, or `failure` routes.
-- The generated `quality` model preserves the catalog's supported wire parameters so strict
-  compatibility can validate the fixed lane before dispatch.
+- The generated `quality` model preserves the catalog's supported wire parameters and adds the
+  proxy-owned `stream_options` parameter when `streamUsage` is enabled, so compatibility can
+  validate the complete forwarded envelope before dispatch.
 - Command Code `--free` exposes the fixed zero-priced quality lane but refuses an adaptive alias if
   any reachable branch can still spend paid credits.
 - A missing key, catalog failure, empty candidate set or invalid patch fails before the config is

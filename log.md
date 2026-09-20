@@ -755,3 +755,10 @@ free-quality config preserves the catalog's supported wire parameters for strict
 Validation: focused tests passed 10/10, full `npm test` passed 401/401, `npm run typecheck` passed
 and `git diff --check` passed. No provider request, secret, user configuration or deployment was
 used.
+
+## [2026-09-20] fix | Preserve proxy-injected stream options in free-quality metadata
+
+Follow-up to merged PR #52. When the OpenRouter upstream enables `streamUsage`, Sabi injects
+`stream_options` into streamed requests. Free-quality setup now includes that proxy-owned field in
+the generated capability allowlist so compatibility validation does not reject its own envelope.
+A fixed-lane streaming regression covers the behavior.
