@@ -167,9 +167,11 @@ The proxy loads only the environment names referenced by the active `sabi.config
 Existing environment variables win, followed by `SABI_SECRETS_FILE`, the nearest workspace
 `secrets/.env`, and `~/.config/sabi/secrets.env` or `~/.config/sabi/.env`. Use ordinary dotenv
 assignments such as `OPENROUTER_API_KEY=...` and `TYPESAFE_API_KEY=...`; the current HugoOS file's
-`typesafe=...` alias is supported too. Sabi never copies these values into OpenCode, Hermes, Kilo,
-Command Code, Orca, a worktree, a log or Git. The Command Code mod path remains keyless. Other
-harnesses only need the local proxy URL; their own subscriptions and login credentials stay theirs.
+`typesafe=...` alias is supported too. Sabi does not copy these values into generated OpenCode, Hermes, Kilo, Command Code, or Orca
+configuration, or into its logs. If the source is a workspace secrets/.env, that file is already
+inside the worktree: keep it out of version control, add it to .gitignore, and protect its file
+permissions. The Command Code mod path remains keyless. Other harnesses only need the local proxy
+URL; their own subscriptions and login credentials stay theirs.
 
 If the secrets live elsewhere, start Sabi with `SABI_SECRETS_FILE=/absolute/path/to/.env npm start`.
 Users without a central file can keep exporting provider variables normally, and users who do not
