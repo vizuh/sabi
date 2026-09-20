@@ -110,15 +110,27 @@ export async function SabiOpenCodePlugin(context) {
         orchestrate: action === 'ORCHESTRATE',
         ...(override ? { override } : {}),
       })
+      // Record the receipt against the session that actually received the work, preserving
+      // the execution status: a started or rerouted target is never reported as completed, and
+      // the source session is never credited for work it did not execute. Spawned and
+      // orchestrated targets have no addressable session yet, so no outcome is recorded for them.
       if (sessionId && result?.execution?.status) {
-        const status = result.execution.status === 'failed' ? 'failed' : accepted(result) ? 'completed' : 'unverifiable'
-        await post(controllerURL, '/v1/sessions/outcome', {
-          sessionId,
-          adapter: 'opencode',
-          harness: 'opencode',
-          worktree: cwd,
-          outcome: status,
-        })
+        const executionStatus = result.execution.status
+        const outcome = executionStatus === 'failed' ? 'failed'
+          : executionStatus === 'completed' ? 'completed'
+          : executionStatus === 'started' || executionStatus === 'rerouted' ? 'started'
+          : 'unverifiable'
+        const targetId = result.target && typeof result.target.id === 'string' ? result.target.id : undefined
+        const outcomeSessionId = action === 'DELEGATE' ? (targetId ?? sessionId) : undefined
+        if (outcomeSessionId) {
+          await post(controllerURL, '/v1/sessions/outcome', {
+            sessionId: outcomeSessionId,
+            adapter: 'opencode',
+            harness: 'opencode',
+            worktree: cwd,
+            outcome,
+          })
+        }
       }
       if (!accepted(result)) return
       // chat.message exposes the mutable parts list, so the current session does not execute the
