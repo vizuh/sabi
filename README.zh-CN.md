@@ -207,7 +207,7 @@ Hermes、Prime Agent、OpenCode 与 Kilo 的兼容性说明与隔离探针见 [d
 
 ## 命名
 
-产品名：**Sabi**。GitHub 上的 `sabi`、`uasabi`、`sabido` 都已被占用，因此仓库位于 Vizuh 命名空间下：https://github.com/vizuh/sabi（公开）。与 Sabido（Vizuh 另一个学习产品）无关。
+产品名：**Sabi**。GitHub 上的 `sabi` 和 `uasabi` 都已被占用，因此仓库位于 Vizuh 命名空间下：https://github.com/vizuh/sabi（公开）。
 
 ## 文档
 

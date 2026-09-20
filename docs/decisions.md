@@ -10,7 +10,7 @@ Record only meaningful decisions: what, why, tradeoffs, what to revisit. Templat
 Product name is **Sabi**; the repository lives at `github.com/vizuh/sabi` (private).
 
 ### Why
-`sabi`, `uasabi` and `sabido` GitHub handles are taken; Sabido is already the name of the separate Vizuh learning product. Keeping the brand short and hosting it under the existing Vizuh namespace beats weakening the name to fit a handle.
+`sabi` and `uasabi` GitHub handles are taken. Keeping the brand short and hosting it under the existing Vizuh namespace beats weakening the name to fit a handle.
 
 ### Alternatives considered
 - Rename the product to fit an available handle — rejected; the name is the brand.
@@ -18,7 +18,6 @@ Product name is **Sabi**; the repository lives at `github.com/vizuh/sabi` (priva
 
 ### Tradeoffs
 - Repo owner reads "vizuh", not "sabi"; a later move to a dedicated org changes the URL.
-- Two similarly named products (Sabi, Sabido) coexist — docs must disambiguate explicitly.
 
 ### Revisit later?
 Only if the project outgrows the Vizuh namespace and a clean org handle becomes available.
