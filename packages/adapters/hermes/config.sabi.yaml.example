@@ -1,0 +1,48 @@
+# Ready-to-copy user profile for the Sabi Hermes adapter.
+# The 65536-token window is a conservative profile baseline, not a guarantee
+# for every Nous model. Change it only after verifying the selected targets.
+# Keep this HERMES_HOME isolated from an existing personal Hermes profile.
+model:
+  provider: custom:sabi
+  default: sabi-code
+  base_url: http://127.0.0.1:8787/v1
+  api_mode: chat_completions
+  context_length: &context 65536
+
+providers:
+  sabi:
+    api: http://127.0.0.1:8787/v1
+    api_key: sabi-local-placeholder
+    transport: chat_completions
+    discover_models: false
+    capabilities:
+      openai_native_compaction: false
+    models:
+      sabi-code:
+        context_length: *context
+        prompt_caching: false
+
+model_overrides:
+  custom:sabi:
+    sabi-code:
+      context_window: *context
+      # Hermes coding tasks need tool calls. If a selected upstream rejects
+      # tools, set this to false or switch back to a native Hermes model.
+      supports_tools: true
+      supports_vision: false
+      supports_reasoning: false
+
+plugins:
+  enabled: [sabi-metadata]
+
+fallback_providers: []
+fallback_model: null
+
+auxiliary:
+  title_generation:
+    model_upgrade_enabled: false
+
+telemetry:
+  shared_metrics:
+    enabled: false
+    send: false

@@ -8,17 +8,18 @@ O Sabi fica entre um harness de código e seus provedores de modelo. O harness m
 
 ## Instalar o Sabi uma vez
 
-O Sabi é instalado uma vez por usuário/máquina. Você não precisa escolher um harness, instalar por worktree ou manter um checkout do repositório para usar o controller.
+O Sabi é instalado uma vez por usuário/máquina. A release standalone do controller ainda não está disponível no npm; até ela existir, o fluxo de checkout é o caminho verificado para Hermes e para as integrações em desenvolvimento.
 
 ~~~bash
+# Futura release standalone do controller; ainda não disponível no npm.
 npm install --global @vizuh/sabi-controller
-sabi setup
-sabi status
 ~~~
 
 O `setup` é idempotente: mantém o daemon e o estado no escopo do usuário, detecta hosts compatíveis, instala apenas hooks do Sabi que tenham suporte e deixa o harness seguir normalmente se o Sabi estiver indisponível. Use `sabi setup --no-hooks` se quiser inicializar o daemon sem alterar a configuração do host.
 
 O pacote do controller é publicado separadamente por tags `controller-v*`. Se ainda não houver uma versão no npm, use temporariamente o [checkout de mantenedor](docs/install.pt-BR.md#checkout-do-mantenedor-somente-desenvolvimento); esse fluxo não é o modelo de instalação para usuários.
+
+Se o próprio AI do host estiver fazendo a instalação, use o [fluxo de instalação por host-AI](docs/install.ai.md); ele pergunta explicitamente o harness e a rota, e só pede uma chave do OpenRouter no caminho de proxy.
 
 Depois da instalação, abra seu harness normalmente. As integrações de Command Code, proxy e controller são opcionais e entram apenas quando você precisa daquela capacidade.
 

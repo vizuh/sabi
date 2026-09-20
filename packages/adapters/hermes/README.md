@@ -32,22 +32,47 @@ See [compatibility evidence](../../../docs/research/hermes-compatibility.md).
 
 ## Isolated opt-in recipe
 
-[config.yaml.example](config.yaml.example) is a **template**, not ready to run.
-Use a new `HERMES_HOME` within the project runtime directory. Replace its context
-placeholder with an operator-verified limit. Keep capabilities false unless all
-eligible Sabi targets support them. No production model facts or prices are supplied.
-Keep the real upstream key in Sabi's environment only. In this Hermes build,
+For the end-user path, run the setup wizard. It copies
+[config.sabi.yaml.example](config.sabi.yaml.example), the plugin, and a
+Nous-backed Sabi profile into a new `HERMES_HOME`:
+
+~~~bash
+npm run setup -- --harness=hermes --hermes-home="$HOME/.config/sabi/hermes" --no-jev
+~~~
+
+To use the one-key OpenRouter path instead of the isolated Hermes Nous proxy, select it explicitly:
+
+~~~bash
+npm run setup -- --harness=hermes --upstream=openrouter \
+  --hermes-home="$HOME/.config/sabi/hermes" --no-jev
+~~~
+
+That profile asks only for `OPENROUTER_API_KEY` (hidden on an interactive TTY), keeps provider
+BYOK/priority/fallback in OpenRouter, and does not require `hermes auth add nous`. The native
+Nous route remains the default when `--upstream` is omitted.
+
+The generated profile assumes a 65536-token baseline and keeps tools enabled for
+coding tasks. That is a usable client profile, not a paid-provider certification:
+verify the selected upstream models and entitlement with the first bounded request.
+`config.yaml.example` remains the conservative conformance template for adapter
+development; it deliberately leaves the context and tool capability unfilled.
+
+Keep the real upstream credential in Hermes' auth store or Sabi's environment only.
+In this Hermes build,
 `discover_models: false` does not suppress automatic local-server metadata GETs;
 the native mock probe records them and verifies that 404s do not break the task.
 
-Copy `plugin/` to `$HERMES_HOME/plugins/sabi-metadata/`. The template enables that
-plugin by name. Do not install into a user's existing `.hermes` directory. Start
-Hermes with that same `HERMES_HOME`, using its normal `hermes chat` command.
+Do not install into a user's existing `.hermes` directory. Start Hermes with that
+same `HERMES_HOME`, using `hermes proxy start` and its normal `hermes chat` command.
 
 The default Sabi base is `http://127.0.0.1:8787/v1`. For a different loopback port,
 set `SABI_HERMES_BASE_URL` to the exact configured base. The plugin rejects remote
 hosts, URL credentials, query strings and fragments. Changing the model away from
 `sabi-code` leaves that request untouched. Do not configure a second router.
+
+The generated client profile uses a 65536-token baseline. On the validation host,
+`qwen2.5-coder:7b` exposes only 32768 tokens, so Hermes rejects it before the first
+request; use a local model with at least 64000 tokens or the Nous proxy for Hermes.
 
 Rollback: stop selecting this isolated profile, or remove `sabi-metadata` from
 its `plugins.enabled`. Preserve the profile; do not delete user state or change

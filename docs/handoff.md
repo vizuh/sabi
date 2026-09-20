@@ -16,6 +16,25 @@ tool loop, resume, three unique Sabi request receipts and shared-core routing `m
 Direct provider rebinding, auxiliary/subagent calls, compaction replacement and paid-provider
 quality remain explicit separate gates.
 
+## Host-AI onboarding and OpenRouter-only credential path — 2026-09-20
+
+The checkout setup wizard now supports a localized, question-led onboarding path for the existing
+Command Code, OpenCode and Hermes adapter surfaces: `--language=en|pt-BR`, explicit Hermes
+`--upstream=openrouter|hermes-nous`, and `--explain=local|ai`. OpenRouter is the only credential it
+can collect, using hidden TTY input and a user-scoped mode-0600 secrets file; Jev is opt-in through
+`--jev` and is no longer an interactive second-key question. `--explain=ai` is one explicit direct
+OpenRouter request with a local fallback, not a Sabi-routed coding turn.
+
+The new `docs/install.ai.md` is the canonical runbook for a host AI. It distinguishes native
+Command Code subscription routing, OpenCode/Hermes proxy routing, and Claude/Codex controller hooks.
+OpenRouter BYOK priority/fallback remains an OpenRouter account setting; Sabi never receives the
+underlying provider keys or transfers OpenCode Go, ChatGPT Plus, Nous or Claude subscriptions.
+
+Validation: `npm test` passed 387/387, `npm run typecheck` passed, `git diff --check` passed, and the
+generated OpenRouter Hermes profile passed config validation through the setup integration test.
+No real key, paid request, user harness configuration, deployment, package publication, commit or
+push was performed.
+
 ## OpenCode model health and fail-open selection — 2026-09-20
 
 The controller now records process-local health for the selected harness/model when an execution
@@ -736,3 +755,51 @@ the legacy compatibility path.
 
 Validation in the follow-up worktree: focused free-quality tests pass; the full suite and remote CI
 remain the delivery gates for the new PR. No provider request or live quality claim was used.
+## OpenCode Muse cheap-lane issue — 2026-09-20
+
+The installed OpenCode 1.18.31 catalog exposes `opencode/muse-spark-1.3-contributor-free` with a
+large context/output limit and a temporary free label. The current Sabi adaptive profile was not
+actually context-short: it advertised 1,000,000 context tokens but fell back to 4,096 output tokens
+because the proxy tiers had no declared output ceiling. The shipped config now declares the verified
+OpenRouter minimum output ceiling (128,000), which the connector advertises for `sabi-code`.
+
+Muse remains a deferred native lane. OpenCode's Muse endpoint is Responses-native; Sabi's proxy is
+Chat Completions-only and cannot consume OpenCode's subscription credential. No Muse ID was added to
+the proxy config, no user config or credential store was changed, and no paid inference ran. See
+`docs/specs/opencode-muse-cheap-lane.md` and `docs/tasks/opencode-muse-cheap-lane.md`.
+
+## Hermes-first onboarding — 2026-09-20
+
+The Hermes setup path now creates an isolated `HERMES_HOME` with the native attribution plugin, a
+ready `config.yaml`, and a separate `sabi.config.json` pointed at the Hermes Nous proxy on
+`127.0.0.1:8645`. It prints the Nous OAuth login and the three-terminal startup sequence. Jev, when
+requested, is written only to that profile; the checkout's main config is untouched. No credentials
+are copied into the profile or repository.
+
+The user docs now include official Hermes installation, Nous login, OpenCode Go/ChatGPT Plus native
+selection, and the explicit V1 boundary: those subscriptions are not provider-rebound into Sabi.
+Model ids in the generated profile are catalog observations, not entitlement proof. The controller
+package remains unpublished, so Hermes onboarding is checkout-based until a controller release exists.
+
+Validation: `npm test` passed 384/384, `npm run typecheck` passed, the generated Hermes config passed
+the pinned Hermes config check, and a Sabi health smoke passed on temporary port `18787`. No paid
+provider request or external publication was performed.
+
+## Hermes live smoke — 2026-09-20
+
+The Orca validation tab has Hermes Agent `0.21.3` available with an isolated Nous profile. A bounded
+real request completed as `Hermes (sabi-code) → Sabi :8789 → Hermes Nous proxy :8645 → Nous Portal`:
+Hermes returned `NOUS_SABI_OK`, exit `0`, in `7378 ms`; Sabi recorded `client: hermes`,
+`sessionKnown: true`, `alias: sabi-code`, `outcome: ok`, and `upstage/solar-pro4:free` upstream.
+This proves transport, auth and attribution for one request only; it does not prove quality, quota,
+entitlement, savings, paid spend or production readiness.
+
+The local Qwen path has a hard compatibility limit on this host: `qwen2.5-coder:7b` exposes 32768
+context tokens, below Hermes 0.21.3's 64000-token minimum. Use a local model with at least 64000
+context or the Nous path for Hermes; keep Qwen on direct Sabi/Ollama until a larger-context local
+model is selected.
+
+The install/run instructions now include the exact `SABI_HERMES_BASE_URL` attribution boundary,
+fresh-profile rule, three-terminal startup, native OpenCode Go/ChatGPT Plus boundary, and this
+Qwen limitation. Temporary validation servers and the proxy were stopped after the receipt was
+captured; the existing Hermes profile and checkout worktree were preserved.

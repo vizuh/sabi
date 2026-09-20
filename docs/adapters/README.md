@@ -1,8 +1,9 @@
 # Sabi adapters
 
-Adapters are optional bridges, not installation prerequisites. Install Sabi once at user scope, then use this page to choose a host-specific capability. The core/controller remains independent of Command Code, OpenCode, Claude Code, Codex, Hermes, Orca, and any other harness.
+Adapters are optional bridges, not installation prerequisites. Install Sabi once at user scope, then use this page to choose a host-specific capability. The core/controller remains independent of Command Code, OpenCode, Claude Code, Codex, Hermes, Orca, and any other harness. For Hermes today, use the checkout-based setup in [the install guide](../install.md); the standalone controller package is not yet on npm.
 
 ~~~bash
+# After the controller package is published:
 npm install --global @vizuh/sabi-controller
 sabi setup
 ~~~

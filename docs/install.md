@@ -2,18 +2,20 @@
 
 Sabi is installed once per machine or user. It is not a Command Code plugin and does not require a particular harness. The core/controller is the user-facing installation; Command Code, OpenCode, Hermes, Claude Code, Codex, Orca, and other hosts are optional integrations.
 
+If the user asks the current host AI to install Sabi, use the [host-AI installation flow](install.ai.md). It defines the questions, the one-key OpenRouter path, the localized explanation option, and the evidence the agent must report.
+
+For Hermes, use the checkout flow below today: `@vizuh/sabi-controller` is not yet published to npm, so the global controller command is not an executable Hermes install path.
+
 ## One-time user install
 
 ~~~bash
+# Future standalone controller release; not yet available on npm.
 npm install --global @vizuh/sabi-controller
-sabi setup
-sabi status
-sabi doctor
 ~~~
 
 The `setup` command is idempotent. It keeps the daemon and state user-scoped, detects supported hosts, installs only supported Sabi-owned hooks, and fails open when Sabi is unavailable. Use `sabi setup --no-hooks` if you want the daemon without changing host configuration. You do not need a Command Code account, a repository checkout, or a per-worktree installation.
 
-The controller package is released separately under `controller-v*` tags. If npm does not yet contain a release, use the checkout instructions below as a maintainer/development fallback; do not treat them as the normal user installation.
+The controller package is released separately under `controller-v*` tags. Until a release exists, use the checkout flow for Hermes; do not use `npm link` or claim the controller package is installed.
 
 ## What gets installed?
 
@@ -38,7 +40,8 @@ npm run controller -- doctor
 npm run controller -- integrations list
 ~~~
 
-The old `npm run setup` wizard is also a maintainer/development helper for writing a specific proxy or Hermes configuration. It is not the end-user installation path and should not be the first command shown to new users.
+The `npm run setup` wizard is the current checkout-based user path for Hermes; for other harnesses it
+remains a maintainer/development helper for writing a specific proxy configuration.
 
 ## Requirements by surface
 
@@ -47,6 +50,7 @@ The old `npm run setup` wizard is also a maintainer/development helper for writi
 | Base controller | Node 22.6+ and the published `@vizuh/sabi-controller` package |
 | Command Code mod | Command Code, a plan covering the configured `harness.tiers`, and the published `@vizuh/sabi` mod |
 | Local proxy | Node 22.6+, an OpenAI-compatible client, and credentials for any paid upstream you enable |
+| Hermes-first setup | Hermes, Node 22.6+, and a Sabi checkout; Nous login or OpenRouter key depends on the selected upstream |
 | Maintainer checkout | Node 22.6+, git, and the repository |
 
 ## Optional integration: Command Code native mod
@@ -368,18 +372,88 @@ This summarizes recorded traffic; it does not invoke a harness or replay a paid 
 
 ### Hermes
 
-Hermes is served through the same proxy, plus an optional plugin that adds stable attribution. This
-follows `packages/adapters/hermes/README.md`: the pinned Hermes main-conversation and resume path
-has a native Hermes → Sabi → mock acceptance probe. Auxiliary calls, direct provider rebinding and
-real-provider quality remain separate gates; do not read this as a paid-provider certification.
+Hermes is served through its native `llm_request` middleware and local proxy. The setup below
+creates one isolated profile, keeps Hermes' own auth store, and starts the path:
 
-1. Create a new `HERMES_HOME`. Do not point it at an existing personal profile.
-2. Copy `packages/adapters/hermes/plugin/` to `$HERMES_HOME/plugins/sabi-metadata/`.
-3. Adapt `packages/adapters/hermes/config.yaml.example`: replace the context placeholder with a
-   verified limit, and keep `supports_tools`, `supports_vision` and `supports_reasoning` conservative
-   until you have verified every tier Sabi can route to. The template ships them `false`, which means
-   no tools.
-4. `HERMES_HOME=… hermes chat`, then select `sabi-code`.
+~~~text
+Hermes → sabi-code → Sabi → Hermes Nous proxy → Nous Portal
+~~~
+
+It does not silently transfer OpenCode Go or ChatGPT Plus entitlements into Sabi. Those remain
+native Hermes providers and can be selected with `hermes model`; the Sabi route uses the logged-in
+Nous profile. The adapter has a pinned synthetic probe plus a bounded live Nous smoke; neither is
+a quality, quota, savings or production-readiness claim.
+
+#### Install, login and start
+
+If Hermes is not installed yet, install it from the official installer and reload the shell:
+
+~~~bash
+curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+source ~/.bashrc
+hermes --version
+~~~
+
+From a fresh checkout:
+
+~~~bash
+git clone https://github.com/vizuh/sabi
+cd sabi
+npm install
+npm run setup -- --harness=hermes --hermes-home="$HOME/.config/sabi/hermes" --no-jev
+export HERMES_HOME="$HOME/.config/sabi/hermes"
+~~~
+
+Use a new or empty `HERMES_HOME`; do not overwrite an existing personal Hermes profile. If the
+directory already exists, choose another isolated path and keep the existing auth store intact.
+
+Login to Nous in the isolated Hermes profile. The browser/device flow keeps the credential in
+Hermes' profile; Sabi never receives or writes that token:
+
+~~~bash
+hermes auth add nous --type oauth
+hermes auth status nous
+~~~
+
+Use three terminals, from the Sabi checkout in the second one:
+
+~~~bash
+# Terminal 1
+HERMES_HOME="$HERMES_HOME" hermes proxy start --provider nous --host 127.0.0.1 --port 8645
+
+# Terminal 2
+SABI_CONFIG="$HERMES_HOME/sabi.config.json" npm start
+
+# Terminal 3
+export SABI_HERMES_BASE_URL="http://127.0.0.1:8787/v1"
+HERMES_HOME="$HERMES_HOME" SABI_HERMES_BASE_URL="$SABI_HERMES_BASE_URL" hermes chat
+~~~
+
+The generated Hermes profile already selects `sabi-code`. Verify the two local boundaries before
+the first paid request:
+
+~~~bash
+curl -fsS http://127.0.0.1:8787/healthz
+HERMES_HOME="$HERMES_HOME" hermes proxy status
+~~~
+
+To use the other accounts natively in Hermes, authenticate them through the installed Hermes
+provider flow and select them with `hermes model`; switching back to `sabi-code` returns to Sabi
+routing. Provider ids and auth modes are version/account dependent, so do not copy commands from
+another Hermes release:
+
+~~~bash
+HERMES_HOME="$HERMES_HOME" hermes model
+~~~
+
+The exact ChatGPT Plus entitlement and the Nous balance are account-side facts; Hermes should
+report quota or entitlement errors directly. If the `$20` is a standalone Nous API key rather than
+Nous Portal credit, use the API-key upstream recipe instead of starting `hermes proxy`—do not paste
+that key into `config.yaml` or commit it.
+
+On the validation host, `qwen2.5-coder:7b` has a 32768-token context while Hermes 0.21.3 requires
+at least 64000 for a custom model. Use Nous or a local model with a verified context of at least
+64000 for Hermes; Qwen remains usable through a direct Sabi/Ollama configuration.
 
 ### Jev for these clients
 
