@@ -56,6 +56,8 @@ A **Command Code** trajectory might look like:
 | 6 | Recovery after the failure | Strong tier |
 | 7 | Verification passes | Mid tier |
 
+For proxy clients, the first request is classified as `first-turn` and routed to the configured tier (mid by default). Only the Command Code continuing-turn hook leaves round 1 on the session model.
+
 Sabi makes a decision at the boundary the host exposes. It does not fork the host loop, replay
 tools, or silently rewrite permissions.
 
