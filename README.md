@@ -7,29 +7,36 @@ tools, permissions, history, and approvals. Sabi uses trajectory evidence such a
 results, failures, context pressure, capabilities, and provider state to choose what serves the
 next inference or task transition.
 
-Sabi is a routing layer with adapters, not another agent harness or editor.
+Sabi is a host-agnostic routing layer, not another agent harness or editor. Adapters are optional bridges to the execution seams exposed by each host.
 
 **English** · [Português (BR)](README.pt-BR.md) · [中文](README.zh-CN.md)
 
 ![Sabi routing architecture](docs/images/sabi-routing.svg)
 
-## Start here
+## Install Sabi once
 
-Choose the surface that matches how you work:
+Sabi is installed at user scope. You do not install it per worktree or choose a harness during installation.
 
-| You use | Start with | What Sabi does | Current boundary |
+~~~bash
+npm install --global @vizuh/sabi-controller
+sabi setup
+sabi status
+~~~
+
+`setup` is idempotent: it keeps the daemon and state user-scoped, detects supported hosts, installs only supported Sabi-owned hooks, and keeps the normal harness path available if Sabi is unavailable. Use `sabi setup --no-hooks` when you want the daemon without changing host configuration.
+
+The controller package is released separately under `controller-v*` tags. If a version is not yet available on npm, use the [maintainer checkout path](docs/install.md#maintainer-checkout-development-only) temporarily; the checkout workflow is not the intended end-user installation.
+
+After installation, open your normal harness. Choose an optional integration only when you need the capability it provides.
+
+## Choose an optional integration
+
+| Goal | Integration | What Sabi does | Current boundary |
 | --- | --- | --- | --- |
-| Command Code | [Command Code mod](docs/adapters/command-code.md) | Changes model and reasoning effort per continuing round inside the native loop | The published @vizuh/sabi npm artifact is this mod only |
-| OpenCode | [OpenCode adapter](docs/adapters/opencode.md) | Routes requests through the local OpenAI-compatible proxy; optional controller hook | Native per-round model replacement is not claimed |
-| Hermes | [Hermes adapter](docs/adapters/hermes.md) | Uses Hermes' llm_request seam to attribute requests to the Sabi proxy | Pinned/tested Hermes path; auxiliary and subagent paths have separate gates |
-| Prime Agent | [Prime Agent adapter](docs/adapters/prime-agent.md) | Uses a custom OpenAI-compatible provider for proxy routing and probes | Native model/effort timing is experimental |
-| Kilo CLI / VS Code | [Harness compatibility](docs/harnesses.md) | Uses the same local proxy recipe with client-specific metadata | CLI and extension are separate release gates |
-| Claude Code | [Claude Code controller hook](docs/adapters/claude-code.md) | Lets the controller observe prompts and delegate/continue work across sessions | Does not switch the model inside an existing Claude session |
-| Codex | [Codex controller hook](docs/adapters/codex.md) | Lets the controller observe lifecycle and prompt events | Does not switch the model inside an existing Codex session |
-| Orca | [Orca adapter](docs/adapters/orca.md) | Supplies worktree/terminal inventory and capability-gated dispatch to the controller | Orca is the host/controller surface, not a model provider |
-
-If you are unsure, read [Adapters](docs/adapters/README.md). It explains which path is inference
-routing and which path is task/session coordination.
+| Per-round model + reasoning-effort routing | [Command Code mod](docs/adapters/command-code.md) | Uses the host's native loop and subscription catalog | Command Code only |
+| Model/provider routing with your own credentials | [Local proxy](docs/install.md#optional-integration-local-openai-compatible-proxy) | Routes requests through an OpenAI-compatible endpoint | Model/provider routing; not native reasoning-effort switching |
+| Move work between sessions and worktrees | [Controller hooks](docs/adapters/README.md) | Coordinates bounded continue/delegate/spawn actions | Does not switch the model inside an existing native session |
+| Add another host | [Maintainer contract](docs/maintainers.md) | Defines the adapter boundary and evidence required | An adapter is not a second routing policy |
 
 ## The 60-second mental model
 
@@ -83,58 +90,26 @@ Support is reported in layers:
 
 Current evidence and limitations live in [Harness compatibility](docs/harnesses.md) and each adapter page.
 
-## Install the right path
+## Optional integration details
 
-### Command Code
+### Command Code native integration
 
-The published npm package is the native mod:
+Use the published mod only if you want Sabi to change the model and reasoning effort inside a Command Code trajectory:
 
 ~~~bash
 cmd mods add -g npm:@vizuh/sabi
 cmd mods list
 ~~~
 
-No Sabi provider key or local proxy is needed. The mod routes the Command Code subscription
-already attached to the session. Round 1 stays on the session model by design; scheduling starts
-with the next continuing round.
+No Sabi provider key or local proxy is needed. The mod uses the Command Code subscription already attached to the session. The full verification and plan-coverage notes are in [Install and security](docs/install.md#optional-integration-command-code-native-mod).
 
-### Proxy clients
+### Local OpenAI-compatible clients
 
-From a checkout:
+Use the proxy when a client accepts a `baseURL` and you want Sabi to route your own OpenRouter, Ollama, or other provider credentials. This is an optional BYOK inference surface; its model/provider routing does not provide the native reasoning-effort signals of the Command Code mod. See [Local proxy](docs/install.md#optional-integration-local-openai-compatible-proxy).
 
-~~~bash
-git clone https://github.com/vizuh/sabi
-cd sabi
-npm install
-npm start                 # loopback: http://127.0.0.1:8787/v1
-~~~
+### Controller hooks
 
-Configure the adapter for OpenCode, Hermes, Prime Agent, Kilo, or another OpenAI-compatible
-client. The client points at the base URL http://127.0.0.1:8787/v1 and requests the adaptive
-alias sabi-code.
-
-Sabi reads only credential names referenced by sabi.config.json. Existing environment variables
-win, followed by SABI_SECRETS_FILE, a nearest workspace secrets/.env, and the per-user Sabi
-secrets file. Sabi does not copy the loaded values into generated harness configuration or logs.
-If you use a workspace secrets/.env, that source file is already inside the worktree: keep it
-outside version control, add it to .gitignore, and protect its file permissions. See
-[security and installation](docs/install.md).
-
-### Controller surfaces
-
-The controller is still checkout-based and experimental. Do not assume a public
-@vizuh/sabi-controller registry release. From the checkout:
-
-~~~bash
-npm install
-npm run controller -- setup
-npm run controller -- doctor
-npm run controller -- integrations list
-~~~
-
-Setup is explicit and idempotent. It can install user-scoped hooks for detected Claude Code,
-Codex, and OpenCode installations, start a loopback daemon when the platform permits it, and
-leave backups for rollback. Hooks fail open if Sabi is unavailable.
+The user-level controller installed above can coordinate supported Claude Code, Codex, OpenCode, and Orca workflows. It is a task/session surface, not a generic way to rewrite the model inside an existing host session. See [Adapters](docs/adapters/README.md) for the evidence and boundary of each host.
 
 ## Routing logic
 
