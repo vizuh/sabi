@@ -37,8 +37,10 @@ test('registry stores bounded identities without raw session ids and expires sta
       worktree: stateDir,
       lifecycle: 'idle',
       outcome: 'completed',
+      receipt: { phase: 'completed', observedAt: '2026-09-20T12:00:00.000Z', requestId: 'orca-request-1' },
     }, 100_002)
     assert.equal(outcome.lastOutcome, 'completed')
+    assert.deepEqual(outcome.lastReceipt, { phase: 'completed', observedAt: '2026-09-20T12:00:00.000Z', requestId: 'orca-request-1' })
     assert.equal(readSessionRegistry(stateDir, 100_003).length, 1)
     assert.equal(readSessionRegistry(stateDir, 100_003 + 10 * 60_000 + 1).length, 0)
     assert.equal(readFileSync(registryPath(stateDir), 'utf8').includes('provider-secret-session-id'), false)
@@ -58,6 +60,10 @@ test('registry rejects malformed registration fields', () => {
       sessionId: 'id', adapter: 'claude', harness: 'claude', worktree: stateDir,
       capacity: { status: 'bad' as never },
     }), /unsupported capacity status/)
+    assert.throws(() => recordSessionOutcome(stateDir, {
+      sessionId: 'id', adapter: 'claude', harness: 'claude', worktree: stateDir,
+      outcome: 'failed', receipt: { phase: 'not-a-phase', observedAt: 'now' },
+    }), /receipt must include/)
   } finally {
     rmSync(stateDir, { recursive: true, force: true })
   }

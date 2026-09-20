@@ -708,3 +708,38 @@ Add token receipts (`input`, `output`, cache, tool-observation, compaction, late
 plan/health evidence and replay/held-out promotion gates before learned model profiles or
 AgentRun/SoL-Pi-style policy/harness evolution. The acceptance contract is in
 `docs/research/harness-model-token-routing.md`.
+
+## [2026-09-20] Controller execution evidence is typed, bounded and retry-safe
+
+### Decision
+
+The controller treats an Orca action as verified only when its documented result shape contains an
+explicit receipt. Terminal send, wait, read, terminal creation and orchestration responses use small
+typed parsers; unknown envelopes become `unverifiable` and cannot silently authorize a hook to block
+the current harness. Controller-generated idempotency keys correlate plan, route, execution and
+OpenCode outcome records, with a bounded process-local completed/in-flight cache.
+
+Inventory discovery uses a two-second process cache and every quota/rate-limit retry forces a fresh
+snapshot. A retry is allowed only for an explicit retryable failure; the same structured handoff and
+idempotency key are retained. Jev receives bounded candidate and handoff state, not raw catalogs,
+terminal transcripts or diffs, and may choose only from the code-generated valid action set.
+
+### Why
+
+The live debate exposed four unsafe assumptions: `inputAccepted` is not proof that a turn started,
+idle is not proof that work completed, stale inventory can select an unavailable target, and
+recursive result scans can bind an unrelated nested field. Large catalogs and diffs also add cost and
+unnecessary data exposure to a routing judgment. Explicit shapes make failures visible and preserve
+the fail-open boundary for native harnesses.
+
+### Limits
+
+The idempotency cache is process-local, not durable across multiple daemon processes or restarts.
+Receipts prove the observed Orca boundary, not host token usage, task correctness or `worker_done`
+settlement. A two-second inventory TTL is a bounded freshness tradeoff, not a quota guarantee.
+
+### Revisit later?
+
+Add durable receipts only when the daemon can run with multiple workers or must recover across restarts;
+add host token/cost fields after a harness exposes a stable usage contract; add full orchestration
+settlement only in a verified Orca-side adapter.

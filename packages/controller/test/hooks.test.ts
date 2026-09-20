@@ -84,7 +84,7 @@ test('hook output blocks only after a real delegated execution receipt', () => {
   const output = hookOutput('codex', 'UserPromptSubmit', {
     action: 'SPAWN',
     target: { agent: 'opencode' },
-    execution: { status: 'started' },
+    execution: { status: 'started', receipt: { phase: 'started', observedAt: '2026-09-20T00:00:00.000Z' } },
   })
   assert.equal(output.continue, false)
   assert.equal((output.hookSpecificOutput as Record<string, unknown>).hookEventName, 'UserPromptSubmit')

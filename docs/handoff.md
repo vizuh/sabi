@@ -9,6 +9,29 @@ real cross-terminal completion remain separate evidence gates. The public `@vizu
 still publishes the inference adapter; `@vizuh/sabi-controller` remains a separate bundle/release
 lane until its live receipt gates pass.
 
+## Product narrative and controller hardening — 2026-09-20
+
+The README now leads with the user outcome, separates the in-harness inference scheduler from the
+experimental cross-harness controller, gives one recommended install path, and states the current
+compatibility/evidence boundary before the architecture. `docs/visual-story.md` captures the hero
+trajectory, cognitive-load, local-evidence, failure/recovery, new-model and end-state visuals. Its
+traces are explicitly illustrative until a real receipt supplies model, harness, runtime, outcome,
+token and latency evidence.
+
+The controller hardening completes the existing partial receipt work: one bounded idempotency key
+can flow from a hook through plan/route/outcome, a shared short-lived inventory snapshot is reused
+within a request, model-list headings are excluded, judge catalog entries cannot satisfy worker
+preferences, and a failed or quota/rate-limited target is rerouted only before the send receipt
+shows acceptance or turn start.
+OpenCode outcome credit now follows `execution.targetId`, not the planned target, and missing target
+identity stays uncredited. The registry now retains the bounded execution receipt. It is still not a
+token/economic receipt; missing usage and cost remain unknown.
+
+Validation: 373 tests passed, `npm run typecheck`, `npm run eval` and `git diff --check` passed. The
+latest offline eval is 5/8 tasks passed, 3/3 failed tasks escalated, and -388.4% versus all-mid
+repricing; this is a warning fixture, not a product benchmark. No paid request, live dispatch, user
+configuration change, publication or deployment was performed by this change set.
+
 ## Last meaningful update
 
 2026-09-20
@@ -499,3 +522,21 @@ opencode/ling-3.0-flash-fin-free` with the Sabi plugin and a temporary loopback 
 the bounded `CONTINUE` action, and execution remained native to the current OpenCode session. The
 prompt was read-only, no file was edited, and no cross-session dispatch or paid upstream request
 was made. Validation on this branch: 366 tests passed and `npm run typecheck` passed.
+
+## Controller debate hardening — 2026-09-20
+
+Implemented the next controller safety slice on `fix/controller-debate-hardening`:
+
+- typed Orca parsers replace recursive `find*` result scans; unknown action shapes are
+  `unverifiable`;
+- controller-side idempotency keys correlate plan/route/execution/outcome and deduplicate completed
+  or in-flight route requests within one daemon process;
+- inventory is cached for two seconds and forcibly refreshed before bounded quota/rate-limit retry;
+- Jev receives bounded candidate and handoff state, excluding raw catalogs, terminal transcripts and
+  diffs;
+- Claude/Codex/OpenCode hook blocking requires a verified execution receipt.
+
+Validation: `npm test` passed 373 tests, `npm run typecheck` passed, focused daemon/OpenCode tests
+passed 10/10, and `git diff --check` passed. No live task, user configuration, secret, paid request,
+deployment or package publication was performed by this change. The PR and merge status are recorded
+after GitHub CI completes.

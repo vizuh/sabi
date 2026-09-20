@@ -561,3 +561,33 @@ planned token receipts, AgentRun-style replay/lessons and SoL-Pi-style harness o
 Validation: `npm test` passed 368 tests, `npm run typecheck` passed, focused controller/inventory
 tests passed, and `git diff --check` passed. No user configuration, secrets, paid inference or live
 terminal execution was changed.
+
+## [2026-09-20] change | Product-first narrative and controller receipt hardening
+
+Reordered the English README around the visitor's first questions: what Sabi gives, model versus
+harness routing, one recommended path, current compatibility, an illustrative trajectory, Jev's
+role and the absence of a published benchmark. Added `docs/visual-story.md` with source-grounded
+hero, cognitive-load, local-evidence, recovery, new-model and end-state visuals; examples are
+marked illustrative and never present catalog presence as quality, price or entitlement evidence.
+
+Completed the existing controller receipt slice: bounded idempotency keys now correlate plan/route
+and outcome, execution retries require pre-acceptance, OpenCode credits the actual execution target,
+and the same request reuses a short-lived inventory snapshot. Command Code catalog headings and
+docs text are excluded from model IDs, and Jev catalog entries cannot satisfy worker preferences.
+
+Validation: 373 tests passed; `npm run typecheck`, `npm run eval` and `git diff --check` passed. The
+offline eval reported 5/8 tasks passed, 3/3 failed tasks escalated and -388.4% versus all-mid
+repricing; this is a development warning, not a customer benchmark. No paid inference, live
+dispatch, user configuration change, publication or deploy.
+
+## [2026-09-20] fix | Harden controller receipts, inventory freshness and Jev boundaries
+
+Typed Orca result parsers now reject unknown envelopes as `unverifiable`; controller-side idempotency
+keys are carried through route execution and outcome telemetry; completed/in-flight requests are
+deduplicated within one daemon process. Inventory reuse is capped at two seconds and quota/rate-limit
+retries force refresh. Jev state is bounded and excludes catalogs/raw diffs; OpenCode and host hooks
+only suppress the current prompt after a verified receipt. A quota test covers pre-acceptance input
+with no observed request and successful reroute; accepted input is not retried.
+
+Validation: `npm test` 373/373, `npm run typecheck`, focused daemon/OpenCode tests 10/10, and
+`git diff --check`. No live task, secret, paid inference, deployment or publication.

@@ -3,7 +3,18 @@ import assert from 'node:assert/strict'
 import { chmodSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { queryOrcaTerminals, queryOrcaWorktrees, runOrca } from '../src/orca.ts'
+import {
+  parseCreatedRunResult,
+  parseCreatedTerminalResult,
+  parseStartedWorkerResult,
+  parseTerminalReadReceipt,
+  parseTerminalSendReceipt,
+  parseTerminalWaitReceipt,
+  parseWorkerStatusResult,
+  queryOrcaTerminals,
+  queryOrcaWorktrees,
+  runOrca,
+} from '../src/orca.ts'
 
 const fixturesDir = fileURLToPath(new URL('./fixtures/', import.meta.url))
 function fixture(name: string): string {
@@ -72,4 +83,23 @@ test('queryOrcaTerminals populates the terminals field, not worktrees', () => {
   assert.equal(result.ok, true)
   assert.deepEqual(result.terminals, [{ worktreePath: '/tmp/example', branch: 'main' }])
   assert.equal(result.worktrees, undefined)
+})
+
+test('typed Orca receipts accept only explicit known result shapes', () => {
+  assert.deepEqual(parseTerminalSendReceipt({ requestId: 'req-1', inputAccepted: true, turnStarted: true }), {
+    requestId: 'req-1', inputAccepted: true, turnStarted: true,
+  })
+  assert.deepEqual(parseTerminalWaitReceipt({ wait: { satisfied: true, status: 'running' } }), {
+    satisfied: true, status: 'running',
+  })
+  assert.deepEqual(parseTerminalReadReceipt({ terminal: { handle: 'term-1', tail: ['done'] }, latestCursor: '4' }), {
+    terminal: { handle: 'term-1', tail: ['done'] }, latestCursor: '4',
+  })
+  assert.deepEqual(parseCreatedTerminalResult({ terminal: { handle: 'term-2' } }), { handle: 'term-2' })
+  assert.deepEqual(parseCreatedRunResult({ run_id: 'run-1' }), { runId: 'run-1' })
+  assert.deepEqual(parseStartedWorkerResult({ dispatch_id: 'dispatch-1' }), { dispatchId: 'dispatch-1' })
+  assert.deepEqual(parseWorkerStatusResult({ worker: { state: 'completed' } }), { status: 'completed' })
+  assert.equal(parseTerminalSendReceipt({ nested: { inputAccepted: true } }), undefined)
+  assert.equal(parseTerminalWaitReceipt({ status: 'running' }), undefined)
+  assert.equal(parseTerminalReadReceipt({ output: ['done'] }), undefined)
 })

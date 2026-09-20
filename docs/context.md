@@ -44,10 +44,16 @@ commands (`opencode models` and `cmd --list-models`) with explicit-free markers,
 runtime version, observation time and output hash. Catalog presence is evidence only: it does not
 prove plan entitlement, pricing, quota or per-round native OpenCode model switching.
 
+The controller execution boundary now accepts only explicit typed Orca receipts, carries a
+controller-side idempotency key through plan/route/outcome, reuses inventory for at most two seconds,
+forces a fresh inventory before retrying a quota/rate-limit failure, and sends Jev only bounded
+candidate/handoff state without catalogs or raw diffs. Unknown Orca result shapes are reported as
+unverifiable rather than guessed.
+
 The next phase is the deterministic harness × model × provider/plan × effort × session contract:
 hard availability/capability/quota/token-evidence gates first, Jev only over the closed valid set,
-then bounded execution and outcome receipts. Learned profiles, subscription economics, controller
-token receipts and policy compilation remain unimplemented until live evidence supports them.
+then bounded execution and outcome receipts. Host token receipts, learned profiles, subscription
+economics and policy compilation remain unimplemented until live evidence supports them.
 
 ## Key flows
 

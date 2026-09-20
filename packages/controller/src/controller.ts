@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { ControllerConfig } from '@sabi/core'
 import { planAgentRoute } from './agents.ts'
@@ -7,6 +8,13 @@ import {
   createOrcaRun,
   createOrcaTerminal,
   closeOrcaTerminal,
+  parseCreatedRunResult,
+  parseCreatedTerminalResult,
+  parseStartedWorkerResult,
+  parseTerminalReadReceipt,
+  parseTerminalSendReceipt,
+  parseTerminalWaitReceipt,
+  parseWorkerStatusResult,
   readOrcaTerminal,
   sendOrcaTerminal,
   showOrcaWorker,
@@ -21,7 +29,9 @@ import type {
   ControllerAction,
   ControllerCandidateTelemetry,
   ControllerExecution,
+  ControllerExecutionReceipt,
   ControllerOverride,
+  ControllerReceiptPhase,
   ControllerRoutingTelemetry,
   HandoffSnapshot,
   JevDecisionTelemetry,
@@ -41,69 +51,6 @@ interface RouteSelection {
   validActions: ControllerAction[]
   decisionSource: 'deterministic' | 'jev' | 'override'
   jev: JevDecisionTelemetry
-}
-
-function recordOf(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
-}
-
-function nestedResult(value: unknown): Record<string, unknown> | undefined {
-  const root = recordOf(value)
-  return recordOf(root?.result) ?? root
-}
-
-function findString(value: unknown, keys: string[]): string | undefined {
-  const wanted = new Set(keys)
-  const visit = (node: unknown, depth: number): string | undefined => {
-    if (depth > 5) return undefined
-    const object = recordOf(node)
-    if (!object) return undefined
-    for (const key of wanted) {
-      if (typeof object[key] === 'string' && object[key]) return object[key] as string
-    }
-    for (const child of Object.values(object)) {
-      const found = visit(child, depth + 1)
-      if (found) return found
-    }
-    return undefined
-  }
-  return visit(value, 0)
-}
-
-function findBoolean(value: unknown, keys: string[]): boolean | undefined {
-  const wanted = new Set(keys)
-  const visit = (node: unknown, depth: number): boolean | undefined => {
-    if (depth > 5) return undefined
-    const object = recordOf(node)
-    if (!object) return undefined
-    for (const key of wanted) {
-      if (typeof object[key] === 'boolean') return object[key] as boolean
-    }
-    for (const child of Object.values(object)) {
-      const found = visit(child, depth + 1)
-      if (found !== undefined) return found
-    }
-    return undefined
-  }
-  return visit(value, 0)
-}
-
-function findNumber(value: unknown, keys: string[]): number | undefined {
-  const wanted = new Set(keys)
-  const visit = (node: unknown, depth: number): number | undefined => {
-    if (depth > 5) return undefined
-    const object = recordOf(node)
-    if (!object) return undefined
-    for (const key of wanted) {
-      if (typeof object[key] === 'number' && Number.isFinite(object[key])) return object[key] as number
-    }
-    for (const child of Object.values(object)) {
-      const found = visit(child, depth + 1)
-      if (found !== undefined) return found
-    }
-    return undefined
-  }
-  return visit(value, 0)
 }
 
 function gitOutput(cwd: string, args: string[]): string | undefined {
@@ -191,19 +138,37 @@ function candidateState(inventory: AgentInventory): Record<string, unknown> {
     agent: candidate.agent,
     harness: candidate.harness,
     available: candidate.available,
-    capacity: candidate.capacity,
-    worktree: candidate.worktree,
-    branch: candidate.branch,
+    capacity: {
+      status: candidate.capacity.status,
+      ...(candidate.capacity.resetAt !== undefined ? { resetAt: candidate.capacity.resetAt } : {}),
+      ...(candidate.capacity.fallbackMode ? { fallbackMode: candidate.capacity.fallbackMode } : {}),
+    },
     lifecycle: candidate.kind === 'session' ? candidate.lifecycle : undefined,
     dispatchable: candidate.kind === 'session' ? candidate.dispatchable : true,
-    context: candidate.context,
+    context: candidate.context?.slice(0, 160),
     model: candidate.model,
-    catalog: candidate.kind === 'harness' ? candidate.catalog : undefined,
   })
   return {
     active: describe(inventory.active),
-    existingSessions: inventory.existingSessions.map(describe),
-    spawnCandidates: inventory.spawnCandidates.map(describe),
+    existingSessions: inventory.existingSessions.slice(0, 32).map(describe),
+    spawnCandidates: inventory.spawnCandidates.slice(0, 16).map(describe),
+  }
+}
+
+function handoffState(handoff: HandoffSnapshot): Record<string, unknown> {
+  return {
+    objective: handoff.objective.slice(0, 1200),
+    originalRequest: handoff.originalRequest.slice(0, 1200),
+    sourceSession: handoff.sourceSession,
+    repo: handoff.repo,
+    branch: handoff.branch,
+    progress: handoff.progress.slice(0, 240),
+    changedFileCount: handoff.changedFiles.length,
+    testsRun: handoff.testsRun.slice(0, 8).map((value) => value.slice(0, 160)),
+    latestResults: handoff.latestResults.slice(0, 8).map((value) => value.slice(0, 160)),
+    unresolvedWorkCount: handoff.unresolvedWork.length,
+    nextAction: handoff.nextAction.slice(0, 1200),
+    ...(handoff.latestFailure ? { latestFailure: handoff.latestFailure.slice(0, 240) } : {}),
   }
 }
 
@@ -325,7 +290,7 @@ export async function selectRoute(
       request,
       validActions,
       fallback,
-      state: { request, validActions, inventory: candidateState(inventory), handoff },
+      state: { request: request.slice(0, 2000), validActions, inventory: candidateState(inventory), handoff: handoffState(handoff) },
     })
     const target = jev.action === 'DELEGATE' ? session : inventory.active
     const plan = handoffForAction(basePlan, jev.action, target)
@@ -335,11 +300,11 @@ export async function selectRoute(
   return { action: 'CONTINUE', rule: 'current-session-sufficient', reason: 'current healthy session is the smallest sufficient route', target: inventory.active, plan: basePlan, validActions: ['CONTINUE'], decisionSource: 'deterministic', jev: { ...noJev, validActions: ['CONTINUE'] } }
 }
 
-function sendEvidence(value: unknown): Pick<ControllerExecution, 'requestId' | 'inputAccepted' | 'turnStarted'> {
+function receipt(phase: ControllerReceiptPhase, requestId?: string): ControllerExecutionReceipt {
   return {
-    requestId: findString(value, ['requestId', 'request_id']),
-    inputAccepted: findBoolean(value, ['inputAccepted', 'input_accepted', 'accepted']),
-    turnStarted: findBoolean(value, ['turnStarted', 'turn_started']),
+    phase,
+    observedAt: new Date().toISOString(),
+    ...(requestId ? { requestId } : {}),
   }
 }
 
@@ -370,23 +335,39 @@ function sessionExecution(
   waitMs: number,
   handoff?: HandoffSnapshot,
   targetWorktree?: string,
+  idempotencyKey?: string,
 ): ControllerExecution {
   const outbound = handoff && targetWorktree && path.resolve(targetWorktree) !== path.resolve(handoff.worktree)
     ? structuredHandoff(request, handoff)
     : request
   const sent = sendOrcaTerminal(handle, outbound)
-  if (!sent.ok) return { status: 'failed', targetId, terminalHandle: handle, operation, error: sent.detail ?? sent.errorCode }
-  const evidence = sendEvidence(sent.result)
+  if (!sent.ok) return {
+    status: 'failed',
+    targetId,
+    terminalHandle: handle,
+    operation,
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+    receipt: receipt('failed'),
+    retryable: true,
+    error: sent.detail ?? sent.errorCode,
+  }
+  const sendReceipt = parseTerminalSendReceipt(sent.result)
+  if (!sendReceipt) return {
+    status: 'unverifiable',
+    targetId,
+    terminalHandle: handle,
+    operation,
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+    receipt: receipt('unknown'),
+    error: 'unrecognized-terminal-send-receipt',
+  }
   const waited = waitOrcaTerminal(handle, 'tui-idle', waitMs)
   const screen = readOrcaTerminal(handle)
-  const result = nestedResult(screen.result)
-  const tail = recordOf(result?.terminal)
-  const rawTail = tail?.tail
-  const lines = Array.isArray(rawTail) ? rawTail.length : undefined
-  const outputText = Array.isArray(rawTail) ? rawTail.filter((line): line is string => typeof line === 'string').join('\n') : ''
-  const recentOutput = Array.isArray(rawTail)
-    ? rawTail.filter((line): line is string => typeof line === 'string').slice(-16).join('\n')
-    : ''
+  const readReceipt = parseTerminalReadReceipt(screen.result)
+  const rawTail = readReceipt?.terminal.tail
+  const lines = rawTail?.length
+  const outputText = rawTail?.join('\n') ?? ''
+  const recentOutput = rawTail?.slice(-16).join('\n') ?? ''
   const normalizeScreenText = (value: string): string => value.replace(/\s+/g, ' ').trim()
   const normalizedOutput = normalizeScreenText(outputText)
   const normalizedRecentOutput = normalizeScreenText(recentOutput)
@@ -395,35 +376,51 @@ function sessionExecution(
   const requestObserved = normalizedOutput.includes(normalizedRequest)
   const outputAfterRequest = requestObserved ? normalizedOutput.slice(normalizedOutput.lastIndexOf(normalizedRequest) + normalizedRequest.length) : ''
   const completionObserved = requestObserved && /(?:✻|●).*(?:done|worked|baked|cooked|churned|sautéed|roasted|simmered)\b/i.test(outputAfterRequest)
-  const cursor = findNumber(screen.result, ['latestCursor', 'nextCursor'])
-  const satisfied = findBoolean(waited.result, ['satisfied'])
+  const waitReceipt = parseTerminalWaitReceipt(waited.result)
+  const cursorValue = readReceipt?.latestCursor ?? readReceipt?.nextCursor
+  const cursor = typeof cursorValue === 'number' ? cursorValue : cursorValue === undefined ? undefined : Number(cursorValue)
+  const satisfied = waitReceipt?.satisfied
   return {
-    status: capacityFailure ? 'failed' : satisfied === true && requestObserved || completionObserved ? 'completed' : requestObserved ? 'started' : 'unverifiable',
+    status: capacityFailure && !requestObserved ? 'failed' : satisfied === true && requestObserved || completionObserved ? 'completed' : requestObserved || sendReceipt.turnStarted === true ? 'started' : 'unverifiable',
     targetId,
     terminalHandle: handle,
     operation,
-    ...evidence,
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+    ...(sendReceipt.requestId ? { requestId: sendReceipt.requestId } : {}),
+    ...(sendReceipt.inputAccepted !== undefined ? { inputAccepted: sendReceipt.inputAccepted } : {}),
+    ...(sendReceipt.turnStarted !== undefined ? { turnStarted: sendReceipt.turnStarted } : {}),
+    receipt: receipt(
+      capacityFailure && !requestObserved ? 'failed' : satisfied === true && requestObserved || completionObserved ? 'completed' : requestObserved || sendReceipt.turnStarted === true ? 'started' : 'unknown',
+      sendReceipt.requestId,
+    ),
     requestObserved,
     waitSatisfied: satisfied,
-    observedStatus: capacityFailure ? 'quota-or-rate-limit' : completionObserved ? 'completed' : findString(waited.result, ['status']) ?? (waited.ok ? 'observed' : waited.errorCode),
+    observedStatus: capacityFailure ? 'quota-or-rate-limit' : completionObserved ? 'completed' : waitReceipt?.status ?? (waited.ok ? 'observed' : waited.errorCode),
     observedOutputLines: lines,
     outputCursor: cursor,
+    ...(capacityFailure && !requestObserved && sendReceipt.inputAccepted !== true && sendReceipt.turnStarted !== true ? { retryable: true } : {}),
     ...(capacityFailure ? { error: 'target-reported-quota-or-rate-limit' } : {}),
+    ...(!readReceipt ? { error: 'unrecognized-terminal-read-receipt' } : {}),
   }
 }
 
-function executeSpawn(target: AgentHarness, cwd: string, request: string, waitMs: number): ControllerExecution {
+function executeSpawn(target: AgentHarness, cwd: string, request: string, waitMs: number, idempotencyKey?: string): ControllerExecution {
   const created = createOrcaTerminal(cwd, target.launchCommand ?? target.command, `sabi-controller:${target.agent}`)
-  if (!created.ok) return { status: 'failed', targetId: target.id, operation: 'terminal-spawn', error: created.detail ?? created.errorCode }
-  const handle = findString(created.result, ['handle'])
-  if (!handle) return { status: 'failed', targetId: target.id, operation: 'terminal-spawn', error: 'spawn-receipt-missing-handle' }
+  if (!created.ok) return { status: 'failed', targetId: target.id, operation: 'terminal-spawn', ...(idempotencyKey ? { idempotencyKey } : {}), receipt: receipt('failed'), retryable: true, error: created.detail ?? created.errorCode }
+  const handle = parseCreatedTerminalResult(created.result)?.handle
+  if (!handle) return { status: 'unverifiable', targetId: target.id, operation: 'terminal-spawn', ...(idempotencyKey ? { idempotencyKey } : {}), receipt: receipt('unknown'), error: 'unrecognized-terminal-create-receipt' }
   const ready = waitOrcaTerminal(handle, 'tui-idle', Math.max(waitMs, 30_000))
-  if (!ready.ok || findBoolean(ready.result, ['satisfied']) === false) {
+  const readyReceipt = parseTerminalWaitReceipt(ready.result)
+  if (!ready.ok || readyReceipt?.satisfied === false) {
     closeOrcaTerminal(handle)
-    return { status: 'failed', targetId: target.id, terminalHandle: handle, operation: 'terminal-spawn', error: ready.detail ?? ready.errorCode ?? 'spawn-not-ready' }
+    return { status: 'failed', targetId: target.id, terminalHandle: handle, operation: 'terminal-spawn', ...(idempotencyKey ? { idempotencyKey } : {}), receipt: receipt('failed'), retryable: true, error: ready.detail ?? ready.errorCode ?? 'spawn-not-ready' }
   }
-  const execution = sessionExecution(handle, target.id, request, 'terminal-spawn', waitMs)
-  if (execution.status === 'failed') closeOrcaTerminal(handle)
+  if (!readyReceipt) {
+    closeOrcaTerminal(handle)
+    return { status: 'unverifiable', targetId: target.id, terminalHandle: handle, operation: 'terminal-spawn', ...(idempotencyKey ? { idempotencyKey } : {}), receipt: receipt('unknown'), error: 'unrecognized-terminal-wait-receipt' }
+  }
+  const execution = sessionExecution(handle, target.id, request, 'terminal-spawn', waitMs, undefined, undefined, idempotencyKey)
+  if (execution.status === 'failed' && execution.retryable === true) closeOrcaTerminal(handle)
   return execution
 }
 
@@ -433,11 +430,12 @@ function orchestrationAgent(target: AgentSession | AgentHarness | undefined): st
   return 'codex'
 }
 
-function executeOrchestration(target: AgentSession | AgentHarness | undefined, cwd: string, request: string, handoff: HandoffSnapshot): ControllerExecution {
+function executeOrchestration(target: AgentSession | AgentHarness | undefined, cwd: string, request: string, handoff: HandoffSnapshot, idempotencyKey: string): ControllerExecution {
   const from = process.env.ORCA_TERMINAL_HANDLE?.trim() || undefined
   const run = createOrcaRun(request, from)
-  if (!run.ok) return { status: 'failed', operation: 'orchestration', error: run.detail ?? run.errorCode }
-  const runId = findString(run.result, ['runId', 'run_id', 'id'])
+  if (!run.ok) return { status: 'failed', operation: 'orchestration', idempotencyKey, receipt: receipt('failed'), retryable: true, error: run.detail ?? run.errorCode }
+  const runId = parseCreatedRunResult(run.result)?.runId
+  if (!runId) return { status: 'unverifiable', operation: 'orchestration', idempotencyKey, receipt: receipt('unknown'), error: 'unrecognized-orchestration-run-receipt' }
   const spec = [
     `Objective: ${request}`,
     `Repository: ${handoff.repo}`,
@@ -446,31 +444,35 @@ function executeOrchestration(target: AgentSession | AgentHarness | undefined, c
     `Handoff: ${JSON.stringify(handoff)}`,
   ].join('\n')
   const started = startOrcaWorker({ runId, spec, agent: orchestrationAgent(target), repo: cwd, name: `sabi-controller-${Date.now()}` })
-  if (!started.ok) return { status: 'failed', operation: 'orchestration', runId, error: started.detail ?? started.errorCode }
-  const dispatchId = findString(started.result, ['dispatchId', 'dispatch_id', 'id'])
+  if (!started.ok) return { status: 'failed', operation: 'orchestration', runId, idempotencyKey, receipt: receipt('failed'), retryable: true, error: started.detail ?? started.errorCode }
+  const dispatchId = parseStartedWorkerResult(started.result)?.dispatchId
+  if (!dispatchId) return { status: 'unverifiable', operation: 'orchestration', runId, idempotencyKey, receipt: receipt('unknown'), error: 'unrecognized-worker-start-receipt' }
   const observed = dispatchId ? showOrcaWorker(dispatchId) : undefined
   const observation = observed?.result
+  const workerStatus = parseWorkerStatusResult(observation)
   return {
     status: 'started',
     operation: 'orchestration',
     runId,
     dispatchId,
-    observedStatus: findString(observation, ['status', 'state']) ?? (observed?.ok ? 'dispatched' : observed?.errorCode),
+    idempotencyKey,
+    receipt: receipt('started'),
+    observedStatus: workerStatus?.status ?? (observed?.ok ? 'dispatched' : observed?.errorCode),
   }
 }
 
-function executeSelection(selection: RouteSelection, inventory: AgentInventory, cwd: string, request: string, handoff: HandoffSnapshot, waitMs: number): ControllerExecution {
-  if (selection.action === 'ASK') return { status: 'awaiting-user', targetId: selection.target?.id, operation: undefined, error: selection.reason }
-  if (selection.action === 'ORCHESTRATE') return executeOrchestration(selection.target, cwd, request, handoff)
-  if (selection.action === 'SPAWN' && selection.target?.kind === 'harness') return executeSpawn(selection.target, cwd, request, waitMs)
+function executeSelection(selection: RouteSelection, inventory: AgentInventory, cwd: string, request: string, handoff: HandoffSnapshot, waitMs: number, idempotencyKey: string): ControllerExecution {
+  if (selection.action === 'ASK') return { status: 'awaiting-user', targetId: selection.target?.id, operation: undefined, idempotencyKey, error: selection.reason }
+  if (selection.action === 'ORCHESTRATE') return executeOrchestration(selection.target, cwd, request, handoff, idempotencyKey)
+  if (selection.action === 'SPAWN' && selection.target?.kind === 'harness') return executeSpawn(selection.target, cwd, request, waitMs, idempotencyKey)
   const target = selection.target?.kind === 'session' ? selection.target : inventory.active
   if (!target.handle) {
     if (selection.action === 'CONTINUE' && target.dispatchable === false) {
-      return { status: 'not-started', targetId: target.id, operation: 'terminal-send', observedStatus: 'host-native', error: 'current request remains with the harness' }
+      return { status: 'not-started', targetId: target.id, operation: 'terminal-send', idempotencyKey, observedStatus: 'host-native', error: 'current request remains with the harness' }
     }
-    return { status: 'failed', targetId: target.id, operation: 'terminal-send', error: 'target-session-handle-missing' }
+    return { status: 'failed', targetId: target.id, operation: 'terminal-send', idempotencyKey, receipt: receipt('failed'), retryable: true, error: 'target-session-handle-missing' }
   }
-  return sessionExecution(target.handle, target.id, request, 'terminal-send', waitMs, handoff, target.worktree)
+  return sessionExecution(target.handle, target.id, request, 'terminal-send', waitMs, handoff, target.worktree, idempotencyKey)
 }
 
 function fallbackTarget(inventory: AgentInventory, failedTargetIds: Set<string>, preferred?: string[]): AgentSession | AgentHarness | undefined {
@@ -497,28 +499,33 @@ export async function runController(
   controller?: ControllerConfig,
   currentSession?: string,
   currentHarness?: string,
+  inventoryOverride?: AgentInventory,
+  requestedIdempotencyKey?: string,
 ): Promise<ControllerRunResult> {
-  const inventory = discoverAgents(cwd, { stuckSession: signals.stuckSession, controller, currentSession, currentHarness })
+  const candidateKey = requestedIdempotencyKey?.trim()
+  const idempotencyKey = candidateKey && /^[A-Za-z0-9._:-]{1,128}$/.test(candidateKey) ? candidateKey : randomUUID()
+  let inventory = inventoryOverride ?? discoverAgents(cwd, { stuckSession: signals.stuckSession, controller, currentSession, currentHarness })
   const handoff = buildHandoff(cwd, request, inventory.active, signals.stuckSession)
   const selection = await selectRoute(request, cwd, signals, inventory, handoff, override, controller)
   let execution: ControllerExecution = execute
-    ? executeSelection(selection, inventory, cwd, request, handoff, waitMs)
-    : { status: 'not-started' }
+    ? executeSelection(selection, inventory, cwd, request, handoff, waitMs, idempotencyKey)
+    : { status: 'not-started', idempotencyKey }
 
-  if (execute && execution.status === 'failed' && selection.action !== 'ASK' && selection.action !== 'ORCHESTRATE' && selection.decisionSource !== 'override') {
+  if (execute && execution.status === 'failed' && execution.retryable === true && selection.action !== 'ASK' && selection.action !== 'ORCHESTRATE' && selection.decisionSource !== 'override') {
     const failedTargetIds = new Set<string>()
     let rerouteCount = 0
     while (execution.status === 'failed' && rerouteCount < MAX_REROUTES) {
       if (execution.targetId) failedTargetIds.add(execution.targetId)
-      const refreshed = discoverAgents(cwd, { stuckSession: signals.stuckSession, controller, currentSession, currentHarness })
+      const refreshed = discoverAgents(cwd, { stuckSession: signals.stuckSession, controller, currentSession, currentHarness, refresh: true })
+      inventory = refreshed
       const fallback = fallbackTarget(refreshed, failedTargetIds, controller?.preferredHarnesses)
       if (!fallback) break
       const previousTargetId = execution.targetId
       const retry = fallback.kind === 'session'
         ? fallback.handle
-          ? sessionExecution(fallback.handle, fallback.id, request, 'terminal-send', waitMs, handoff, fallback.worktree)
-          : { status: 'failed' as const, targetId: fallback.id, operation: 'terminal-send' as const, error: 'target-session-handle-missing' }
-        : executeSpawn(fallback, cwd, request, waitMs)
+          ? sessionExecution(fallback.handle, fallback.id, request, 'terminal-send', waitMs, handoff, fallback.worktree, idempotencyKey)
+          : { status: 'failed' as const, targetId: fallback.id, operation: 'terminal-send' as const, retryable: true, idempotencyKey, receipt: receipt('failed'), error: 'target-session-handle-missing' }
+        : executeSpawn(fallback, cwd, request, waitMs, idempotencyKey)
       rerouteCount += 1
       execution = {
         ...retry,
@@ -536,6 +543,8 @@ export async function runController(
       sessionCount: inventory.existingSessions.length + (inventory.active.handle ? 1 : 0),
       harnessCount: inventory.spawnCandidates.length,
       activeSessionId: inventory.active.handle ? inventory.active.id : undefined,
+      observedAt: inventory.observedAt,
+      cached: inventory.cached,
     },
     validActions: selection.validActions,
     candidates: candidateTelemetry(inventory),

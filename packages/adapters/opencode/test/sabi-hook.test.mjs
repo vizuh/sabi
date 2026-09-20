@@ -36,7 +36,7 @@ test('OpenCode chat.message plans first and replaces the submitted parts after d
     requests.push({ url: String(url), body: JSON.parse(options.body) })
     const payload = String(url).endsWith('/plan')
       ? { action: 'DELEGATE', target: { id: 'session:claude-1', agent: 'claude' } }
-      : { action: 'DELEGATE', target: { agent: 'claude' }, execution: { status: 'started' } }
+      : { action: 'DELEGATE', target: { agent: 'claude' }, execution: { status: 'started', targetId: 'session:claude-1', receipt: { phase: 'started', observedAt: new Date().toISOString() } } }
     return { ok: true, async json() { return payload } }
   }
   try {
@@ -46,8 +46,10 @@ test('OpenCode chat.message plans first and replaces the submitted parts after d
     assert.deepEqual(requests.map((request) => new URL(request.url).pathname), ['/v1/sessions/register', '/plan', '/route', '/v1/sessions/outcome'])
     assert.equal(requests[0].body.adapter, 'opencode')
     assert.deepEqual(requests[2].body.override, { sessionId: 'session:claude-1' })
-    assert.equal(requests[3].body.sessionId, 'opencode-session-1')
+    assert.equal(requests[3].body.sessionId, 'session:claude-1')
     assert.equal(requests[3].body.outcome, 'started')
+    assert.equal(requests[1].body.idempotencyKey, requests[2].body.idempotencyKey)
+    assert.equal(requests[2].body.idempotencyKey, requests[3].body.idempotencyKey)
     assert.equal(output.parts.length, 1)
     assert.match(output.parts[0].text, /delegated/i)
   } finally {
@@ -62,7 +64,7 @@ test('OpenCode records rerouted receipts against the target session as started',
     requests.push({ url: String(url), body: JSON.parse(options.body) })
     const payload = String(url).endsWith('/plan')
       ? { action: 'DELEGATE', target: { id: 'session:term-two', agent: 'claude' } }
-      : { action: 'DELEGATE', target: { id: 'session:term-two', agent: 'claude' }, execution: { status: 'rerouted', targetId: 'session:term-two' } }
+      : { action: 'DELEGATE', target: { id: 'session:term-two', agent: 'claude' }, execution: { status: 'rerouted', targetId: 'session:term-two', receipt: { phase: 'started', observedAt: new Date().toISOString() } } }
     return { ok: true, async json() { return payload } }
   }
   try {
@@ -72,6 +74,7 @@ test('OpenCode records rerouted receipts against the target session as started',
     assert.deepEqual(requests.map((request) => new URL(request.url).pathname), ['/v1/sessions/register', '/plan', '/route', '/v1/sessions/outcome'])
     assert.equal(requests[3].body.sessionId, 'session:term-two')
     assert.equal(requests[3].body.outcome, 'started')
+    assert.equal(requests[1].body.idempotencyKey, requests[2].body.idempotencyKey)
     assert.match(output.parts[0].text, /delegated/i)
   } finally {
     globalThis.fetch = originalFetch
@@ -85,7 +88,7 @@ test('OpenCode omits the outcome post when a spawn has no addressable session', 
     requests.push({ url: String(url), body: JSON.parse(options.body) })
     const payload = String(url).endsWith('/plan')
       ? { action: 'SPAWN', target: { agent: 'codex' } }
-      : { action: 'SPAWN', target: { agent: 'codex' }, execution: { status: 'started' } }
+      : { action: 'SPAWN', target: { agent: 'codex' }, execution: { status: 'started', receipt: { phase: 'started', observedAt: new Date().toISOString() } } }
     return { ok: true, async json() { return payload } }
   }
   try {

@@ -3,13 +3,42 @@ import assert from 'node:assert/strict'
 import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { discoverAgents, parseModelCatalog, parseModelList, selectPreferredModel } from '../src/inventory.ts'
+import { clearInventoryCache, discoverAgents, parseModelCatalog, parseModelList, selectPreferredModel } from '../src/inventory.ts'
 
 test('local harness model catalog matching stays exact and provider-free', () => {
   const output = 'opencode-go/kimi-k3\nopencode-go/gpt-5.6-luna\nAvailable models · 2 models'
   assert.deepEqual(parseModelList(output), ['opencode-go/kimi-k3', 'opencode-go/gpt-5.6-luna'])
   assert.equal(selectPreferredModel(output, ['opencode-go/kimi-k3']), 'opencode-go/kimi-k3')
   assert.equal(selectPreferredModel(output, ['moonshotai/kimi-k3']), undefined)
+})
+
+test('formatted Command Code catalogs keep model ids and discard provider headings', () => {
+  const output = [
+    'Available models · 72 models',
+    'Open Source',
+    'deepseek/deepseek-v4-flash             fast reasoning',
+    'Anthropic',
+    'claude-sonnet-5                         recommended',
+    'OpenAI',
+    'gpt-5.6-luna                            cost-sensitive',
+    'Pass the full id, or just the short name after the last "/":',
+    'cmd --model gpt-5.6-luna',
+    'Docs: https://commandcode.ai/docs/reference/cli/models',
+  ].join('\n')
+  assert.deepEqual(parseModelList(output), [
+    'deepseek/deepseek-v4-flash',
+    'claude-sonnet-5',
+    'gpt-5.6-luna',
+  ])
+})
+
+test('catalog roles distinguish judge evidence from worker evidence', () => {
+  const output = 'opencode/jev-1.13-free\nopencode-go/kimi-k3\n'
+  const catalog = parseModelCatalog(output, { command: 'opencode' })
+  assert.equal(catalog.models.find((model) => model.id === 'opencode/jev-1.13-free')?.role, 'judge')
+  assert.equal(selectPreferredModel(output, ['opencode/jev-1.13-free', 'opencode-go/kimi-k3']), 'opencode-go/kimi-k3')
+  assert.equal(catalog.models.some((model) => model.id === 'opencode/jev-1.13-free' && model.role === 'worker'), false)
+  assert.equal(catalog.models.find((model) => model.id === 'opencode-go/kimi-k3')?.role, 'worker')
 })
 
 test('runtime catalog evidence classifies free markers and Jev without inventing entitlement', () => {
@@ -49,7 +78,9 @@ test('discovered OpenCode spawn candidates carry the observed runtime catalog', 
   process.env.SABI_CONTROLLER_HARNESSES = 'opencode'
   process.env.PATH = `${harnessDir}${path.delimiter}${previousPath ?? ''}`
   try {
-    const inventory = discoverAgents(cwd)
+    const inventory = discoverAgents(cwd, {
+      controller: { harnesses: { opencode: { preferredModels: ['opencode/jev-1.13-free', 'opencode/muse-spark-1.3-contributor-free'] } } },
+    })
     const candidate = inventory.spawnCandidates.find((entry) => entry.agent === 'opencode')
     assert.equal(candidate?.catalog?.runtimeVersion, '1.18.31-test')
     assert.deepEqual(candidate?.catalog?.models.map((model) => model.id), [
@@ -58,6 +89,7 @@ test('discovered OpenCode spawn candidates carry the observed runtime catalog', 
     ])
     assert.equal(candidate?.catalog?.models[0]?.role, 'judge')
     assert.equal(candidate?.catalog?.models[1]?.costClass, 'explicit-free')
+    assert.equal(candidate?.model, 'opencode/muse-spark-1.3-contributor-free')
   } finally {
     if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
     else process.env.ORCA_CLI_COMMAND = previousCommand
@@ -177,5 +209,30 @@ test('a harness hook can identify the current host session without an Orca termi
   } finally {
     if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
     else process.env.ORCA_CLI_COMMAND = previousCommand
+  }
+})
+
+test('inventory cache is short-lived and explicit refresh bypasses it', () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-inventory-cache-'))
+  const other = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-inventory-cache-other-'))
+  const previousCommand = process.env.ORCA_CLI_COMMAND
+  const previousHandle = process.env.ORCA_TERMINAL_HANDLE
+  process.env.ORCA_CLI_COMMAND = fakeGlobalOrca(cwd, other)
+  process.env.ORCA_TERMINAL_HANDLE = 'term-current'
+  try {
+    clearInventoryCache()
+    const first = discoverAgents(cwd)
+    const cached = discoverAgents(cwd)
+    const refreshed = discoverAgents(cwd, { refresh: true })
+    assert.equal(first.cached, false)
+    assert.equal(cached.cached, true)
+    assert.equal(refreshed.cached, false)
+    assert.equal(refreshed.observedAt >= first.observedAt, true)
+  } finally {
+    clearInventoryCache()
+    if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
+    else process.env.ORCA_CLI_COMMAND = previousCommand
+    if (previousHandle === undefined) delete process.env.ORCA_TERMINAL_HANDLE
+    else process.env.ORCA_TERMINAL_HANDLE = previousHandle
   }
 })

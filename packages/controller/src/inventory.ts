@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import type { ControllerConfig } from '@sabi/core'
-import { queryOrcaTerminals, queryOrcaWorktrees, readOrcaTerminal, waitOrcaTerminal } from './orca.ts'
+import { parseTerminalReadReceipt, parseTerminalWaitReceipt, queryOrcaTerminals, queryOrcaWorktrees, readOrcaTerminal, waitOrcaTerminal } from './orca.ts'
 import type {
   AgentHarness,
   AgentSession,
@@ -34,6 +34,10 @@ export interface AgentInventory {
   orcaAvailable: boolean
   errorCode?: OrcaErrorCode
   worktreeCount: number
+  observedAt: number
+  cached: boolean
+  matchingWorktree: boolean
+  matchingTerminal: boolean
   active: AgentSession
   existingSessions: AgentSession[]
   spawnCandidates: AgentHarness[]
@@ -49,27 +53,32 @@ const DEFAULT_HARNESSES: Array<{ agent: string; command: string }> = [
   { agent: 'pi', command: 'pi' },
 ]
 
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/
-const MODEL_LIST_HEADERS = new Set(['Available', 'Models', 'Open', 'Source', 'Built-in', 'Other'])
+const MODEL_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._:/-]*[A-Za-z0-9._/-])?$/
+const MODEL_LIST_HEADERS = new Set(['available', 'models', 'open', 'source', 'built-in', 'other'])
 const MODEL_CATALOG_TIMEOUT_MS = 10_000
 const MODEL_CATALOG_TTL_MS = 60_000
 const MODEL_CATALOG_MAX_MODELS = 256
 // ponytail: a short process cache avoids two slow CLI probes per request; lower the TTL or add an
 // explicit refresh if plan changes need to be visible inside an already-running daemon.
 const localCatalogCache = new Map<string, { catalog: HarnessCatalogDescriptor | undefined; observedAt: number }>()
+const INVENTORY_TTL_MS = 2_000
+const inventoryCache = new Map<string, { inventory: AgentInventory; storedAt: number }>()
 
 export function parseModelList(output: string): string[] {
   const models = new Set<string>()
   for (const line of output.split(/\r?\n/)) {
-    const candidate = line.trim().split(/\s+/, 1)[0]
-    if (candidate && !MODEL_LIST_HEADERS.has(candidate) && MODEL_ID.test(candidate)) models.add(candidate)
+    const trimmed = line.trim()
+    const candidate = trimmed.split(/\s+/, 1)[0] ?? ''
+    const isHeading = MODEL_LIST_HEADERS.has(candidate.toLowerCase()) || /^(?:docs?|pass)\b/i.test(trimmed)
+    const looksLikeModel = /[0-9./:_-]/.test(candidate)
+    if (candidate && !isHeading && looksLikeModel && MODEL_ID.test(candidate)) models.add(candidate)
   }
   return [...models]
 }
 
 export function selectPreferredModel(output: string, preferredModels: string[]): string | undefined {
   const models = new Set(parseModelList(output))
-  return preferredModels.find((model) => models.has(model))
+  return preferredModels.find((model) => models.has(model) && modelRole(model) === 'worker')
 }
 
 function modelCostClass(model: string): HarnessModelDescriptor['costClass'] {
@@ -140,7 +149,7 @@ function localCatalog(agent: string, command: string): HarnessCatalogDescriptor 
 
 function preferredModel(catalog: HarnessCatalogDescriptor | undefined, preferredModels: string[] | undefined): string | undefined {
   if (!preferredModels?.length) return undefined
-  return catalog === undefined ? undefined : preferredModels.find((model) => catalog.models.some((entry) => entry.id === model))
+  return catalog === undefined ? undefined : preferredModels.find((model) => catalog.models.some((entry) => entry.id === model && entry.role === 'worker'))
 }
 
 function launchCommand(command: string, model: string | undefined): string | undefined {
@@ -206,21 +215,12 @@ function lifecycleFromEntry(entry: OrcaTerminalEntry, tuiIdle: boolean | undefin
 
 function observedScreen(handle: string): string {
   const result = readOrcaTerminal(handle, 80)
-  const root = result.result
-  if (root === null || typeof root !== 'object' || Array.isArray(root)) return ''
-  const terminal = (root as Record<string, unknown>).terminal
-  if (terminal === null || typeof terminal !== 'object' || Array.isArray(terminal)) return ''
-  const tail = (terminal as Record<string, unknown>).tail
-  return Array.isArray(tail) ? tail.filter((line): line is string => typeof line === 'string').join('\n') : ''
+  return parseTerminalReadReceipt(result.result)?.terminal.tail.join('\n') ?? ''
 }
 
 function tuiIdleState(handle: string): boolean | undefined {
   const result = waitOrcaTerminal(handle, 'tui-idle', 1000)
-  if (!result.ok || result.result === undefined || result.result === null || typeof result.result !== 'object' || Array.isArray(result.result)) return undefined
-  const wait = (result.result as Record<string, unknown>).wait
-  if (wait === null || typeof wait !== 'object' || Array.isArray(wait)) return undefined
-  const satisfied = (wait as Record<string, unknown>).satisfied
-  return typeof satisfied === 'boolean' ? satisfied : undefined
+  return parseTerminalWaitReceipt(result.result)?.satisfied
 }
 
 function executableExists(command: string): boolean {
@@ -342,15 +342,36 @@ function hostCurrentSession(cwd: string, sessionId: string, harness = 'current')
 
 export function discoverAgents(
   cwd: string,
-  options: { stuckSession?: boolean; now?: number; controller?: ControllerConfig; currentSession?: string; currentHarness?: string } = {},
+  options: { stuckSession?: boolean; now?: number; controller?: ControllerConfig; currentSession?: string; currentHarness?: string; refresh?: boolean } = {},
 ): AgentInventory {
   const resolvedCwd = path.resolve(cwd)
   const now = options.now ?? Date.now()
   const currentHandle = options.currentSession?.trim() || process.env.ORCA_TERMINAL_HANDLE?.trim() || undefined
+  const cacheKey = JSON.stringify([
+    resolvedCwd,
+    currentHandle,
+    options.currentHarness?.trim() || '',
+    process.env.ORCA_CLI_COMMAND?.trim() || 'orca-ide',
+    process.env.SABI_CONTROLLER_HARNESSES?.trim() || '',
+    Boolean(options.stuckSession),
+    options.controller ?? {},
+    options.controller?.preferredHarnesses ?? [],
+    options.controller?.harnesses ?? {},
+  ])
+  const cached = options.now === undefined && options.refresh !== true ? inventoryCache.get(cacheKey) : undefined
+  if (cached && Date.now() - cached.storedAt < INVENTORY_TTL_MS) return { ...cached.inventory, cached: true }
   const worktreesResult = queryOrcaWorktrees()
   const terminalsResult = queryOrcaTerminals()
   const worktrees = (worktreesResult.worktrees ?? []) as OrcaWorktreeEntry[]
   const terminalEntries = (terminalsResult.terminals ?? []) as OrcaTerminalEntry[]
+  const matchingWorktree = worktrees.some((entry) => {
+    const worktree = stringValue(entry.path)
+    return worktree !== undefined && path.resolve(worktree) === resolvedCwd
+  })
+  const matchingTerminal = terminalEntries.some((entry) => {
+    const worktree = stringValue(entry.worktreePath)
+    return worktree !== undefined && path.resolve(worktree) === resolvedCwd
+  })
   const branches = new Map(
     worktrees
       .map((entry) => {
@@ -400,12 +421,22 @@ export function discoverAgents(
       kind: 'harness',
     }))
     : []
-  return {
+  const inventory: AgentInventory = {
     orcaAvailable,
     errorCode: orcaAvailable ? undefined : (worktreesResult.errorCode ?? terminalsResult.errorCode),
     worktreeCount: worktrees.length,
+    observedAt: now,
+    cached: false,
+    matchingWorktree,
+    matchingTerminal,
     active,
     existingSessions,
     spawnCandidates,
   }
+  if (options.now === undefined) inventoryCache.set(cacheKey, { inventory, storedAt: Date.now() })
+  return inventory
+}
+
+export function clearInventoryCache(): void {
+  inventoryCache.clear()
 }

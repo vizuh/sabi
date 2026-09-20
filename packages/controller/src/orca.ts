@@ -12,6 +12,142 @@ export interface OrcaCommandResult {
   detail?: string
 }
 
+export interface OrcaTerminalSendReceipt {
+  requestId?: string
+  inputAccepted?: boolean
+  turnStarted?: boolean
+}
+
+export interface OrcaTerminalWaitReceipt {
+  handle?: string
+  condition?: string
+  satisfied?: boolean
+  status?: string
+  exitCode?: number | null
+}
+
+export interface OrcaTerminalReadReceipt {
+  terminal: {
+    handle?: string
+    status?: string
+    tail: string[]
+  }
+  oldestCursor?: string | number
+  nextCursor?: string | number
+  latestCursor?: string | number
+  returnedLineCount?: number
+  source?: string
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function numberOrCursor(value: unknown): number | string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && /^\d+$/.test(value)) return value
+  return undefined
+}
+
+function nestedObject(root: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
+  return objectValue(root[key])
+}
+
+/** Parse only the terminal-send receipt fields exposed at the command result root. */
+export function parseTerminalSendReceipt(value: unknown): OrcaTerminalSendReceipt | undefined {
+  const root = objectValue(value)
+  if (!root) return undefined
+  const receipt = nestedObject(root, 'receipt') ?? root
+  const requestId = stringValue(receipt.requestId) ?? stringValue(receipt.request_id)
+  const inputAccepted = booleanValue(receipt.inputAccepted) ?? booleanValue(receipt.input_accepted) ?? booleanValue(receipt.accepted)
+  const turnStarted = booleanValue(receipt.turnStarted) ?? booleanValue(receipt.turn_started)
+  if (requestId === undefined && inputAccepted === undefined && turnStarted === undefined) return undefined
+  return {
+    ...(requestId ? { requestId } : {}),
+    ...(inputAccepted !== undefined ? { inputAccepted } : {}),
+    ...(turnStarted !== undefined ? { turnStarted } : {}),
+  }
+}
+
+/** Parse the known `{wait:{...}}` result; unknown envelopes stay unverifiable. */
+export function parseTerminalWaitReceipt(value: unknown): OrcaTerminalWaitReceipt | undefined {
+  const root = objectValue(value)
+  if (!root) return undefined
+  const wait = nestedObject(root, 'wait')
+  if (!wait) return undefined
+  const handle = stringValue(wait.handle)
+  const condition = stringValue(wait.condition)
+  const satisfied = booleanValue(wait.satisfied)
+  const status = stringValue(wait.status)
+  const exitCode = wait.exitCode === null ? null : typeof wait.exitCode === 'number' && Number.isFinite(wait.exitCode) ? wait.exitCode : undefined
+  if (handle === undefined && condition === undefined && satisfied === undefined && status === undefined && exitCode === undefined) return undefined
+  return {
+    ...(handle ? { handle } : {}),
+    ...(condition ? { condition } : {}),
+    ...(satisfied !== undefined ? { satisfied } : {}),
+    ...(status ? { status } : {}),
+    ...(exitCode !== undefined ? { exitCode } : {}),
+  }
+}
+
+/** Parse the observed terminal screen and its explicit cursor fields. */
+export function parseTerminalReadReceipt(value: unknown): OrcaTerminalReadReceipt | undefined {
+  const root = objectValue(value)
+  if (!root) return undefined
+  const terminal = nestedObject(root, 'terminal')
+  const tail = terminal?.tail
+  if (!terminal || !Array.isArray(tail) || tail.some((line) => typeof line !== 'string')) return undefined
+  const returnedLineCount = root.returnedLineCount
+  return {
+    terminal: {
+      ...(stringValue(terminal.handle) ? { handle: stringValue(terminal.handle) } : {}),
+      ...(stringValue(terminal.status) ? { status: stringValue(terminal.status) } : {}),
+      tail: tail as string[],
+    },
+    ...(numberOrCursor(root.oldestCursor) !== undefined ? { oldestCursor: numberOrCursor(root.oldestCursor) } : {}),
+    ...(numberOrCursor(root.nextCursor) !== undefined ? { nextCursor: numberOrCursor(root.nextCursor) } : {}),
+    ...(numberOrCursor(root.latestCursor) !== undefined ? { latestCursor: numberOrCursor(root.latestCursor) } : {}),
+    ...(typeof returnedLineCount === 'number' && Number.isSafeInteger(returnedLineCount) && returnedLineCount >= 0 ? { returnedLineCount } : {}),
+    ...(stringValue(root.source) ? { source: stringValue(root.source) } : {}),
+  }
+}
+
+export function parseCreatedTerminalResult(value: unknown): { handle: string } | undefined {
+  const root = objectValue(value)
+  const handle = root ? stringValue(root.handle) ?? stringValue(nestedObject(root, 'terminal')?.handle) : undefined
+  return handle ? { handle } : undefined
+}
+
+export function parseCreatedRunResult(value: unknown): { runId: string } | undefined {
+  const root = objectValue(value)
+  const runId = root ? stringValue(root.runId) ?? stringValue(root.run_id) ?? stringValue(root.id) : undefined
+  return runId ? { runId } : undefined
+}
+
+export function parseStartedWorkerResult(value: unknown): { dispatchId: string } | undefined {
+  const root = objectValue(value)
+  const dispatchId = root ? stringValue(root.dispatchId) ?? stringValue(root.dispatch_id) ?? stringValue(root.id) : undefined
+  return dispatchId ? { dispatchId } : undefined
+}
+
+export function parseWorkerStatusResult(value: unknown): { status?: string } | undefined {
+  const root = objectValue(value)
+  if (!root) return undefined
+  const worker = nestedObject(root, 'worker')
+  const status = stringValue(root.status) ?? stringValue(root.state) ?? stringValue(worker?.status) ?? stringValue(worker?.state)
+  return status ? { status } : undefined
+}
+
 export function orcaBin(): string {
   return process.env.ORCA_CLI_COMMAND?.trim() || 'orca-ide'
 }

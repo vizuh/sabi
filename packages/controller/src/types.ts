@@ -156,6 +156,14 @@ export type ControllerExecutionStatus =
   | 'awaiting-user'
   | 'unverifiable'
 
+export type ControllerReceiptPhase = 'accepted' | 'started' | 'completed' | 'failed' | 'unknown'
+
+export interface ControllerExecutionReceipt {
+  phase: ControllerReceiptPhase
+  observedAt: string
+  requestId?: string
+}
+
 export interface ControllerExecution {
   status: ControllerExecutionStatus
   durationMs?: number
@@ -165,15 +173,18 @@ export interface ControllerExecution {
   requestId?: string
   runId?: string
   dispatchId?: string
+  idempotencyKey?: string
+  receipt?: ControllerExecutionReceipt
   inputAccepted?: boolean
   turnStarted?: boolean
   requestObserved?: boolean
   waitSatisfied?: boolean
   observedStatus?: string
   observedOutputLines?: number
-  outputCursor?: number
+  outputCursor?: number | string
   reroutedFrom?: string
   rerouteCount?: number
+  retryable?: boolean
   error?: string
 }
 
@@ -208,6 +219,8 @@ export interface ControllerRoutingTelemetry {
     sessionCount: number
     harnessCount: number
     activeSessionId?: string
+    observedAt: number
+    cached: boolean
   }
   validActions: ControllerAction[]
   candidates: ControllerCandidateTelemetry[]
@@ -246,6 +259,7 @@ export interface ControllerDecisionRecord extends ControllerDecision {
   signals: ControllerSignals
   request?: string
   requestLength?: number
+  idempotencyKey?: string
   override?: ControllerOverride
   handoff?: HandoffSnapshot
   target?: AgentSession | AgentHarness
