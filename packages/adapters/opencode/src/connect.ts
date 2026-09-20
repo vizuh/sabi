@@ -15,6 +15,12 @@ const configPath =
 const baseURL = process.env.SABI_BASE_URL ?? 'http://127.0.0.1:8787/v1'
 const setDefault = process.argv.includes('--set-default')
 const includeLocal = process.argv.includes('--include-local')
+const smallModelArgument = process.argv.find((argument) => argument.startsWith('--small-model='))
+const smallModel = smallModelArgument?.slice('--small-model='.length).trim()
+if (smallModelArgument && !smallModel) {
+  console.error('--small-model requires a non-empty provider/model value')
+  process.exit(1)
+}
 const backupPath = `${configPath}.sabi-backup`
 
 const PROVIDER_ID = 'sabi'
@@ -83,14 +89,15 @@ export function sabiProvider(config: SabiConfig, url: string, options: { include
 export function mergeProvider(
   existing: Record<string, unknown>,
   provider: Record<string, unknown>,
-  options: { setDefault: boolean },
+  options: { setDefault: boolean; smallModel?: string },
 ): Record<string, unknown> {
   const providers = (existing.provider ?? {}) as Record<string, unknown>
   const merged: Record<string, unknown> = { ...existing, provider: { ...providers, [PROVIDER_ID]: provider } }
   if (options.setDefault) {
     merged.model = `${PROVIDER_ID}/${ADAPTIVE_ALIAS}`
-    merged.small_model = `${PROVIDER_ID}/${ADAPTIVE_ALIAS}`
   }
+  if (options.smallModel) merged.small_model = options.smallModel
+  else if (options.setDefault) merged.small_model = `${PROVIDER_ID}/${ADAPTIVE_ALIAS}`
   return merged
 }
 
@@ -116,7 +123,7 @@ const existing = readConfig()
 const provider = sabiProvider(config, baseURL, { includeLocal })
 const others = Object.keys((existing.provider ?? {}) as Record<string, unknown>).filter((id) => id !== PROVIDER_ID)
 const previousDefault = typeof existing.model === 'string' ? existing.model : '(unset)'
-const merged = mergeProvider(existing, provider, { setDefault })
+const merged = mergeProvider(existing, provider, { setDefault, smallModel })
 
 mkdirSync(path.dirname(configPath), { recursive: true })
 // One backup, never rewritten: a re-run must not overwrite the pre-Sabi original with Sabi's own edit.
@@ -144,6 +151,7 @@ if (setDefault) {
 } else {
   console.log(`  default model left as ${previousDefault} — add --set-default, or pick it per run with --model ${PROVIDER_ID}/${ADAPTIVE_ALIAS}`)
 }
+if (smallModel) console.log(`  small model set to ${smallModel} (OpenCode utility work only; Sabi still owns adaptive coding rounds)`)
 if (existsSync(backupPath)) console.log(`  backup: ${backupPath} (created once, never overwritten)`)
 console.log('')
 console.log(`Next: start Sabi (npm start), then run it: opencode run --model ${PROVIDER_ID}/${ADAPTIVE_ALIAS} "your task"`)

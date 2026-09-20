@@ -138,6 +138,18 @@ test('an unreadable profile is refused, not rewritten', () => {
   }
 })
 
+test('--small-model opts utility work into a native provider without changing Sabi routing', () => {
+  const { dir, file } = workspace()
+  try {
+    assert.equal(connect(dir, file, ['--set-default', '--small-model=opencode/muse-spark-1.3-contributor-free']).status, 0)
+    const written = JSON.parse(readFileSync(file, 'utf8'))
+    assert.equal(written.model, 'sabi/sabi-code')
+    assert.equal(written.small_model, 'opencode/muse-spark-1.3-contributor-free')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('a declared output cap is honoured, and an unknown window omits the limit entirely', () => {
   const declared = {
     ...sabiConfig,

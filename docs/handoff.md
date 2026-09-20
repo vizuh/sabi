@@ -654,3 +654,16 @@ not a learned router or an unconditional Jev call.
 Validation in this worktree: focused Command Code tests passed 15/15, full `npm test` passed 384/384,
 and `npm run typecheck` passed. No provider request, secret, user configuration, deployment or
 publication was performed.
+
+## OpenCode Muse cheap-lane issue — 2026-09-20
+
+The installed OpenCode 1.18.31 catalog exposes `opencode/muse-spark-1.3-contributor-free` with a
+large context/output limit and a temporary free label. The current Sabi adaptive profile was not
+actually context-short: it advertised 1,000,000 context tokens but fell back to 4,096 output tokens
+because the proxy tiers had no declared output ceiling. The shipped config now declares the verified
+OpenRouter minimum output ceiling (128,000), which the connector advertises for `sabi-code`.
+
+Muse remains a deferred native lane. OpenCode's Muse endpoint is Responses-native; Sabi's proxy is
+Chat Completions-only and cannot consume OpenCode's subscription credential. No Muse ID was added to
+the proxy config, no user config or credential store was changed, and no paid inference ran. See
+`docs/specs/opencode-muse-cheap-lane.md` and `docs/tasks/opencode-muse-cheap-lane.md`.

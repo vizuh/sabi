@@ -1,5 +1,5 @@
 {
-  "provenance": "Model ids, context windows and prices verified live from https://openrouter.ai/api/v1/models on 2026-09-18; input modalities for the same ids verified from the same endpoint the same day (`architecture.input_modalities`). Prices are USD per 1M tokens. Declared modalities are enforced: an undeclared capability is unknown, a declared one is binding.",
+  "provenance": "Model ids, context windows, output limits and prices verified live from https://openrouter.ai/api/v1/models on 2026-09-20; input modalities for the same ids verified from the same endpoint. Prices are USD per 1M tokens. Declared modalities are enforced: an undeclared capability is unknown, a declared one is binding.",
   "server": { "host": "127.0.0.1", "port": 8787 },
   "upstreams": {
     "openrouter": {
@@ -22,6 +22,7 @@
       "upstream": "openrouter",
       "model": "deepseek/deepseek-v4-flash-0731",
       "contextWindow": 1310720,
+      "maxOutputTokens": 943718,
       "capabilities": { "inputModalities": ["text"] },
       "cost": { "input": 0.06, "output": 0.12, "cacheRead": 0.012 }
     },
@@ -29,6 +30,7 @@
       "upstream": "openrouter",
       "model": "openai/gpt-5.6-luna",
       "contextWindow": 1050000,
+      "maxOutputTokens": 128000,
       "capabilities": { "inputModalities": ["text", "image", "file"] },
       "cost": { "input": 0.2, "output": 1.2, "cacheRead": 0.02 }
     },
@@ -36,6 +38,7 @@
       "upstream": "openrouter",
       "model": "anthropic/claude-sonnet-5",
       "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
       "capabilities": { "inputModalities": ["text", "image", "file"] },
       "cost": { "input": 2, "output": 10, "cacheRead": 0.2 }
     },
