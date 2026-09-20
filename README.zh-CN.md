@@ -106,7 +106,8 @@ Sabi 是前台进程，不是服务：如果不运行，harness 内每个 `sabi/
 环境变量优先，其次是 `SABI_SECRETS_FILE`、最近的 workspace `secrets/.env`，最后是
 `~/.config/sabi/secrets.env` 或 `~/.config/sabi/.env`。dotenv 文件可以使用
 `OPENROUTER_API_KEY=...` 和 `TYPESAFE_API_KEY=...`；HugoOS workspace 中现有的 `typesafe=...`
-名称也可用于 TypeSafe。密钥不会复制到 harness 配置、终端、worktree、日志或 Git。Command
+名称也可用于 TypeSafe。Sabi 不会将读取到的值复制到生成的 harness 配置或日志中。如果使用 workspace 中的 secrets/.env，
+该文件本来就在工作树中：请将其排除在版本控制之外，加入 .gitignore 并保护文件权限。Command
 Code mod 仍然不需要密钥；OpenCode、Hermes、Kilo 和其他 OpenAI 兼容客户端只需指向本地代理，
 它们自己的账户凭据仍由 harness 管理。
 
