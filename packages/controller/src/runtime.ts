@@ -34,6 +34,7 @@ function summarizeAgent(agent: AgentSession | AgentHarness): Record<string, unkn
     branch: agent.branch,
     context: agent.context,
     model: agent.model,
+    ...(agent.kind === 'harness' && agent.modelHealth ? { modelHealth: agent.modelHealth } : {}),
     ...(agent.kind === 'harness' && agent.catalog ? { catalog: agent.catalog } : {}),
     ...(agent.kind === 'session' ? { dispatchable: agent.dispatchable } : {}),
     ...(agent.kind === 'session'

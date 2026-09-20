@@ -1,7 +1,7 @@
 # Harness × model × token routing
 
-Status: phase contract, 2026-09-20. The catalog and evidence boundary are implemented; learned
-economic routing is not.
+Status: phase contract plus local OpenCode model-health slice, 2026-09-20. Catalog evidence and
+bounded receipt-aware fallback are implemented; live economic routing and learned policy are not.
 
 ## Route unit
 
@@ -55,6 +55,12 @@ Native OpenCode free models such as Muse Spark are a harness resource. A control
 OpenCode target can receive an exact `--model` selection. An already-running OpenCode session keeps
 its current model. The Sabi proxy cannot switch a native OpenCode subscription/resource into an
 upstream request.
+
+The controller now keeps a bounded process-local health observation for a selected harness/model:
+receipt latency, `ok`/`failed`/`unverifiable` outcome and sample counts. A failed preferred model is
+skipped on the next fresh catalog selection when another configured worker ID is present; if all
+configured IDs are unavailable, the first valid ID is retained as a fail-open choice. The health
+observation is not first-token telemetry and does not prove entitlement.
 
 ## Token and learning contract
 

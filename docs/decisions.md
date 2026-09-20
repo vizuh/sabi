@@ -709,6 +709,36 @@ plan/health evidence and replay/held-out promotion gates before learned model pr
 AgentRun/SoL-Pi-style policy/harness evolution. The acceptance contract is in
 `docs/research/harness-model-token-routing.md`.
 
+## [2026-09-20] OpenCode model health is receipt-aware and fail-open
+
+### Decision
+
+Keep the first health-aware selection slice process-local and deterministic. When the controller
+executes a configured harness/model target, it records the observed receipt outcome and elapsed
+controller time. A failed model is temporarily unavailable for the next catalog selection; the
+next valid configured worker is preferred. If all configured workers are unavailable, selection
+returns the first valid worker instead of inventing a new route. An unverifiable receipt records
+unknown health and does not promote or demote the model.
+
+### Why
+
+The catalog proves model identity but not usable capacity. A bounded execution receipt is the
+smallest evidence layer that can distinguish a recent failed worker from an unobserved or
+unverifiable one and lets OpenCode try another configured worker without a paid probe.
+
+### Limits
+
+The elapsed value is controller-observed receipt/completion latency, not first-token latency. Health
+expires after 60 seconds and is not durable across daemon processes or restarts. This phase does
+not infer plan entitlement, quota, token usage, cost or model quality, and it does not create a
+learned routing policy.
+
+### Revisit later?
+
+Promote only after live free-model and fallback receipts provide runtime-pinned evidence, then add
+durable health or learned profiles only if cross-process recovery and held-out outcome data justify
+them. Keep paid probing and subscription claims outside the automatic path.
+
 ## [2026-09-20] Controller execution evidence is typed, bounded and retry-safe
 
 ### Decision
