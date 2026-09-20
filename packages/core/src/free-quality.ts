@@ -164,11 +164,18 @@ export function applyFreeQualityConfig(
   const models = record(raw.models) ?? {}
   const aliases = record(raw.aliases) ?? {}
   const policy = record(raw.policy) ?? {}
+  const openrouter = record(record(raw.upstreams)?.openrouter)
+  const supportedParameters = [...candidate.supportedParameters]
+  // The proxy adds stream_options when stream usage is enabled; strict compatibility checks the
+  // forwarded envelope, so this proxy-owned parameter must accompany the provider catalog list.
+  if (openrouter?.streamUsage === true && !supportedParameters.includes('stream_options')) {
+    supportedParameters.push('stream_options')
+  }
   const capabilities: Record<string, unknown> = {
     tools: true,
     inputModalities: candidate.inputModalities,
     outputModalities: ['text'],
-    supportedParameters: candidate.supportedParameters,
+    supportedParameters,
   }
   if (candidate.supportsStructuredOutput) capabilities.structuredOutput = ['json_schema']
   const quality: Record<string, unknown> = {

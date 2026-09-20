@@ -8,6 +8,7 @@ import {
   configureFreeQuality,
   freeQualityCandidates,
   selectFreeQualityModel,
+  route,
   validateConfig,
   type OpenRouterCatalogModel,
 } from '../src/index.ts'
@@ -44,7 +45,8 @@ test('free quality selection uses explicit zero pricing and generic capabilities
 test('free quality config adds a fixed lane without changing paid tiers', () => {
   const raw = {
     provenance: 'existing',
-    upstreams: { openrouter: { baseURL: 'https://openrouter.ai/api/v1', apiKey: '$OPENROUTER_API_KEY' } },
+    compatibility: { mode: 'legacy' },
+    upstreams: { openrouter: { baseURL: 'https://openrouter.ai/api/v1', apiKey: '$OPENROUTER_API_KEY', streamUsage: true } },
     models: { mid: { upstream: 'openrouter', model: 'paid/mid' } },
     aliases: { 'sabi-code': 'auto' },
     policy: { verification: 'mid', unclassified: 'mid' },
@@ -58,7 +60,8 @@ test('free quality config adds a fixed lane without changing paid tiers', () => 
   assert.equal(checked.models.mid.model, 'paid/mid')
   assert.equal(checked.models.quality.model, 'vendor/quality')
   assert.equal(checked.models.quality.cost?.input, 0)
-  assert.deepEqual(checked.models.quality.capabilities?.supportedParameters, ['max_tokens', 'tools', 'structured_outputs', 'reasoning_effort'])
+  assert.deepEqual(checked.models.quality.capabilities?.supportedParameters, ['max_tokens', 'tools', 'structured_outputs', 'reasoning_effort', 'stream_options'])
+  assert.doesNotThrow(() => route({ model: 'sabi-quality', stream: true, messages: [{ role: 'user', content: 'check' }] }, checked))
   assert.equal(checked.aliases['sabi-quality'], 'quality')
   assert.equal(checked.policy.verification, 'quality')
   assert.match(checked.provenance ?? '', /catalog-hash/)

@@ -726,3 +726,13 @@ prove the fixed `sabi-quality` request is dispatchable.
 Validation in the follow-up worktree: focused tests passed 10/10, full `npm test` passed 401/401,
 `npm run typecheck` passed and `git diff --check` passed. The PR is not yet merged; no provider
 request, secret, user configuration, deployment or live quality result was used.
+
+## Free-quality proxy parameter hardening — 2026-09-20
+
+After PR #52 merged, review found that the generated catalog allowlist did not include Sabi's
+proxy-injected `stream_options` field when OpenRouter `streamUsage` was enabled. The generated
+quality model now adds that field conditionally, and a streaming fixed-lane route regression covers
+the legacy compatibility path.
+
+Validation in the follow-up worktree: focused free-quality tests pass; the full suite and remote CI
+remain the delivery gates for the new PR. No provider request or live quality claim was used.
