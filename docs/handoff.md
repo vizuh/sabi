@@ -713,3 +713,16 @@ adaptive aliases, tools, credentials and paid fallback are refused by constructi
 Validation so far: `npm test` passed 400/400; seven focused tests pass and typecheck/diff check pass. This is not yet a live
 completed-task quality result: claim verification, multi-resource fan-out, Jev intent assignment,
 held-out evaluation and automatic handoff remain gated tasks.
+
+## Surplus/free-quality review hardening — 2026-09-20
+
+Follow-up work hardens the merged free-quality and surplus shadow paths. Surplus review input now
+collects both endpoints of Git renames before applying the sensitive-path gate, and the gate covers
+common credential filenames such as `.npmrc`, `credentials.json`, `secrets.yaml`, `token.txt` and
+SSH key names without treating ordinary `tokens.ts` source as a secret file. Free-quality setup now
+retains the catalog's `supported_parameters` in model capabilities, so strict compatibility can
+prove the fixed `sabi-quality` request is dispatchable.
+
+Validation in the follow-up worktree: focused tests passed 10/10, full `npm test` passed 401/401,
+`npm run typecheck` passed and `git diff --check` passed. The PR is not yet merged; no provider
+request, secret, user configuration, deployment or live quality result was used.

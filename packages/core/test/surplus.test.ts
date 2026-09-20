@@ -45,6 +45,10 @@ test('safe review packets bound diff and refuse secret paths or markers', () => 
     assert.equal(packet.packet.changedFiles[0], 'src/a.ts')
   }
   assert.deepEqual(buildSafeReviewPacket({ intent: 'bug-hunt', changedFiles: ['.env'], diff: 'safe' }), { ok: false, reason: 'secret-path' })
+  for (const file of ['credentials.json', 'secrets.yaml', 'token.txt', '.npmrc', 'id_rsa']) {
+    assert.deepEqual(buildSafeReviewPacket({ intent: 'bug-hunt', changedFiles: [file], diff: 'safe' }), { ok: false, reason: 'secret-path' })
+  }
+  assert.equal(buildSafeReviewPacket({ intent: 'bug-hunt', changedFiles: ['src/tokens.ts'], diff: 'safe' }).ok, true)
   assert.deepEqual(buildSafeReviewPacket({ intent: 'bug-hunt', changedFiles: ['src/a.ts'], diff: 'Authorization: Bearer sk-live-ABCDEF1234567890abcdef' }), { ok: false, reason: 'secret-marker' })
 })
 

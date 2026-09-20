@@ -88,3 +88,31 @@ test('surplus review records a free-provider rate limit without paid fallback', 
     rmSync(cwd, { recursive: true, force: true })
   }
 })
+
+test('surplus review refuses a sensitive rename before contacting the proxy', async () => {
+  const cwd = workspace()
+  const logFile = path.join(cwd, 'receipts.jsonl')
+  try {
+    writeFileSync(path.join(cwd, '.env'), 'TOKEN=secret-value\n')
+    execFileSync('git', ['add', '.env'], { cwd })
+    execFileSync('git', ['commit', '-qm', 'secret base'], { cwd })
+    execFileSync('git', ['mv', '.env', 'safe.txt'], { cwd })
+    writeFileSync(path.join(cwd, 'safe.txt'), 'TOKEN=secret-value\nchanged\n')
+    let calls = 0
+    const result = await runSurplusReview({
+      cwd,
+      config: config(),
+      intent: 'bug-hunt',
+      logFile,
+      fetchImpl: async () => {
+        calls += 1
+        throw new Error('must not contact proxy')
+      },
+    })
+    assert.equal(calls, 0)
+    assert.equal(result.receipt.status, 'blocked')
+    assert.equal(result.receipt.errorCode, 'secret-path')
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
