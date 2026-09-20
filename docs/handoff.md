@@ -419,6 +419,33 @@ rerouted through additional eligible sessions/targets without claiming success. 
 not receive `QUOTA_HANDOFF_OK`; this is a recovery/safety proof, not a successful end-to-end receipt.
 The recovery loop is now bounded to three replacement attempts and the structured handoff is retained.
 
+## Free model and OpenCode live validation — 2026-09-20
+
+The live Command Code catalog reported 72 models, including the explicitly free
+`poolside/laguna-s-2.1-free` and `inclusionai/ling-3.0-flash-sante:free`. With a temporary
+`SABI_CONFIG` that used only those IDs, a real `cmd` run loaded the Sabi mod and changed the
+continuing round from `poolside/laguna-s-2.1-free` to `inclusionai/ling-3.0-flash-sante:free`.
+The command tool was blocked by Command Code headless permissions, so this proves model
+selection and request delivery, not shell execution or task success. No user config was changed.
+
+The live OpenCode catalog exposed `opencode/*-free` entries. A real temporary OpenCode session
+loaded the Sabi plugin, connected to the temporary loopback daemon, ran with `opencode/big-pickle`,
+executed `node --version` (`v24.15.0`) and returned `OPENCODE_SABI_OK`. The Sabi trace recorded
+`CONTINUE` / `current-session-sufficient`, a live inventory of 34 worktrees, 15 sessions and 5
+spawn candidates, and kept the current host session `dispatchable: false`. This validates ambient
+OpenCode + daemon operation and native harness continuation; it does not prove per-turn model
+switching inside OpenCode. An explicit `opencode/jev-1.13-free` run was cataloged but produced no
+receipt within the bounded smoke budget and was interrupted without retry.
+
+The next OpenCode gate is therefore health-aware model selection: a local preference may nominate
+free IDs, but the controller must record catalog presence, first-token/receipt latency and outcome,
+then fail open or choose another valid model when a free endpoint is unavailable. Design-evidence
+providers remain local/opt-in until a concrete task and outcome contract exists.
+
+This historical capture did not record the installed runtime versions or source revisions, so its
+catalog claims are retained for trace history but are unverified and superseded by the
+runtime-pinned probe below.
+
 ## Runtime-pinned catalog evidence and PR #31 follow-up — 2026-09-20
 
 PR #31 is merged. Its follow-up fixes now distinguish Sabi's inference-round scheduler and
