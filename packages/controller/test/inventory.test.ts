@@ -114,6 +114,7 @@ test('a harness hook can identify the current host session without an Orca termi
     assert.equal(inventory.active.agent, 'claude')
     assert.equal(inventory.active.available, true)
     assert.equal(inventory.active.handle, undefined)
+    assert.equal(inventory.active.dispatchable, false)
     assert.match(inventory.active.id, /^session:host:/)
   } finally {
     if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND

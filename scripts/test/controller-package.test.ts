@@ -1,12 +1,23 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
+
+function fakeHarnessPath(root: string, harnesses: string[]): string {
+  const bin = path.join(root, 'bin')
+  mkdirSync(bin, { recursive: true })
+  for (const harness of harnesses) {
+    const command = path.join(bin, process.platform === 'win32' ? `${harness}.cmd` : harness)
+    writeFileSync(command, process.platform === 'win32' ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n')
+    if (process.platform !== 'win32') chmodSync(command, 0o755)
+  }
+  return `${bin}${path.delimiter}${process.env.PATH ?? ''}`
+}
 
 test('controller bundle installs and runs from a clean npm prefix', () => {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-package-'))
@@ -41,6 +52,7 @@ test('controller bundle installs and runs from a clean npm prefix', () => {
     const claudeSettings = path.join(tempRoot, 'claude', 'settings.json')
     const codexHooks = path.join(tempRoot, 'codex', 'hooks.json')
     const openCodeConfig = path.join(tempRoot, 'opencode', 'opencode.json')
+    const harnessPath = fakeHarnessPath(tempRoot, ['claude', 'codex', 'opencode'])
     execFileSync(process.execPath, [installedCli, 'setup', '--no-start', '--hooks', '--json'], {
       cwd: tempRoot,
       encoding: 'utf8',
@@ -50,6 +62,8 @@ test('controller bundle installs and runs from a clean npm prefix', () => {
         SABI_CLAUDE_SETTINGS: claudeSettings,
         SABI_CODEX_HOOKS: codexHooks,
         SABI_OPENCODE_CONFIG: openCodeConfig,
+        PATH: harnessPath,
+        SABI_CONTROLLER_HARNESSES: 'claude,codex,opencode',
         ORCA_CLI_COMMAND: path.join(tempRoot, 'missing-orca'),
       },
     })

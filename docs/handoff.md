@@ -318,6 +318,56 @@ historical inventory or synthesize lessons.
 
 Verification: focused controller tests pass, including a CLI replay test and daemon trace assertions.
 
+## Public controller installation phase 2 — 2026-09-20
+
+PR #28 (`feat/global-installation-phase2`) is open against `main`. The controller package now treats
+`sabi setup` as the explicit user-consent point: it detects real executable harnesses, installs only
+the supported Claude/Codex/OpenCode bridges that are present, preserves existing configuration, and
+passes the current host session identity through planning. A hook can therefore keep a trivial
+request such as `2 + 2` in the current session even when the daemon also sees other Orca worktrees.
+Sessions registered by an adapter remain bounded, hashed and non-dispatchable until that adapter
+proves prompt delivery and outcome receipts.
+
+The clean public-package path is verified without this checkout: the package is bundled, packed,
+installed into a temporary npm prefix, and run with an isolated user state directory. CI run
+`35475422114` passed `npm ci`, typecheck, all 351 tests, and the clean-prefix package test. The
+portable harness-detection fixtures use temporary executable stubs only inside tests; production
+still requires the real harness command to be present.
+
+This phase is not a universal-installation claim. `@vizuh/sabi-controller` has not been published or
+tagged, macOS/Windows user-service installers are not validated, and the installed Orca 1.4.201
+surface has no verified universal prompt interception or plugin-install command. The next release
+gate is a consented live host test with two worktrees and two real harnesses that proves terminal
+receipt, execution, outcome and rerouting; only after that may a `controller-v*` tag publish the
+package.
+
+## Global controller security boundary — 2026-09-20
+
+The independent phase-2 review found two release blockers and they are now fixed on PR #28: daemon
+binding is loopback-only even when `SABI_CONTROLLER_HOST` is set, daemon metadata rejects non-loopback
+hosts, and the OpenCode bridge fails open without fetching a non-loopback `SABI_CONTROLLER_URL`.
+Persisted controller traces now omit raw request text, structured handoffs, diffs and terminal
+handles; `sabi logs` returns routing metadata plus request length instead of replaying prompt content.
+The live dispatch still carries the structured handoff to the selected terminal when required.
+
+Focused security regressions cover remote URL rejection, no-fetch fail-open behavior, non-loopback
+daemon refusal and log redaction. This closes the code-level P1 findings; it does not replace the
+remaining live receipt gate for Claude, Codex and OpenCode or prove universal Orca activation.
+
+The follow-up hardening also marks hook-identified host sessions as `dispatchable: false` and
+preserves the host-native `CONTINUE` boundary, while uninstall removes only entries carrying Sabi's
+structural hook marker instead of matching arbitrary command text. The public package remains gated
+on real runtime receipt tests and publication approval.
+
+## Cross-platform user-service implementations — 2026-09-20
+
+The user-level daemon lifecycle now has native service implementations for Linux `systemd --user`,
+macOS LaunchAgent and Windows Task Scheduler. Each uses an absolute packaged entrypoint, user-owned
+state, idempotent install/remove commands and no root/admin escalation; Linux retains the detached
+lazy fallback when the user bus is unavailable. Renderer and command-path tests cover all three
+platform contracts from the Linux checkout. Live service startup still requires one validation run
+on macOS and Windows before those platforms are called release-verified.
+
 ## Plan-aware Orca routing — 2026-09-19
 
 The controller now reads optional `controller.preferredHarnesses` and per-harness
@@ -337,3 +387,34 @@ no terminal was spawned, and no merge or publication was performed.
 
 Verification: 348 Node tests passed, `npm run typecheck` passed, and live `sabi status --json` plus a
 pure `planAgentRoute()` check used the real Orca inventory without executing a request.
+
+## Bounded quota reroute — 2026-09-20
+
+A live quota probe (first target accepted then reported quota, second target also quota) exposed
+that the controller stopped after a single fallback attempt. `runController` now retries only
+new/eligible candidates within a bound (`MAX_REROUTES = 3`): failed target ids accumulate across
+refreshed inventories, sessions are preferred, then the active session, then spawn candidates; each
+retry records `reroutedFrom`/`rerouteCount` (`types.ts`). A regression test replays the exact case
+(first target quota-fails, second receives and completes) against a fake Orca CLI.
+
+Verification: focused `controller.test.ts` 4/4 passed, `npm run typecheck` clean. A second live
+retry selected OpenCode from the real Orca inventory, observed terminal acceptance followed by a
+quota/rate-limit status, refreshed inventory and rerouted without claiming success. All remaining
+eligible targets were unavailable, so `QUOTA_HANDOFF_OK` was not produced. This is a recovery and
+safety proof, not a successful cross-terminal completion.
+
+Preservation note: this work lives in the linked worktree at `/tmp/sabi-global-controller`
+(branch `feat/global-installation-phase2`, gitdir under
+`www/products/sabi/.git/worktrees/sabi-global-controller`). A cross-device `git worktree move` to
+`HugoOS/worktrees/sabi/global-installation-phase2` failed (`Invalid cross-device link`), so the
+the change is now being finalized on that branch; no cross-device worktree move is required.
+
+## Live quota reroute acceptance — 2026-09-20
+
+A real controller run against the current Orca inventory observed 34 worktrees, 10 sessions and 5
+spawn candidates. The active Codex session was quota-exhausted; deterministic routing selected an
+available OpenCode session and sent the read-only `node --version` check through Orca. The terminal
+accepted the input but reported quota/rate-limit state, so the controller refreshed inventory and
+rerouted through additional eligible sessions/targets without claiming success. The final run did
+not receive `QUOTA_HANDOFF_OK`; this is a recovery/safety proof, not a successful end-to-end receipt.
+The recovery loop is now bounded to three replacement attempts and the structured handoff is retained.

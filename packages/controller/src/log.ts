@@ -21,7 +21,25 @@ export function defaultControllerLogPath(cwd: string): string {
 
 export function appendControllerDecision(record: ControllerDecisionRecord, logFile: string): void {
   mkdirSync(path.dirname(logFile), { recursive: true })
-  appendFileSync(logFile, `${JSON.stringify(record)}\n`)
+  appendFileSync(logFile, `${JSON.stringify(redactControllerRecord(record))}\n`)
+}
+
+/** Keep controller traces useful for routing evaluation without persisting prompts, diffs or
+ * terminal handles. The live handoff still goes to the selected terminal; only the local log is
+ * reduced. */
+export function redactControllerRecord(record: ControllerDecisionRecord): ControllerDecisionRecord {
+  const { request, handoff, target, ...safe } = record
+  const execution = record.execution
+    ? (() => {
+        const { terminalHandle, ...rest } = record.execution
+        return rest
+      })()
+    : undefined
+  return {
+    ...safe,
+    ...(typeof request === 'string' ? { requestLength: request.length } : {}),
+    ...(execution ? { execution } : {}),
+  }
 }
 
 /** One JSON object per line, malformed lines skipped. Missing file returns an empty array.
@@ -36,7 +54,7 @@ export function readControllerDecisions(logFile: string): ControllerDecisionReco
     try {
       const parsed: unknown = JSON.parse(line)
       if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        rows.push(parsed as ControllerDecisionRecord)
+        rows.push(redactControllerRecord(parsed as ControllerDecisionRecord))
       }
     } catch {
       // skip malformed line

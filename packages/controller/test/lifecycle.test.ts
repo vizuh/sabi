@@ -30,7 +30,15 @@ test('uninstall archives state and restores explicit hook backups', async () => 
     const stateDir = path.join(root, 'state')
     const claude = path.join(root, 'claude', 'settings.json')
     mkdirSync(path.dirname(claude), { recursive: true })
-    writeFileSync(claude, JSON.stringify({ model: 'new-user-choice', hooks: { UserPromptSubmit: [{ hooks: [{ command: 'sabi hook claude' }] }] } }))
+    writeFileSync(claude, JSON.stringify({
+      model: 'new-user-choice',
+      hooks: {
+        UserPromptSubmit: [
+          { hooks: [{ command: 'echo hook claude' }] },
+          { hooks: [{ statusMessage: 'Sabi claude routing', command: 'sabi hook claude --event=UserPromptSubmit' }] },
+        ],
+      },
+    }))
     writeFileSync(`${claude}.sabi-backup`, JSON.stringify({ model: 'original' }))
     mkdirSync(stateDir, { recursive: true })
     writeFileSync(path.join(stateDir, 'controller.json'), '{}')
@@ -44,7 +52,7 @@ test('uninstall archives state and restores explicit hook backups', async () => 
     })
     assert.equal(result.service.detail, 'disabled by environment')
     assert.equal(result.restored.find(({ harness }) => harness === 'claude')?.restored, true)
-    assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')), { model: 'new-user-choice', hooks: {} })
+    assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')), { model: 'new-user-choice', hooks: { UserPromptSubmit: [{ hooks: [{ command: 'echo hook claude' }] }] } })
     assert.equal(existsSync(stateDir), false)
     assert.equal(existsSync(result.archivedState!), true)
   } finally {

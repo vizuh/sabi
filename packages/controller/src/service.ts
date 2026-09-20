@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-export type UserServiceBackend = 'systemd-user' | 'launch-agent' | 'unsupported'
+export type UserServiceBackend = 'systemd-user' | 'launch-agent' | 'windows-task' | 'unsupported'
 
 export interface UserServiceResult {
   backend: UserServiceBackend
@@ -91,22 +91,164 @@ function removeSystemd(env: NodeJS.ProcessEnv): UserServiceResult {
   }
 }
 
-function launchAgentPath(): string {
-  return path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.vizuh.sabi-controller.plist')
+const LAUNCH_AGENT_LABEL = 'com.vizuh.sabi-controller'
+const WINDOWS_TASK_NAME = 'Sabi Controller'
+
+function launchAgentPath(env: NodeJS.ProcessEnv): string {
+  return path.join(env.HOME?.trim() || os.homedir(), 'Library', 'LaunchAgents', `${LAUNCH_AGENT_LABEL}.plist`)
+}
+
+function xmlEscape(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;')
+}
+
+export function launchAgentPlist(entrypoint: string, stateDir: string, env: NodeJS.ProcessEnv = process.env): string {
+  const argumentsXml = [process.execPath, serviceEntrypoint(entrypoint), 'daemon', '--foreground']
+    .map((value) => `    <string>${xmlEscape(value)}</string>`)
+    .join('\n')
+  const environmentXml = [
+    ['SABI_CONTROLLER_HOME', path.resolve(stateDir)],
+    ...(env.PATH ? [['PATH', env.PATH]] : []),
+  ]
+    .map(([key, value]) => `    <key>${xmlEscape(key)}</key>\n    <string>${xmlEscape(value)}</string>`)
+    .join('\n')
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${LAUNCH_AGENT_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+${argumentsXml}
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+${environmentXml}
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+</dict>
+</plist>
+`
+}
+
+function numericUserId(env: NodeJS.ProcessEnv): string {
+  const value = env.SABI_UID?.trim() || execFileSync('id', ['-u'], { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).trim()
+  if (!/^\d+$/.test(value)) throw new Error('could not determine the macOS user id')
+  return value
+}
+
+function launchctl(args: string[], env: NodeJS.ProcessEnv): void {
+  const binary = env.SABI_LAUNCHCTL?.trim() || commandPath('launchctl', env)
+  if (!binary) throw new Error('launchctl not found')
+  execFileSync(binary, args, { env, stdio: 'ignore', timeout: 15_000 })
+}
+
+function installLaunchAgent(entrypoint: string, stateDir: string, env: NodeJS.ProcessEnv): UserServiceResult {
+  const file = launchAgentPath(env)
+  try {
+    mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+    writeFileSync(file, launchAgentPlist(entrypoint, stateDir, env), { mode: 0o600 })
+    const domain = `gui/${numericUserId(env)}`
+    try { launchctl(['bootout', `${domain}/${LAUNCH_AGENT_LABEL}`], env) } catch { /* idempotent reinstall */ }
+    launchctl(['bootstrap', domain, file], env)
+    launchctl(['kickstart', '-k', `${domain}/${LAUNCH_AGENT_LABEL}`], env)
+    return { backend: 'launch-agent', installed: true, running: true, path: file }
+  } catch (error) {
+    try { rmSync(file, { force: true }) } catch { /* preserve the original service error */ }
+    return { backend: 'launch-agent', installed: false, running: false, path: file, detail: (error as Error).message }
+  }
+}
+
+function removeLaunchAgent(env: NodeJS.ProcessEnv): UserServiceResult {
+  const file = launchAgentPath(env)
+  try {
+    const binary = env.SABI_LAUNCHCTL?.trim() || commandPath('launchctl', env)
+    if (binary) {
+      const domain = `gui/${numericUserId(env)}`
+      try { launchctl(['bootout', `${domain}/${LAUNCH_AGENT_LABEL}`], env) } catch { /* already stopped */ }
+    }
+    rmSync(file, { force: true })
+    return { backend: 'launch-agent', installed: false, running: false, path: file }
+  } catch (error) {
+    return { backend: 'launch-agent', installed: existsSync(file), running: false, path: file, detail: (error as Error).message }
+  }
+}
+
+function windowsTaskLauncherPath(stateDir: string): string {
+  return path.join(path.resolve(stateDir), 'sabi-controller.cmd')
+}
+
+function batchValue(value: string): string {
+  return value.replaceAll('%', '%%').replaceAll('"', '""')
+}
+
+export function windowsTaskLauncher(entrypoint: string, stateDir: string): string {
+  return `@echo off\r\nset "SABI_CONTROLLER_HOME=${batchValue(path.resolve(stateDir))}"\r\n"${batchValue(process.execPath)}" "${batchValue(serviceEntrypoint(entrypoint))}" daemon --foreground\r\n`
+}
+
+export function windowsTaskRun(stateDir: string, env: NodeJS.ProcessEnv = process.env): string {
+  const command = env.ComSpec?.trim() || env.COMSPEC?.trim() || 'cmd.exe'
+  return `${command} /d /c "${windowsTaskLauncherPath(stateDir)}"`
+}
+
+function schtasks(args: string[], env: NodeJS.ProcessEnv): void {
+  const binary = env.SABI_SCHTASKS?.trim() || commandPath('schtasks', env)
+  if (!binary) throw new Error('schtasks not found')
+  execFileSync(binary, args, { env, stdio: 'ignore', timeout: 15_000 })
+}
+
+function installWindowsTask(entrypoint: string, stateDir: string, env: NodeJS.ProcessEnv): UserServiceResult {
+  const launcher = windowsTaskLauncherPath(stateDir)
+  try {
+    mkdirSync(path.dirname(launcher), { recursive: true, mode: 0o700 })
+    writeFileSync(launcher, windowsTaskLauncher(entrypoint, stateDir), { mode: 0o600 })
+    try { schtasks(['/Delete', '/TN', WINDOWS_TASK_NAME, '/F'], env) } catch { /* idempotent reinstall */ }
+    schtasks(['/Create', '/TN', WINDOWS_TASK_NAME, '/TR', windowsTaskRun(stateDir, env), '/SC', 'ONLOGON', '/F'], env)
+    return { backend: 'windows-task', installed: true, running: true, path: launcher }
+  } catch (error) {
+    try { rmSync(launcher, { force: true }) } catch { /* preserve the original service error */ }
+    return { backend: 'windows-task', installed: false, running: false, path: launcher, detail: (error as Error).message }
+  }
+}
+
+function removeWindowsTask(env: NodeJS.ProcessEnv): UserServiceResult {
+  try {
+    const binary = env.SABI_SCHTASKS?.trim() || commandPath('schtasks', env)
+    if (binary) {
+      try { schtasks(['/Delete', '/TN', WINDOWS_TASK_NAME, '/F'], env) } catch { /* already removed */ }
+    }
+    return { backend: 'windows-task', installed: false, running: false, path: WINDOWS_TASK_NAME }
+  } catch (error) {
+    return { backend: 'windows-task', installed: false, running: false, path: WINDOWS_TASK_NAME, detail: (error as Error).message }
+  }
+}
+
+export function installUserServiceForPlatform(platform: NodeJS.Platform, options: { entrypoint?: string; stateDir: string; env?: NodeJS.ProcessEnv }): UserServiceResult {
+  const env = options.env ?? process.env
+  if (env.SABI_SERVICE_MODE?.trim() === 'disabled') return { backend: 'unsupported', installed: false, running: false, detail: 'disabled by environment' }
+  if (platform === 'linux') return installSystemd(serviceEntrypoint(options.entrypoint), options.stateDir, env)
+  if (platform === 'darwin') return installLaunchAgent(serviceEntrypoint(options.entrypoint), options.stateDir, env)
+  if (platform === 'win32') return installWindowsTask(serviceEntrypoint(options.entrypoint), options.stateDir, env)
+  return { backend: 'unsupported', installed: false, running: false, detail: `no user service installer for ${platform}` }
 }
 
 export function installUserService(options: { entrypoint?: string; stateDir: string; env?: NodeJS.ProcessEnv } ): UserServiceResult {
+  return installUserServiceForPlatform(process.platform, options)
+}
+
+export function removeUserServiceForPlatform(platform: NodeJS.Platform, options: { env?: NodeJS.ProcessEnv } = {}): UserServiceResult {
   const env = options.env ?? process.env
   if (env.SABI_SERVICE_MODE?.trim() === 'disabled') return { backend: 'unsupported', installed: false, running: false, detail: 'disabled by environment' }
-  if (process.platform === 'linux') return installSystemd(serviceEntrypoint(options.entrypoint), options.stateDir, env)
-  if (process.platform === 'darwin') return { backend: 'launch-agent', installed: false, running: false, path: launchAgentPath(), detail: 'launch-agent installer not yet validated on this host' }
-  return { backend: 'unsupported', installed: false, running: false, detail: `no user service installer for ${process.platform}` }
+  if (platform === 'linux') return removeSystemd(env)
+  if (platform === 'darwin') return removeLaunchAgent(env)
+  if (platform === 'win32') return removeWindowsTask(env)
+  return { backend: 'unsupported', installed: false, running: false, detail: `no user service installer for ${platform}` }
 }
 
 export function removeUserService(options: { env?: NodeJS.ProcessEnv } = {}): UserServiceResult {
-  const env = options.env ?? process.env
-  if (env.SABI_SERVICE_MODE?.trim() === 'disabled') return { backend: 'unsupported', installed: false, running: false, detail: 'disabled by environment' }
-  if (process.platform === 'linux') return removeSystemd(env)
-  if (process.platform === 'darwin') return { backend: 'launch-agent', installed: existsSync(launchAgentPath()), running: false, path: launchAgentPath(), detail: 'launch-agent removal not yet validated on this host' }
-  return { backend: 'unsupported', installed: false, running: false, detail: `no user service installer for ${process.platform}` }
+  return removeUserServiceForPlatform(process.platform, options)
 }

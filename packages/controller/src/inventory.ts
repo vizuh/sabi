@@ -242,6 +242,7 @@ function makeSession(
     lastOutputAt: finiteNumber(entry.lastOutputAt),
     kind: 'session',
     handle,
+    dispatchable: true,
     lifecycle,
     authenticated,
     failureStreak: stuck && isCurrent && tuiIdle !== true ? 2 : 0,
@@ -258,12 +259,13 @@ function unavailableCurrent(cwd: string, now: number): AgentSession {
     capacity: { status: 'unavailable', resetAt: now },
     worktree: cwd,
     kind: 'session',
+    dispatchable: false,
     lifecycle: 'dead',
     authenticated: false,
   }
 }
 
-function hostCurrentSession(cwd: string, now: number, sessionId: string, harness = 'current'): AgentSession {
+function hostCurrentSession(cwd: string, sessionId: string, harness = 'current'): AgentSession {
   const digest = createHash('sha256').update(sessionId).digest('hex').slice(0, 24)
   return {
     id: `session:host:${digest}`,
@@ -275,6 +277,7 @@ function hostCurrentSession(cwd: string, now: number, sessionId: string, harness
     worktree: cwd,
     context: 'current host session; execution remains with the harness',
     kind: 'session',
+    dispatchable: false,
     lifecycle: 'active',
   }
 }
@@ -310,7 +313,7 @@ export function discoverAgents(
     })
     .filter((entry): entry is AgentSession => entry !== undefined)
   const active = sessions.find((session) => session.handle === currentHandle) ??
-    (options.currentSession ? hostCurrentSession(resolvedCwd, now, options.currentSession, options.currentHarness) : unavailableCurrent(resolvedCwd, now))
+    (options.currentSession ? hostCurrentSession(resolvedCwd, options.currentSession, options.currentHarness) : unavailableCurrent(resolvedCwd, now))
   const existingSessions = sessions.filter((session) => session.id !== active.id)
   const orcaAvailable = worktreesResult.ok || terminalsResult.ok
   const knownAgentState = new Map<string, AgentSession>()

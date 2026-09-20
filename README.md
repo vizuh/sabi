@@ -110,7 +110,7 @@ The public controller package is separate from the inference adapter:
 
 ```bash
 npm install --global @vizuh/sabi-controller
-sabi setup --hooks               # writes user state, starts daemon and installs host hooks
+sabi setup                        # writes user state, starts daemon and installs detected hooks
 sabi status
 sabi route "review this change"
 sabi sessions --json              # bounded adapter registrations
@@ -127,19 +127,20 @@ daemon, hooks, OpenCode plugin and Orca bridge resources; it does not require th
 `node_modules` at runtime.
 
 `setup` detects installed harness executables and enables automatic controller routing through
-the daemon. With `--hooks`, it merges a Sabi `UserPromptSubmit` hook into Claude Code and Codex,
-and installs the small OpenCode `chat.message` plugin. Existing JSON configuration is preserved and
-backed up once as `<file>.sabi-backup`. A `CONTINUE` plan is silent; delegation only blocks the
+the daemon. It merges a Sabi `UserPromptSubmit` hook into detected Claude Code and Codex
+installations, and installs the small OpenCode `chat.message` plugin. Existing JSON configuration is
+preserved and backed up once as `<file>.sabi-backup`; use `--no-hooks` to skip this step or
+`sabi hooks install` to repair it later. A `CONTINUE` plan is silent; delegation only blocks the
 current prompt after the daemon reports that the target accepted execution. Hook failures fail open,
 so opening a harness still works if Sabi is stopped. These hooks route controller execution; they do
 not silently switch a paid subscription or the model selected inside a harness.
 
 To install or repair hooks separately, run `sabi hooks install` (or select `--claude`, `--codex`, or
-`--opencode`). On Linux, `sabi setup` also attempts a per-user `systemd --user` service and reports a
-lazy detached fallback when the user bus is unavailable. macOS and Windows service installers remain
-unsupported until validated. Use `sabi integrations list` to distinguish an executable from a
-controller-integrated harness. The daemon is loopback-only and reuses live Orca inventory when Orca
-is available; live universal OpenCode/Orca activation remains a separate gate.
+`--opencode`). `sabi setup` installs a per-user service where the platform contract is available:
+Linux `systemd --user`, macOS LaunchAgent, or Windows Task Scheduler; Linux also reports a lazy
+detached fallback when the user bus is unavailable. Use `sabi integrations list` to distinguish an
+executable from a controller-integrated harness. The daemon is loopback-only and reuses live Orca
+inventory when Orca is available; live universal OpenCode/Orca activation remains a separate gate.
 
 The controller can also route by the plans actually visible on this machine. Configure
 `controller.preferredHarnesses` and per-harness `preferredModels` in `sabi.config.json`; it checks
@@ -153,8 +154,10 @@ currently selected model; exact model selection is guaranteed only for a control
 (`opencode --model ...` or `cmd --model ...`).
 
 Controller records use trace schema v1: bounded candidate descriptors, the closed valid-action set,
-the selected route, execution status and elapsed time. `sabi replay` reads those JSONL records without
-calling a harness, so policy changes can be evaluated against observed traffic before execution.
+the selected route, execution status and elapsed time. Raw requests, handoffs, diffs and terminal
+handles are omitted from persisted controller logs by default; the live handoff is sent only to the
+selected target. `sabi replay` reads those JSONL records without calling a harness, so policy changes
+can be evaluated against observed traffic before execution.
 
 The public `@vizuh/sabi` GitHub/npm release publishes the Command Code adapter, not the controller.
 The controller has its own `@vizuh/sabi-controller` package and release lane. A published controller

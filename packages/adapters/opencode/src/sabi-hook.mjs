@@ -4,6 +4,19 @@ import path from 'node:path'
 
 const DEFAULT_CONTROLLER_URL = 'http://127.0.0.1:7433'
 
+export function trustedControllerURL(value = process.env.SABI_CONTROLLER_URL) {
+  const candidate = (value || DEFAULT_CONTROLLER_URL).trim()
+  try {
+    const parsed = new URL(candidate)
+    const host = parsed.hostname.toLowerCase()
+    if (parsed.protocol !== 'http:' || parsed.username || parsed.password) return undefined
+    if (host !== 'localhost' && host !== '127.0.0.1' && host !== '[::1]' && host !== '::1') return undefined
+    return candidate.replace(/\/+$/, '')
+  } catch {
+    return undefined
+  }
+}
+
 function controllerToken() {
   if (process.env.SABI_CONTROLLER_TOKEN) return process.env.SABI_CONTROLLER_TOKEN
   const stateHome = process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state')
@@ -59,10 +72,11 @@ function accepted(record) {
 }
 
 export async function SabiOpenCodePlugin(context) {
-  const controllerURL = process.env.SABI_CONTROLLER_URL || DEFAULT_CONTROLLER_URL
+  const controllerURL = trustedControllerURL()
   const cwd = context.directory || context.worktree || process.cwd()
   return {
     'chat.message': async (input, output) => {
+      if (!controllerURL) return
       const request = textFromParts(output?.parts)
       if (!request) return
       const sessionId = typeof input?.sessionID === 'string'
@@ -83,7 +97,7 @@ export async function SabiOpenCodePlugin(context) {
           lifecycle: 'active',
         })
       }
-      const plan = await post(controllerURL, '/plan', { request, cwd })
+      const plan = await post(controllerURL, '/plan', { request, cwd, currentSession: sessionId, currentHarness: 'opencode' })
       const action = typeof plan?.action === 'string' ? plan.action : ''
       if (!['DELEGATE', 'SPAWN', 'ORCHESTRATE'].includes(action)) return
       const override = targetOverride(action, plan.target)
@@ -91,18 +105,32 @@ export async function SabiOpenCodePlugin(context) {
       const result = await post(controllerURL, '/route', {
         request,
         cwd,
+        currentSession: sessionId,
+        currentHarness: 'opencode',
         orchestrate: action === 'ORCHESTRATE',
         ...(override ? { override } : {}),
       })
+      // Record the receipt against the session that actually received the work, preserving
+      // the execution status: a started or rerouted target is never reported as completed, and
+      // the source session is never credited for work it did not execute. Spawned and
+      // orchestrated targets have no addressable session yet, so no outcome is recorded for them.
       if (sessionId && result?.execution?.status) {
-        const status = result.execution.status === 'failed' ? 'failed' : accepted(result) ? 'completed' : 'unverifiable'
-        await post(controllerURL, '/v1/sessions/outcome', {
-          sessionId,
-          adapter: 'opencode',
-          harness: 'opencode',
-          worktree: cwd,
-          outcome: status,
-        })
+        const executionStatus = result.execution.status
+        const outcome = executionStatus === 'failed' ? 'failed'
+          : executionStatus === 'completed' ? 'completed'
+          : executionStatus === 'started' || executionStatus === 'rerouted' ? 'started'
+          : 'unverifiable'
+        const targetId = result.target && typeof result.target.id === 'string' ? result.target.id : undefined
+        const outcomeSessionId = action === 'DELEGATE' ? (targetId ?? sessionId) : undefined
+        if (outcomeSessionId) {
+          await post(controllerURL, '/v1/sessions/outcome', {
+            sessionId: outcomeSessionId,
+            adapter: 'opencode',
+            harness: 'opencode',
+            worktree: cwd,
+            outcome,
+          })
+        }
       }
       if (!accepted(result)) return
       // chat.message exposes the mutable parts list, so the current session does not execute the

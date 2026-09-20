@@ -1,0 +1,45 @@
+name: controller-ci
+
+on:
+  pull_request:
+    paths:
+      - 'packages/controller/**'
+      - 'packages/adapters/opencode/**'
+      - 'packages/adapters/orca/**'
+      - 'packages/core/**'
+      - 'scripts/test/controller-package.test.ts'
+      - 'README.md'
+      - 'docs/research/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - '.github/workflows/controller-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/controller/**'
+      - 'packages/adapters/opencode/**'
+      - 'packages/adapters/orca/**'
+      - 'packages/core/**'
+      - 'scripts/test/controller-package.test.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - '.github/workflows/controller-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: node --test scripts/test/controller-package.test.ts

@@ -51,6 +51,8 @@ export interface AgentDescriptor {
 export interface AgentSession extends AgentDescriptor {
   kind: 'session'
   handle?: string
+  /** False when the host owns continuation and no external terminal transport exists. */
+  dispatchable?: boolean
   lifecycle: AgentLifecycle
   authenticated?: boolean
   failureStreak?: number
@@ -145,6 +147,7 @@ export interface ControllerExecution {
   observedOutputLines?: number
   outputCursor?: number
   reroutedFrom?: string
+  rerouteCount?: number
   error?: string
 }
 
@@ -164,6 +167,7 @@ export interface ControllerCandidateTelemetry {
   agent: string
   kind: 'session' | 'harness'
   available: boolean
+  dispatchable?: boolean
   capacity: AgentCapacity
   lifecycle?: AgentLifecycle
   context?: string
@@ -214,6 +218,7 @@ export interface ControllerDecisionRecord extends ControllerDecision {
   cwd: string
   signals: ControllerSignals
   request?: string
+  requestLength?: number
   override?: ControllerOverride
   handoff?: HandoffSnapshot
   target?: AgentSession | AgentHarness

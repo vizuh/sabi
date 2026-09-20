@@ -434,6 +434,31 @@ The generated `@vizuh/sabi-controller` manifest now declares public access and t
 `--access public`. The clean-prefix package test asserts the generated publish contract before any
 registry publication.
 
+## [2026-09-20] verify | Global setup and clean-install CI
+
+PR #28 (`feat/global-installation-phase2`) now detects real installed host sessions, preserves the
+current hook session identity, and keeps the global registry bounded and hashed. The package test
+proves the generated controller runs from a clean npm prefix; harness-detection tests use isolated
+temporary executables so CI does not depend on which tools happen to be installed on the runner.
+CI run `35475422114` passed typecheck, 351 tests, and the clean-prefix package test. No npm
+publication, controller tag, universal Orca activation or live cross-terminal execution is claimed.
+
+## [2026-09-20] security | Close global controller boundary findings
+
+The independent phase-2 review found that a configurable OpenCode URL could receive the daemon
+bearer token and that persisted controller records retained raw requests, handoffs, diffs and
+terminal handles. The daemon now rejects non-loopback hosts and metadata, the OpenCode bridge fails
+open for non-loopback URLs, and persisted/read controller logs omit those sensitive fields while
+retaining routing metadata and request length. Added focused regressions for both boundaries.
+Live per-runtime receipt evidence and universal Orca activation remain release gates.
+
+## [2026-09-20] hardening | Host-native continuation and safe hook removal
+
+Marked hook-only current sessions `dispatchable: false` so the planner and executor distinguish a
+request that remains with its native harness from a real Orca terminal dispatch. Uninstall now
+matches Sabi hook structure (`statusMessage` plus command) rather than a broad substring, preserving
+third-party hooks that happen to mention a harness. Full suite remains green at 354 tests.
+
 ## [2026-09-19] feat | Route across local Command Code and OpenCode plans
 
 Added controller preferences for `opencode` then `command-code`, exact local model-catalog checks,
@@ -443,6 +468,31 @@ they are combined with live quota/session state, so the current quota-exhausted 
 session selects the available OpenCode Sabi session. New terminals carry the verified model through
 `--model`; existing sessions are not silently switched. Verification: 348 Node tests and typecheck
 passed; live status and a pure routing proof ran read-only, with no paid task dispatched.
+
+## [2026-09-20] feat | Add cross-platform user service lifecycle
+
+Added idempotent user-service implementations for macOS LaunchAgent and Windows Task Scheduler beside
+the existing Linux `systemd --user` path. All service launchers use absolute packaged entrypoints and
+user-scoped state; install/remove command paths and rendered service definitions are tested without
+touching a real foreign OS. Live macOS/Windows startup remains an explicit release gate.
+
+## [2026-09-20] fix | Bounded quota reroute across eligible candidates
+
+A live quota probe showed the controller stopping after a single fallback attempt. `fallbackTarget`
+now takes the set of failed target ids, consults a refreshed inventory per attempt, and falls back
+to spawn candidates when sessions are exhausted; `runController` retries up to `MAX_REROUTES = 3`
+and records `rerouteCount` on each retry. A regression test with a fake Orca CLI replays the exact
+case (first target quota-fails, second target receives and completes). Focused `controller.test.ts`
+4/4 passed, `npm run typecheck` clean. The branch change remained uncommitted at entry; the live
+retry and final validation are recorded below.
+
+## [2026-09-20] verify | Exercise live quota rerouting
+
+Ran the requested read-only check through the real Orca inventory. Sabi detected a quota-exhausted
+active Codex session, selected OpenCode, observed receipt plus quota/rate-limit failure, refreshed
+inventory and rerouted without a false success. The remaining live targets also reported unavailable
+capacity, so `QUOTA_HANDOFF_OK` was not produced. The retry loop is now bounded to three replacement
+attempts; this result remains a recovery proof, not a successful cross-terminal completion.
 
 ## [2026-09-20] change | OpenCode advertises image input where tiers declare it
 

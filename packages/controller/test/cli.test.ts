@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +11,17 @@ const cliPath = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
 
 function workspace(): string {
   return mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-cli-'))
+}
+
+function fakeHarnessPath(cwd: string, harnesses: string[]): string {
+  const bin = path.join(cwd, 'bin')
+  mkdirSync(bin, { recursive: true })
+  for (const harness of harnesses) {
+    const command = path.join(bin, process.platform === 'win32' ? `${harness}.cmd` : harness)
+    writeFileSync(command, process.platform === 'win32' ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n')
+    if (process.platform !== 'win32') chmodSync(command, 0o755)
+  }
+  return `${bin}${path.delimiter}${process.env.PATH ?? ''}`
 }
 
 function run(args: string[], cwd: string, env: Record<string, string> = {}) {
@@ -165,7 +176,9 @@ test('route remains an explicit alias and logs can be read without exposing a da
   assert.equal(logs.status, 0)
   const record = JSON.parse(logs.stdout)
   assert.equal(record.records.length, 1)
-  assert.equal(record.records[0].request, 'read this')
+  assert.equal(record.records[0].request, undefined)
+  assert.equal(record.records[0].requestLength, 9)
+  assert.equal(record.records[0].handoff, undefined)
 })
 
 test('replay summarizes recorded decisions without executing another request', () => {
@@ -196,16 +209,17 @@ test('doctor and config report local boundaries without reading secrets', () => 
   assert.match(configRecord.controllerLogPath, /controller-decisions\.jsonl$/)
 })
 
-test('setup writes user-level preferences without pretending to install harness hooks', () => {
+test('setup can opt out of user hooks without mutating harness configuration', () => {
   const cwd = workspace()
   const stateDir = path.join(cwd, 'controller-state')
-  const setup = run(['setup', '--no-start', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
+  const setup = run(['setup', '--no-start', '--no-hooks', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
   assert.equal(setup.status, 0)
   const record = JSON.parse(setup.stdout)
   assert.equal(record.stateDir, stateDir)
   assert.equal(record.automaticRouting, true)
   assert.equal(record.daemon, 'stopped')
-  assert.equal(record.integrations, 'not-installed')
+  assert.deepEqual(record.integrations.installed, [])
+  assert.deepEqual(record.hooks, [])
   assert.equal(existsSync(record.preferencesPath), true)
 
   const status = run(['status', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
@@ -243,8 +257,11 @@ test('sessions lists bounded adapter registrations without exposing raw identiti
 test('setup --hooks installs all host bridges in isolated config paths', () => {
   const cwd = workspace()
   const stateDir = path.join(cwd, 'controller-state')
+  const harnessPath = fakeHarnessPath(cwd, ['claude', 'codex', 'opencode'])
   const setup = run(['setup', '--no-start', '--hooks', '--json'], cwd, {
     SABI_CONTROLLER_HOME: stateDir,
+    PATH: harnessPath,
+    SABI_CONTROLLER_HARNESSES: 'claude,codex,opencode',
     SABI_CLAUDE_SETTINGS: path.join(cwd, 'claude', 'settings.json'),
     SABI_CODEX_HOOKS: path.join(cwd, 'codex', 'hooks.json'),
     SABI_OPENCODE_CONFIG: path.join(cwd, 'opencode', 'opencode.json'),
@@ -252,8 +269,30 @@ test('setup --hooks installs all host bridges in isolated config paths', () => {
   })
   assert.equal(setup.status, 0)
   const record = JSON.parse(setup.stdout)
-  assert.deepEqual(record.hooks.map((hook: { harness: string }) => hook.harness), ['claude', 'codex', 'opencode'])
+  assert.deepEqual(record.hooks.map((hook: { harness: string }) => hook.harness).sort(), ['claude', 'codex', 'opencode'])
   assert.equal(existsSync(path.join(cwd, 'claude', 'settings.json')), true)
   assert.equal(existsSync(path.join(cwd, 'codex', 'hooks.json')), true)
   assert.equal(existsSync(path.join(cwd, 'opencode', 'opencode.json')), true)
+})
+
+test('setup installs hooks by default only for detected supported harnesses', () => {
+  const cwd = workspace()
+  const stateDir = path.join(cwd, 'controller-state')
+  const harnessPath = fakeHarnessPath(cwd, ['claude'])
+  const setup = run(['setup', '--no-start', '--json'], cwd, {
+    SABI_CONTROLLER_HOME: stateDir,
+    PATH: harnessPath,
+    SABI_CONTROLLER_HARNESSES: 'claude',
+    SABI_CLAUDE_SETTINGS: path.join(cwd, 'claude', 'settings.json'),
+    SABI_CODEX_HOOKS: path.join(cwd, 'codex', 'hooks.json'),
+    SABI_OPENCODE_CONFIG: path.join(cwd, 'opencode', 'opencode.json'),
+    SABI_HOOK_COMMAND: 'sabi-test',
+  })
+  assert.equal(setup.status, 0)
+  const record = JSON.parse(setup.stdout)
+  assert.deepEqual(record.integrations.installed, ['claude'])
+  assert.deepEqual(record.hooks.map((hook: { harness: string }) => hook.harness), ['claude'])
+  assert.equal(existsSync(path.join(cwd, 'claude', 'settings.json')), true)
+  assert.equal(existsSync(path.join(cwd, 'codex', 'hooks.json')), false)
+  assert.equal(existsSync(path.join(cwd, 'opencode', 'opencode.json')), false)
 })

@@ -29,6 +29,8 @@ import type {
 import type { ControllerSignals } from './types.ts'
 
 const DEFAULT_WAIT_MS = 5000
+// ponytail: cap recovery at three replacement attempts; raise only with receipt-aware deduplication.
+const MAX_REROUTES = 3
 
 interface RouteSelection {
   action: ControllerAction
@@ -193,6 +195,7 @@ function candidateState(inventory: AgentInventory): Record<string, unknown> {
     worktree: candidate.worktree,
     branch: candidate.branch,
     lifecycle: candidate.kind === 'session' ? candidate.lifecycle : undefined,
+    dispatchable: candidate.kind === 'session' ? candidate.dispatchable : true,
     context: candidate.context,
     model: candidate.model,
   })
@@ -213,6 +216,7 @@ function candidateTelemetry(inventory: AgentInventory): ControllerCandidateTelem
     agent: candidate.agent,
     kind: candidate.kind,
     available: candidate.available,
+    dispatchable: candidate.kind === 'session' ? candidate.dispatchable : true,
     capacity: candidate.capacity,
     lifecycle: candidate.kind === 'session' ? candidate.lifecycle : undefined,
     context: candidate.context,
@@ -458,13 +462,20 @@ function executeSelection(selection: RouteSelection, inventory: AgentInventory, 
   if (selection.action === 'ORCHESTRATE') return executeOrchestration(selection.target, cwd, request, handoff)
   if (selection.action === 'SPAWN' && selection.target?.kind === 'harness') return executeSpawn(selection.target, cwd, request, waitMs)
   const target = selection.target?.kind === 'session' ? selection.target : inventory.active
-  if (!target.handle) return { status: 'failed', targetId: target.id, operation: 'terminal-send', error: 'target-session-handle-missing' }
+  if (!target.handle) {
+    if (selection.action === 'CONTINUE' && target.dispatchable === false) {
+      return { status: 'not-started', targetId: target.id, operation: 'terminal-send', observedStatus: 'host-native', error: 'current request remains with the harness' }
+    }
+    return { status: 'failed', targetId: target.id, operation: 'terminal-send', error: 'target-session-handle-missing' }
+  }
   return sessionExecution(target.handle, target.id, request, 'terminal-send', waitMs, handoff, target.worktree)
 }
 
-function fallbackTarget(inventory: AgentInventory, failedTargetId: string | undefined, preferred?: string[]): AgentSession | undefined {
-  return bestSession(inventory.existingSessions.filter((session) => session.id !== failedTargetId), preferred) ??
-    (inventory.active.id !== failedTargetId && inventory.active.available ? inventory.active : undefined)
+function fallbackTarget(inventory: AgentInventory, failedTargetIds: Set<string>, preferred?: string[]): AgentSession | AgentHarness | undefined {
+  const session = bestSession(inventory.existingSessions.filter((candidate) => !failedTargetIds.has(candidate.id)), preferred)
+  if (session) return session
+  if (!failedTargetIds.has(inventory.active.id) && inventory.active.available) return inventory.active
+  return bestHarness(inventory.spawnCandidates.filter((candidate) => !failedTargetIds.has(candidate.id)), preferred)
 }
 
 export interface ControllerRunResult {
@@ -493,11 +504,26 @@ export async function runController(
     : { status: 'not-started' }
 
   if (execute && execution.status === 'failed' && selection.action !== 'ASK' && selection.action !== 'ORCHESTRATE' && selection.decisionSource !== 'override') {
-    const refreshed = discoverAgents(cwd, { stuckSession: signals.stuckSession, controller, currentSession, currentHarness })
-    const fallback = fallbackTarget(refreshed, execution.targetId, controller?.preferredHarnesses)
-    if (fallback?.handle) {
-      const retry = sessionExecution(fallback.handle, fallback.id, request, 'terminal-send', waitMs, handoff, fallback.worktree)
-      execution = { ...retry, status: retry.status === 'failed' ? 'failed' : 'rerouted', reroutedFrom: execution.targetId }
+    const failedTargetIds = new Set<string>()
+    let rerouteCount = 0
+    while (execution.status === 'failed' && rerouteCount < MAX_REROUTES) {
+      if (execution.targetId) failedTargetIds.add(execution.targetId)
+      const refreshed = discoverAgents(cwd, { stuckSession: signals.stuckSession, controller, currentSession, currentHarness })
+      const fallback = fallbackTarget(refreshed, failedTargetIds, controller?.preferredHarnesses)
+      if (!fallback) break
+      const previousTargetId = execution.targetId
+      const retry = fallback.kind === 'session'
+        ? fallback.handle
+          ? sessionExecution(fallback.handle, fallback.id, request, 'terminal-send', waitMs, handoff, fallback.worktree)
+          : { status: 'failed' as const, targetId: fallback.id, operation: 'terminal-send' as const, error: 'target-session-handle-missing' }
+        : executeSpawn(fallback, cwd, request, waitMs)
+      rerouteCount += 1
+      execution = {
+        ...retry,
+        status: retry.status === 'failed' ? 'failed' : 'rerouted',
+        ...(previousTargetId ? { reroutedFrom: previousTargetId } : {}),
+        rerouteCount,
+      }
     }
   }
 

@@ -35,6 +35,11 @@ export interface ControllerDaemonStatus {
   info?: ControllerDaemonInfo
 }
 
+export function isLoopbackControllerHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase()
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1' || normalized === '[::1]'
+}
+
 interface DaemonOptions {
   stateDir?: string
   host?: string
@@ -92,7 +97,7 @@ export function readDaemonInfo(stateDir = controllerStateDir()): ControllerDaemo
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
     const value = parsed as Record<string, unknown>
     if (value.protocol !== PROTOCOL || typeof value.pid !== 'number' || !Number.isSafeInteger(value.pid) ||
-        typeof value.host !== 'string' || typeof value.port !== 'number' || !Number.isSafeInteger(value.port) ||
+        typeof value.host !== 'string' || !isLoopbackControllerHost(value.host) || typeof value.port !== 'number' || !Number.isSafeInteger(value.port) ||
         typeof value.startedAt !== 'string' || typeof value.stateDir !== 'string' || typeof value.token !== 'string' || value.token.length < 32) return undefined
     return {
       protocol: PROTOCOL,
@@ -163,6 +168,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, info: Co
       const record = await dispatchControllerRequest({
         request,
         cwd: safeCwd(body.cwd),
+        currentSession: typeof body.currentSession === 'string' ? body.currentSession : undefined,
+        currentHarness: typeof body.currentHarness === 'string' ? body.currentHarness : undefined,
         orchestrate: body.orchestrate === true,
         override: controllerOverride(body.override),
         waitMs,
@@ -200,6 +207,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, info: Co
 export async function createControllerDaemon(options: DaemonOptions = {}): Promise<ControllerDaemon> {
   const stateDir = path.resolve(options.stateDir ?? controllerStateDir())
   const host = options.host ?? process.env.SABI_CONTROLLER_HOST?.trim() ?? '127.0.0.1'
+  if (!isLoopbackControllerHost(host)) throw new Error('Sabi controller daemon is loopback-only; refusing non-loopback host')
   const requestedPort = options.port ?? configuredNumber(process.env.SABI_CONTROLLER_PORT, DEFAULT_PORT)
   mkdirSync(stateDir, { recursive: true, mode: 0o700 })
 
@@ -283,6 +291,7 @@ export async function requestControllerDaemon(
 ): Promise<Record<string, unknown> | undefined> {
   const info = options.info ?? readDaemonInfo(options.stateDir)
   if (!info) return undefined
+  if (!isLoopbackControllerHost(info.host)) return undefined
   const method = options.method ?? 'GET'
   const body = options.body === undefined ? undefined : JSON.stringify(options.body)
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS
@@ -337,6 +346,7 @@ export async function startControllerDaemon(options: DaemonOptions & { entrypoin
   const entrypoint = options.entrypoint ?? process.argv[1]
   if (!entrypoint) throw new Error('cannot start the daemon without a CLI entrypoint')
   const host = options.host ?? process.env.SABI_CONTROLLER_HOST?.trim() ?? '127.0.0.1'
+  if (!isLoopbackControllerHost(host)) throw new Error('Sabi controller daemon is loopback-only; refusing non-loopback host')
   const port = options.port ?? configuredNumber(process.env.SABI_CONTROLLER_PORT, DEFAULT_PORT)
   const child = spawn(process.execPath, [path.resolve(entrypoint), 'daemon', '--foreground'], {
     detached: true,
