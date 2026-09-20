@@ -18,7 +18,7 @@ import { adapterReady, builtInAdapterManifests, commandAvailable } from './adapt
 import { readSessionRegistry } from './registry.ts'
 import { defaultControllerLogPath, readControllerDecisions, summarizeControllerReplay } from './log.ts'
 import { dispatchControllerRequest, inventorySnapshot } from './runtime.ts'
-import { installUserService, type UserServiceResult } from './service.ts'
+import { installUserService, restartUserService, type UserServiceResult } from './service.ts'
 import { uninstallController, upgradeController } from './lifecycle.ts'
 import { installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
@@ -281,12 +281,18 @@ async function runUpgrade(argv: string[]): Promise<void> {
   const result = upgradeController(version)
   if (result.status === 0 && hasControllerPreferences()) {
     const stateDir = controllerStateDir()
-    await stopControllerDaemon(stateDir)
-    try {
-      await startControllerDaemon({ stateDir })
-      result.restarted = true
-    } catch (error) {
-      result.error = `package upgraded but daemon restart failed: ${(error as Error).message}`
+    const service = restartUserService({ stateDir })
+    if (service.installed) {
+      if (service.running) result.restarted = true
+      else result.error = `package upgraded but user service restart failed: ${service.detail ?? 'unknown service error'}`
+    } else {
+      await stopControllerDaemon(stateDir)
+      try {
+        await startControllerDaemon({ stateDir })
+        result.restarted = true
+      } catch (error) {
+        result.error = `package upgraded but daemon restart failed: ${(error as Error).message}`
+      }
     }
   }
   if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))

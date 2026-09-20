@@ -520,8 +520,10 @@ The free OpenCode/Sabi review used `opencode run --dir /tmp/sabi-runtime-evidenc
 opencode/ling-3.0-flash-fin-free` with the Sabi plugin and a temporary loopback daemon. It returned
 `SABI_FREE_REVIEW_OK`; Sabi observed the real Orca inventory (34 worktrees, 14 sessions), Jev chose
 the bounded `CONTINUE` action, and execution remained native to the current OpenCode session. The
-prompt was read-only, no file was edited, and no cross-session dispatch or paid upstream request
-was made. Validation on this branch: 366 tests passed and `npm run typecheck` passed.
+prompt was read-only, no file was edited, and no cross-session dispatch or paid OpenCode model
+request was made. Jev was consulted according to the configured decision engine; its billing remains
+subject to the configured TypeSafe account and is not included in the OpenCode execution claim.
+Validation on this branch: 366 tests passed and `npm run typecheck` passed.
 
 ## Controller debate hardening — 2026-09-20
 
@@ -540,3 +542,26 @@ Validation: `npm test` passed 373 tests, `npm run typecheck` passed, focused dae
 passed 10/10, and `git diff --check` passed. No live task, user configuration, secret, paid request,
 deployment or package publication was performed by this change. The PR and merge status are recorded
 after GitHub CI completes.
+
+## Post-merge review corrections — 2026-09-20
+
+Implemented the actionable comments from the last ten merged pull requests:
+
+- session heartbeats preserve the latest outcome and receipt;
+- delegated OpenCode telemetry attributes the actual target harness;
+- Claude/Codex hook planning and routing share one idempotency key;
+- configured Jev state bounds are honored even below 512 characters;
+- preferred models remain searchable after the bounded catalog telemetry list;
+- catalog presence alone cannot authorize a preferred spawn without live capacity evidence;
+- uninstall removes Sabi-only hook/plugin configuration when no backup exists;
+- upgrades restart the installed native user service instead of falling back to a detached daemon;
+- the free OpenCode evidence wording separates a free OpenCode model request from Jev billing.
+
+The catalog-only spawn restriction is intentional: the installed catalog proves model identity, not
+subscription entitlement or usable quota. A live session is therefore required before that fixed
+preferred target can be treated as spawnable.
+
+Validation on this worktree: `npm test` passed 378/378, `npm run typecheck` passed, focused
+controller/adapter tests passed 35/35, and `git diff --check` passed. No live task, secret, user
+configuration, deployment or paid model request was changed by this patch. Source delivery is through
+the follow-up PR; remote CI and merge state remain separate from this local validation evidence.

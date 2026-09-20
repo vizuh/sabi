@@ -46,7 +46,7 @@ function text(value: unknown, limit: number): string | undefined {
 
 /** Keep controller judgment state below the configured core judge limit without sending diffs or catalogs. */
 export function boundJevState(state: Record<string, unknown>, maxStateChars = 6000): Record<string, unknown> {
-  const limit = Math.max(512, Math.floor(maxStateChars))
+  const limit = Math.max(1, Math.floor(maxStateChars))
   const serialized = JSON.stringify(state)
   if (serialized.length <= limit) return state
 

@@ -41,8 +41,17 @@ test('registry stores bounded identities without raw session ids and expires sta
     }, 100_002)
     assert.equal(outcome.lastOutcome, 'completed')
     assert.deepEqual(outcome.lastReceipt, { phase: 'completed', observedAt: '2026-09-20T12:00:00.000Z', requestId: 'orca-request-1' })
-    assert.equal(readSessionRegistry(stateDir, 100_003).length, 1)
-    assert.equal(readSessionRegistry(stateDir, 100_003 + 10 * 60_000 + 1).length, 0)
+    const refreshed = heartbeatSession(stateDir, {
+      sessionId: 'provider-secret-session-id',
+      adapter: 'claude',
+      harness: 'claude',
+      worktree: stateDir,
+      lifecycle: 'active',
+    }, 100_003)
+    assert.equal(refreshed.lastOutcome, 'completed')
+    assert.deepEqual(refreshed.lastReceipt, { phase: 'completed', observedAt: '2026-09-20T12:00:00.000Z', requestId: 'orca-request-1' })
+    assert.equal(readSessionRegistry(stateDir, 100_004).length, 1)
+    assert.equal(readSessionRegistry(stateDir, 100_004 + 10 * 60_000 + 1).length, 0)
     assert.equal(readFileSync(registryPath(stateDir), 'utf8').includes('provider-secret-session-id'), false)
     assert.equal(existsSync(registryPath(stateDir)), true)
   } finally {

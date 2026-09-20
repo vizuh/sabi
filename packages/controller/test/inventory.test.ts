@@ -63,6 +63,16 @@ test('runtime catalog evidence classifies free markers and Jev without inventing
   ])
 })
 
+test('preferred worker selection sees ids beyond the bounded catalog evidence', () => {
+  const models = Array.from({ length: 300 }, (_, index) => `opencode/worker-${index}`)
+  const output = models.join('\n')
+  const catalog = parseModelCatalog(output, { command: 'opencode' })
+  assert.equal(catalog.modelCount, 300)
+  assert.equal(catalog.models.length, 256)
+  assert.equal(catalog.truncated, true)
+  assert.equal(selectPreferredModel(output, ['opencode/worker-299']), 'opencode/worker-299')
+})
+
 test('discovered OpenCode spawn candidates carry the observed runtime catalog', () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-catalog-cwd-'))
   const harnessDir = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-catalog-bin-'))
@@ -90,6 +100,7 @@ test('discovered OpenCode spawn candidates carry the observed runtime catalog', 
     assert.equal(candidate?.catalog?.models[0]?.role, 'judge')
     assert.equal(candidate?.catalog?.models[1]?.costClass, 'explicit-free')
     assert.equal(candidate?.model, 'opencode/muse-spark-1.3-contributor-free')
+    assert.equal(candidate?.available, false)
   } finally {
     if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
     else process.env.ORCA_CLI_COMMAND = previousCommand

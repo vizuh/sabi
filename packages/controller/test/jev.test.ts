@@ -20,3 +20,8 @@ test('bounded Jev state omits raw diffs and stays within the configured limit', 
   assert.doesNotMatch(serialized, /raw diff must not reach Jev/)
   assert.deepEqual(bounded.validActions, ['CONTINUE', 'DELEGATE'])
 })
+
+test('bounded Jev state honors configured limits below the default floor', () => {
+  const bounded = boundJevState({ request: 'x'.repeat(1000), validActions: ['CONTINUE', 'ASK'] }, 200)
+  assert.ok(JSON.stringify(bounded).length <= 200)
+})

@@ -48,6 +48,8 @@ test('OpenCode chat.message plans first and replaces the submitted parts after d
     assert.deepEqual(requests[2].body.override, { sessionId: 'session:claude-1' })
     assert.equal(requests[3].body.sessionId, 'session:claude-1')
     assert.equal(requests[3].body.outcome, 'started')
+    assert.equal(requests[3].body.adapter, 'claude')
+    assert.equal(requests[3].body.harness, 'claude')
     assert.equal(requests[1].body.idempotencyKey, requests[2].body.idempotencyKey)
     assert.equal(requests[2].body.idempotencyKey, requests[3].body.idempotencyKey)
     assert.equal(output.parts.length, 1)
@@ -97,6 +99,26 @@ test('OpenCode omits the outcome post when a spawn has no addressable session', 
     await hooks['chat.message']({ sessionID: 'opencode-session-1' }, output)
     assert.deepEqual(requests.map((request) => new URL(request.url).pathname), ['/v1/sessions/register', '/plan', '/route'])
     assert.match(output.parts[0].text, /started/i)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('OpenCode omits target outcome when the selected harness is unknown', async () => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), body: JSON.parse(options.body) })
+    const payload = String(url).endsWith('/plan')
+      ? { action: 'DELEGATE', target: { id: 'session:unknown' } }
+      : { action: 'DELEGATE', execution: { status: 'started', targetId: 'session:unknown', receipt: { phase: 'started', observedAt: new Date().toISOString() } } }
+    return { ok: true, async json() { return payload } }
+  }
+  try {
+    const hooks = await SabiOpenCodePlugin({ directory: '/tmp/sabi-opencode-test', worktree: '/tmp/sabi-opencode-test' })
+    const output = { parts: [{ type: 'text', text: 'review this change' }] }
+    await hooks['chat.message']({ sessionID: 'opencode-session-1' }, output)
+    assert.deepEqual(requests.map((request) => new URL(request.url).pathname), ['/v1/sessions/register', '/plan', '/route'])
   } finally {
     globalThis.fetch = originalFetch
   }

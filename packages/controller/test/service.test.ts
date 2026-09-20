@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
@@ -8,6 +8,7 @@ import {
   installUserServiceForPlatform,
   launchAgentPlist,
   removeUserServiceForPlatform,
+  restartUserServiceForPlatform,
   systemdUnit,
   windowsTaskLauncher,
   windowsTaskRun,
@@ -27,6 +28,30 @@ test('service installation can be explicitly disabled without touching the host'
     env: { ...process.env, SABI_SERVICE_MODE: 'disabled' },
   })
   assert.deepEqual(result, { backend: 'unsupported', installed: false, running: false, detail: 'disabled by environment' })
+})
+
+test('systemd service restart uses the installed user unit instead of a detached daemon', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-systemd-restart-'))
+  try {
+    const calls = path.join(root, 'calls')
+    const systemctl = path.join(root, 'systemctl')
+    writeFileSync(systemctl, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$SABI_CALLS"\n')
+    chmodSync(systemctl, 0o755)
+    const configHome = path.join(root, 'config')
+    const unit = path.join(configHome, 'systemd', 'user', 'sabi-controller.service')
+    mkdirSync(path.dirname(unit), { recursive: true })
+    writeFileSync(unit, '[Service]\n')
+    const result = restartUserServiceForPlatform('linux', {
+      stateDir: path.join(root, 'state'),
+      env: { ...process.env, XDG_CONFIG_HOME: configHome, SABI_SYSTEMCTL: systemctl, SABI_CALLS: calls },
+    })
+    assert.equal(result.installed, true)
+    assert.equal(result.running, true)
+    assert.match(readFileSync(calls, 'utf8'), /--user daemon-reload/)
+    assert.match(readFileSync(calls, 'utf8'), /--user restart sabi-controller\.service/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('launch agent renderer uses absolute entrypoint and user-scoped state', () => {
