@@ -808,3 +808,12 @@ controller hooks remain clearly separate from in-session model switching.
 
 Validation: `npm test` 387/387, `npm run typecheck`, `git diff --check`. No real credential, paid
 inference, user configuration, deployment or publication changed.
+
+## [2026-09-20] release | Publish the Sabi 0.1.3 package set
+
+PR #54 merged at `9cb67626e977c5b9afba452e1d3b47966659967`. Tags `v0.1.3` and `controller-v0.1.0`
+completed workflows `35539333133` and `35539332925`; the public npm registry now resolves
+`@vizuh/sabi@0.1.3` and `@vizuh/sabi-controller@0.1.0`, with matching tarballs on the GitHub
+Releases. Local and PR gates passed: 406 tests, typecheck, package builds and clean controller
+installation. This is source/CI/distribution evidence only; host activation, cross-terminal
+completion, provider entitlement/quota and task quality remain unverified runtime gates.
