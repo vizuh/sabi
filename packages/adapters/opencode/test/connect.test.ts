@@ -73,6 +73,29 @@ test('the writer merges Sabi and preserves the existing profile', () => {
   }
 })
 
+test('image is advertised only where a reachable tier declares it', () => {
+  const imaged = {
+    ...sabiConfig,
+    models: {
+      cheap: { upstream: 'mock', model: 'm-cheap', contextWindow: 1310720, capabilities: { inputModalities: ['text'] } },
+      strong: { upstream: 'mock', model: 'm-strong', contextWindow: 1000000, capabilities: { inputModalities: ['text', 'image'] } },
+      local: { upstream: 'ollama', model: 'qwen2.5-coder:7b', contextWindow: 32768 },
+    },
+    aliases: { 'sabi-code': 'auto', 'sabi-cheap': 'cheap', 'sabi-strong': 'strong' },
+    policy: { 'first-turn': 'cheap', failure: 'strong', exploration: 'cheap', unclassified: 'cheap' },
+  }
+  const { dir, file } = workspace(existing, imaged)
+  try {
+    assert.equal(connect(dir, file).status, 0)
+    const models = JSON.parse(readFileSync(file, 'utf8')).provider.sabi.models
+    assert.deepEqual(models['sabi-code'].modalities, { input: ['text', 'image'], output: ['text'] }, 'auto reaches the image tier')
+    assert.deepEqual(models['sabi-strong'].modalities, { input: ['text', 'image'], output: ['text'] })
+    assert.deepEqual(models['sabi-cheap'].modalities, { input: ['text'], output: ['text'] }, 'text-only tier stays text-only')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('--set-default opts the session into the adaptive alias, and --include-local exposes ollama', () => {
   const { dir, file } = workspace()
   try {

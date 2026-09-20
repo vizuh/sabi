@@ -306,8 +306,11 @@ What the writer does — and deliberately does not do:
 - Declares each alias with the smallest window among the tiers it can serve. OpenCode rejects a model
   entry that sets `limit.context` without `limit.output`, so an undeclared tier gets a conservative
   4,096-token client cap — declare `maxOutputTokens` on a tier to make it exact.
-- Declares text-only input. Add `image` to `modalities.input` only when the tiers you route to declare
-  `capabilities.inputModalities` including `image`; otherwise Sabi will refuse the round.
+- Declares input modalities per alias from the tiers that alias can serve: `sabi-code` and the
+  image-capable fixed aliases advertise `text` + `image` (mid/strong declare `image` in the
+  shipped config), while `sabi-cheap` stays text-only. An adaptive image round falls forward to
+  the first image-capable tier (`rule: capability`); the same image on `sabi-cheap` is refused
+  with 400, by design.
 - Skips the `local` (Ollama) tier unless you pass `--include-local`.
 
 Verify with `npm run report` (or `.sabi/decisions.jsonl`): the rounds appear with `client: opencode`.
