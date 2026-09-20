@@ -11,7 +11,7 @@ sabi status
 sabi doctor
 ~~~
 
-O`setup` is idempotent. It keeps the daemon and state user-scoped, detects supported hosts, installs only supported Sabi-owned hooks, and fails open when Sabi is unavailable. Use `sabi setup --no-hooks` if you want the daemon without changing host configuration. You do not need a Command Code account, a repository checkout, or a per-worktree installation.
+The `setup` command is idempotent. It keeps the daemon and state user-scoped, detects supported hosts, installs only supported Sabi-owned hooks, and fails open when Sabi is unavailable. Use `sabi setup --no-hooks` if you want the daemon without changing host configuration. You do not need a Command Code account, a repository checkout, or a per-worktree installation.
 
 The controller package is released separately under `controller-v*` tags. If npm does not yet contain a release, use the checkout instructions below as a maintainer/development fallback; do not treat them as the normal user installation.
 
