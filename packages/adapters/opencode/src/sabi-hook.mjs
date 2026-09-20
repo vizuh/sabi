@@ -74,6 +74,18 @@ function accepted(record) {
     (phase === 'accepted' || phase === 'started' || phase === 'completed')
 }
 
+function targetHarness(...records) {
+  for (const record of records) {
+    const target = record && typeof record === 'object' && record.target && typeof record.target === 'object'
+      ? record.target
+      : undefined
+    for (const key of ['harness', 'agent']) {
+      if (typeof target?.[key] === 'string' && target[key].trim()) return target[key].trim()
+    }
+  }
+  return undefined
+}
+
 export async function SabiOpenCodePlugin(context) {
   const controllerURL = trustedControllerURL()
   const cwd = context.directory || context.worktree || process.cwd()
@@ -127,11 +139,12 @@ export async function SabiOpenCodePlugin(context) {
           : 'unverifiable'
         const targetId = typeof result.execution.targetId === 'string' ? result.execution.targetId : undefined
         const outcomeSessionId = action === 'DELEGATE' && targetId?.startsWith('session:') ? targetId : undefined
-        if (outcomeSessionId) {
+        const executionHarness = targetHarness(result, plan)
+        if (outcomeSessionId && executionHarness) {
           await post(controllerURL, '/v1/sessions/outcome', {
             sessionId: outcomeSessionId,
-            adapter: 'opencode',
-            harness: 'opencode',
+            adapter: executionHarness,
+            harness: executionHarness,
             worktree: cwd,
             outcome,
             idempotencyKey,

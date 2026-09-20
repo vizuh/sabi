@@ -140,10 +140,17 @@ function normalizeInput(value: unknown, now: number): RegisteredSession {
 
 export function registerSession(stateDir: string, input: unknown, now = Date.now()): RegisteredSession {
   const session = normalizeInput(input, now)
-  const sessions = readAll(stateDir).filter((entry) => entry.id !== session.id && now - entry.lastSeenAt <= SESSION_TTL_MS)
-  sessions.push(session)
+  const all = readAll(stateDir)
+  const existing = all.find((entry) => entry.id === session.id)
+  const sessions = all.filter((entry) => entry.id !== session.id && now - entry.lastSeenAt <= SESSION_TTL_MS)
+  const refreshed: RegisteredSession = {
+    ...session,
+    ...(existing?.lastOutcome ? { lastOutcome: existing.lastOutcome } : {}),
+    ...(existing?.lastReceipt ? { lastReceipt: existing.lastReceipt } : {}),
+  }
+  sessions.push(refreshed)
   writeAll(stateDir, sessions)
-  return session
+  return refreshed
 }
 
 export function heartbeatSession(
@@ -171,9 +178,13 @@ export function recordSessionOutcome(
   const outcome = value.outcome as NonNullable<RegisteredSession['lastOutcome']>
   const session = registerSession(stateDir, input, now)
   const sessions = readAll(stateDir)
-  const updated = sessions.map((entry) => entry.id === session.id
-    ? { ...entry, lastOutcome: outcome, ...(lastReceipt ? { lastReceipt } : {}) }
-    : entry)
+  const updated = sessions.map((entry) => {
+    if (entry.id !== session.id) return entry
+    const next = { ...entry, lastOutcome: outcome }
+    if (lastReceipt) next.lastReceipt = lastReceipt
+    else delete next.lastReceipt
+    return next
+  })
   writeAll(stateDir, updated)
   return updated.find((entry) => entry.id === session.id) ?? session
 }

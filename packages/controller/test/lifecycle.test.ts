@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { installHooks } from '../src/hooks.ts'
 import { uninstallController, upgradeController } from '../src/lifecycle.ts'
 
 function workspace(): string {
@@ -55,6 +56,35 @@ test('uninstall archives state and restores explicit hook backups', async () => 
     assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')), { model: 'new-user-choice', hooks: { UserPromptSubmit: [{ hooks: [{ command: 'echo hook claude' }] }] } })
     assert.equal(existsSync(stateDir), false)
     assert.equal(existsSync(result.archivedState!), true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('uninstall removes hooks from a fresh installation without a backup', async () => {
+  const root = workspace()
+  try {
+    const stateDir = path.join(root, 'state')
+    const claude = path.join(root, 'claude', 'settings.json')
+    mkdirSync(stateDir, { recursive: true })
+    writeFileSync(path.join(stateDir, 'controller.json'), '{}')
+    installHooks({
+      harnesses: ['claude'],
+      stateDir,
+      env: { ...process.env, SABI_CLAUDE_SETTINGS: claude, SABI_HOOK_COMMAND: 'sabi-test' },
+    })
+    assert.equal(existsSync(claude), true)
+    assert.equal(existsSync(`${claude}.sabi-backup`), false)
+    const result = await uninstallController({
+      env: {
+        ...process.env,
+        SABI_CONTROLLER_HOME: stateDir,
+        SABI_CLAUDE_SETTINGS: claude,
+        SABI_SERVICE_MODE: 'disabled',
+      },
+    })
+    assert.equal(result.restored.find(({ harness }) => harness === 'claude')?.restored, true)
+    assert.equal(existsSync(claude), false)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

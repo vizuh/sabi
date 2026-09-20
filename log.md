@@ -591,3 +591,20 @@ with no observed request and successful reroute; accepted input is not retried.
 
 Validation: `npm test` 373/373, `npm run typecheck`, focused daemon/OpenCode tests 10/10, and
 `git diff --check`. No live task, secret, paid inference, deployment or publication.
+
+## [2026-09-20] fix | Close post-merge controller review findings
+
+Applied the actionable findings from the last ten merged PR reviews. Session heartbeats now
+preserve the latest outcome receipt; delegated OpenCode outcomes use the actual target harness;
+Claude/Codex hook planning carries the same idempotency key as routing; configured Jev bounds are
+respected below 512 characters; and preferred models remain discoverable beyond the bounded catalog
+telemetry cap. Catalog membership alone no longer proves plan entitlement for a preferred spawn
+target, so catalog-only targets stay unavailable until a live session provides capacity evidence.
+
+Uninstall now removes Sabi-only hook/plugin configuration even without a backup, and upgrades restart
+an installed native user service instead of silently starting a detached daemon. The free OpenCode
+review wording now distinguishes a free OpenCode model request from any configured Jev billing.
+
+Validation: `npm test` passed 378/378, `npm run typecheck` passed, focused controller/adapter tests
+passed 35/35, and `git diff --check` passed. No live task, secret, user configuration, deployment or
+paid model request was changed by this patch.

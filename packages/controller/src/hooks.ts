@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -178,11 +178,12 @@ export function restoreHookBackups(options: { harnesses?: InstalledHook[]; env?:
   return harnesses.map((harness) => {
     const file = paths[harness]
     const backup = `${file}.sabi-backup`
-    if (!existsSync(backup)) return { harness, path: file, restored: false }
-    if (!existsSync(file)) {
+    const hasBackup = existsSync(backup)
+    if (hasBackup && !existsSync(file)) {
       copyFileSync(backup, file)
       return { harness, path: file, restored: true }
     }
+    if (!existsSync(file)) return { harness, path: file, restored: false }
     try {
       const current = readObject(file, {})
       let changed = false
@@ -192,7 +193,10 @@ export function restoreHookBackups(options: { harnesses?: InstalledHook[]; env?:
           const installed = path.resolve(controllerStateDir(env), 'hooks', 'opencode.mjs')
           const filtered = plugins.filter((plugin) => plugin !== installed)
           changed = filtered.length !== plugins.length
-          if (changed) current.plugin = filtered
+          if (changed) {
+            if (filtered.length) current.plugin = filtered
+            else delete current.plugin
+          }
         }
       } else {
         const hooks = current.hooks
@@ -206,9 +210,15 @@ export function restoreHookBackups(options: { harnesses?: InstalledHook[]; env?:
               else delete (hooks as JsonObject)[event]
             }
           }
+          if (Object.keys(hooks).length === 0) delete current.hooks
         }
       }
-      if (changed) writeFileSync(file, `${JSON.stringify(current, null, 2)}\n`, { mode: 0o600 })
+      if (changed) {
+        const keys = Object.keys(current)
+        const onlySabiConfig = !hasBackup && (keys.length === 0 || (harness === 'opencode' && keys.every((key) => key === '$schema')))
+        if (onlySabiConfig) unlinkSync(file)
+        else writeFileSync(file, `${JSON.stringify(current, null, 2)}\n`, { mode: 0o600 })
+      }
       return { harness, path: file, restored: changed }
     } catch {
       return { harness, path: file, restored: false }
@@ -310,7 +320,7 @@ export async function routeHookPrompt(
     const plan = await requestControllerDaemon('/plan', {
       info,
       method: 'POST',
-      body: { request, cwd, currentSession: terminalHandle ?? sessionId, currentHarness: harness, waitMs: 5000 },
+      body: { request, cwd, currentSession: terminalHandle ?? sessionId, currentHarness: harness, waitMs: 5000, ...(idempotencyKey ? { idempotencyKey } : {}) },
     })
     if (!plan || !['DELEGATE', 'SPAWN', 'ORCHESTRATE'].includes(String(plan.action))) return {}
     const action = String(plan.action)

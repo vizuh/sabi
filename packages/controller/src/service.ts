@@ -77,6 +77,21 @@ function installSystemd(entrypoint: string, stateDir: string, env: NodeJS.Proces
   }
 }
 
+function restartSystemd(env: NodeJS.ProcessEnv): UserServiceResult {
+  const file = systemdPath(env)
+  if (!existsSync(file)) return { backend: 'systemd-user', installed: false, running: false, path: file, detail: 'service not installed' }
+  if (!env.SABI_SYSTEMCTL?.trim() && !commandPath('systemctl', env)) {
+    return { backend: 'systemd-user', installed: true, running: false, path: file, detail: 'systemctl not found' }
+  }
+  try {
+    systemd(['daemon-reload'], env)
+    systemd(['restart', 'sabi-controller.service'], env)
+    return { backend: 'systemd-user', installed: true, running: true, path: file }
+  } catch (error) {
+    return { backend: 'systemd-user', installed: true, running: false, path: file, detail: (error as Error).message }
+  }
+}
+
 function removeSystemd(env: NodeJS.ProcessEnv): UserServiceResult {
   const file = systemdPath(env)
   try {
@@ -178,6 +193,21 @@ function removeLaunchAgent(env: NodeJS.ProcessEnv): UserServiceResult {
   }
 }
 
+function restartLaunchAgent(env: NodeJS.ProcessEnv): UserServiceResult {
+  const file = launchAgentPath(env)
+  if (!existsSync(file)) return { backend: 'launch-agent', installed: false, running: false, path: file, detail: 'service not installed' }
+  if (!env.SABI_LAUNCHCTL?.trim() && !commandPath('launchctl', env)) {
+    return { backend: 'launch-agent', installed: true, running: false, path: file, detail: 'launchctl not found' }
+  }
+  try {
+    const domain = `gui/${numericUserId(env)}`
+    launchctl(['kickstart', '-k', `${domain}/${LAUNCH_AGENT_LABEL}`], env)
+    return { backend: 'launch-agent', installed: true, running: true, path: file }
+  } catch (error) {
+    return { backend: 'launch-agent', installed: true, running: false, path: file, detail: (error as Error).message }
+  }
+}
+
 function windowsTaskLauncherPath(stateDir: string): string {
   return path.join(path.resolve(stateDir), 'sabi-controller.cmd')
 }
@@ -227,6 +257,21 @@ function removeWindowsTask(env: NodeJS.ProcessEnv): UserServiceResult {
   }
 }
 
+function restartWindowsTask(stateDir: string, env: NodeJS.ProcessEnv): UserServiceResult {
+  const launcher = windowsTaskLauncherPath(stateDir)
+  if (!existsSync(launcher)) return { backend: 'windows-task', installed: false, running: false, path: launcher, detail: 'service not installed' }
+  if (!env.SABI_SCHTASKS?.trim() && !commandPath('schtasks', env)) {
+    return { backend: 'windows-task', installed: true, running: false, path: launcher, detail: 'schtasks not found' }
+  }
+  try {
+    try { schtasks(['/End', '/TN', WINDOWS_TASK_NAME], env) } catch { /* task may already be stopped */ }
+    schtasks(['/Run', '/TN', WINDOWS_TASK_NAME], env)
+    return { backend: 'windows-task', installed: true, running: true, path: launcher }
+  } catch (error) {
+    return { backend: 'windows-task', installed: true, running: false, path: launcher, detail: (error as Error).message }
+  }
+}
+
 export function installUserServiceForPlatform(platform: NodeJS.Platform, options: { entrypoint?: string; stateDir: string; env?: NodeJS.ProcessEnv }): UserServiceResult {
   const env = options.env ?? process.env
   if (env.SABI_SERVICE_MODE?.trim() === 'disabled') return { backend: 'unsupported', installed: false, running: false, detail: 'disabled by environment' }
@@ -238,6 +283,19 @@ export function installUserServiceForPlatform(platform: NodeJS.Platform, options
 
 export function installUserService(options: { entrypoint?: string; stateDir: string; env?: NodeJS.ProcessEnv } ): UserServiceResult {
   return installUserServiceForPlatform(process.platform, options)
+}
+
+export function restartUserServiceForPlatform(platform: NodeJS.Platform, options: { stateDir: string; env?: NodeJS.ProcessEnv }): UserServiceResult {
+  const env = options.env ?? process.env
+  if (env.SABI_SERVICE_MODE?.trim() === 'disabled') return { backend: 'unsupported', installed: false, running: false, detail: 'disabled by environment' }
+  if (platform === 'linux') return restartSystemd(env)
+  if (platform === 'darwin') return restartLaunchAgent(env)
+  if (platform === 'win32') return restartWindowsTask(options.stateDir, env)
+  return { backend: 'unsupported', installed: false, running: false, detail: `no user service installer for ${platform}` }
+}
+
+export function restartUserService(options: { stateDir: string; env?: NodeJS.ProcessEnv }): UserServiceResult {
+  return restartUserServiceForPlatform(process.platform, options)
 }
 
 export function removeUserServiceForPlatform(platform: NodeJS.Platform, options: { env?: NodeJS.ProcessEnv } = {}): UserServiceResult {

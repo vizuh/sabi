@@ -61,6 +61,7 @@ const MODEL_CATALOG_MAX_MODELS = 256
 // ponytail: a short process cache avoids two slow CLI probes per request; lower the TTL or add an
 // explicit refresh if plan changes need to be visible inside an already-running daemon.
 const localCatalogCache = new Map<string, { catalog: HarnessCatalogDescriptor | undefined; observedAt: number }>()
+const catalogModelIds = new WeakMap<HarnessCatalogDescriptor, string[]>()
 const INVENTORY_TTL_MS = 2_000
 const inventoryCache = new Map<string, { inventory: AgentInventory; storedAt: number }>()
 
@@ -99,7 +100,7 @@ export function parseModelCatalog(
     costClass: modelCostClass(id),
     role: modelRole(id),
   }))
-  return {
+  const catalog: HarnessCatalogDescriptor = {
     command: metadata.command,
     ...(metadata.runtimeVersion ? { runtimeVersion: metadata.runtimeVersion } : {}),
     outputSha256: createHash('sha256').update(output).digest('hex'),
@@ -108,6 +109,8 @@ export function parseModelCatalog(
     ...(parsedModels.length > MODEL_CATALOG_MAX_MODELS ? { truncated: true } : {}),
     models,
   }
+  catalogModelIds.set(catalog, parsedModels)
+  return catalog
 }
 
 function runtimeVersion(command: string): string | undefined {
@@ -149,7 +152,9 @@ function localCatalog(agent: string, command: string): HarnessCatalogDescriptor 
 
 function preferredModel(catalog: HarnessCatalogDescriptor | undefined, preferredModels: string[] | undefined): string | undefined {
   if (!preferredModels?.length) return undefined
-  return catalog === undefined ? undefined : preferredModels.find((model) => catalog.models.some((entry) => entry.id === model && entry.role === 'worker'))
+  if (catalog === undefined) return undefined
+  const ids = catalogModelIds.get(catalog) ?? catalog.models.map((entry) => entry.id)
+  return preferredModels.find((model) => ids.includes(model) && modelRole(model) === 'worker')
 }
 
 function launchCommand(command: string, model: string | undefined): string | undefined {
@@ -410,12 +415,14 @@ export function discoverAgents(
       ...(launchCommand ? { launchCommand } : {}),
       ...(catalog ? { catalog } : {}),
       capabilities: ['coding'],
-      available: modelRequired && !model
+      // Catalog membership identifies a model, but does not prove plan capacity. A fixed
+      // preferred model needs a live session signal before it is safe to spawn.
+      available: modelRequired && (!model || !knownAgentState.has(agent))
         ? false
         : knownAgentState.get(agent)?.capacity.status === undefined
           ? true
           : knownAgentState.get(agent)!.available && knownAgentState.get(agent)!.capacity.status !== 'unavailable',
-      capacity: modelRequired && !model
+      capacity: modelRequired && (!model || !knownAgentState.has(agent))
         ? { status: 'unavailable' }
         : knownAgentState.get(agent)?.capacity ?? { status: 'available' },
       kind: 'harness',
