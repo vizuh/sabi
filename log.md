@@ -505,3 +505,30 @@ Validation: typecheck clean, opencode adapter tests 6/6 (1 new), writer re-run a
 `sabi/sabi-code` in OpenCode looped forever resetting: every adaptive round routed `sabi-code -> mid -> openai/gpt-5.6-luna` and died after one chunk with `upstream response failed`. Direct OpenRouter calls succeeded (credit fine), `sabi-cheap` + tools streamed fine, and a raw upstream capture showed the cause: OpenAI-via-OpenRouter repeats `finish_reason: "stop"` with an empty delta on its final usage-bearing chunk, and the tap's post-terminal guard rejected it as `upstream stream choice continued after terminal finish` — the client saw a destroyed mid-stream response (502) and retried forever. `packages/server/src/sse.ts` now tracks the terminal reason per choice and allows that idempotent restatement (same reason, no content, no tool calls); real post-terminal deltas still reject, and the existing regression test passes unchanged.
 
 Validation: typecheck clean, server SSE suite 8/8 (1 new: luna-shaped echo accepts, usage recorded), live probes `sabi-mid` + `sabi-code` (as `client: opencode`) both complete with `[DONE]` and `outcome: ok` for fractions of a cent.
+
+## [2026-09-20] docs | Pin runtime versions behind mutable catalog evidence
+
+Followed up the merged PR #31 review. `docs/decisions.md` now qualifies the boundary as
+inference-round scheduling plus the existing pre-session controller, with Orca lifecycle settlement
+remaining an optional adapter. It records the exact live trial runtimes: `orca-ide 1.4.201`,
+OpenCode `1.18.31`, and Node `v24.15.0`.
+
+Refreshed the free-plan probes without changing user configuration: Command Code `1.58.0` reported
+72 models via `cmd --list-models` and currently marked only
+`inclusionai/ling-3.0-flash-sante:free`; OpenCode `1.18.31` reported 46 entries via the
+`opencode models` command, including seven `opencode/*-free` entries. The full-output hashes are recorded in
+`docs/handoff.md`. Neither installed runtime exposed a source repository/commit, so these remain
+version-pinned runtime observations, not source-pinned benchmark claims. `docs/handoff.md` also
+records the remaining provenance and post-upgrade rerun gates.
+
+## [2026-09-20] verify | Read-only Sabi review on an OpenCode free plan
+
+Ran the review through the real OpenCode CLI `1.18.31` with
+`opencode/ling-3.0-flash-fin-free`, the same-repo Sabi plugin, a temporary loopback controller
+daemon, and an explicit `/tmp/sabi-runtime-evidence` directory. The model returned
+`SABI_FREE_REVIEW_OK` after checking the three PR #31 follow-up findings. The Sabi trace observed
+34 worktrees and 14 sessions and recorded Jev selecting bounded `CONTINUE`; the request stayed in
+the native OpenCode session, with no cross-session dispatch, paid upstream request, or file edit.
+The first attempt was discarded from evidence because OpenCode resolved the canonical dirty
+checkout; the corrected `--dir` run is the only accepted result. Full validation: 366 tests passed,
+`npm run typecheck` passed, and `git diff --check` passed.

@@ -614,26 +614,33 @@ Session discovery must not turn that into `sabi status` output or a persisted ca
 Expand the redaction canary corpus when a new provider/harness exposes a credential format; never
 replace it with storing full terminal transcripts.
 
-## [2026-09-20] Sabi routes independently of Orca supervision; lifecycle adapter stays Orca-side
+## [2026-09-20] Sabi inference-round routing is independent of Orca lifecycle supervision
 
 ### Decision
 
-Sabi's routing contract ends at the model-request layer (observe request → classify → choose
-model/config → execute → observe result → update routing). Orca supervision is an optional higher
-layer, not a dependency of routing. Any full-lifecycle supervision of a harness process (Orca
-`worker_done` settlement) is delivered by a thin Orca-side adapter, never by modifying a harness
-or by making Sabi depend on Orca's worker protocol.
+Sabi has two related contracts. Its inference scheduler routes one model/config per model-request
+round (observe request → classify → choose model/config → execute → observe result → update
+routing). Its controller may also route a task before a harness session is chosen, including
+CONTINUE/DELEGATE/SPAWN/ORCHESTRATE decisions. Orca lifecycle supervision is an optional higher
+adapter layer, not a dependency of either Sabi routing contract. Full-lifecycle settlement (Orca
+`worker_done`) belongs in a thin Orca-side adapter, never in a harness fork or an Orca dependency
+inside the routing core.
 
 ### Why
 
-A live Orca trial (2026-09-20) separated the two questions. Orca launched `opencode run` and an
+A live Orca trial (2026-09-20) separated the questions. Orca launched `opencode run` and an
 interactive `opencode` TUI in managed terminals; the TUI completed an injected task
 (`ORCA_TRIAL_OK`, served by `sabi-code` in 6.0s) with matching `ok` routing rounds in the decision
 log — so the Orca → terminal → harness → Sabi → model chain is real. What failed is a different
 layer: `worker-start --terminal` refused the raw process (`agent_unconfigured`; only recognized
 agents qualify), and the inject lane (`dispatch --inject`) carries Task context without supervision
-(opencode cannot send `worker_done`; release stays refused). Routing worked throughout; supervision
-did not — proving they are independent.
+(OpenCode cannot send `worker_done`; release stays refused). Routing worked throughout; supervision
+did not — proving the layers are independent.
+
+The trial used `orca-ide 1.4.201` and OpenCode CLI `1.18.31` on Node `v24.15.0`. Those exact
+versions pin the observation, not a stable Orca protocol: the installed CLI exposes no upstream
+repository/commit for the worker contract, so the lifecycle conclusion remains unverified for
+other Orca releases and must be re-run after an Orca upgrade.
 
 ### Alternatives considered
 - Make Sabi an Orca plugin so supervision comes free — rejected; it would inherit one
