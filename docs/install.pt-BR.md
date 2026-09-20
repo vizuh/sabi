@@ -1,83 +1,73 @@
 # Instalar o Sabi
 
-Para colocar o Sabi numa máquina que não é esta. O repositório `https://github.com/vizuh/sabi` é público;
-você precisa de uma conta no Command Code para o caminho de classe A.
+O Sabi é instalado uma vez por usuário/máquina. Ele não é um plugin do Command Code e não exige um harness específico. O core/controller é a instalação para usuários; Command Code, OpenCode, Hermes, Claude Code, Codex, Orca e outros hosts são integrações opcionais.
 
-**Setup rápido**: `npm run setup` guia você na escolha do harness e, opcionalmente, do Jev — veja
-[Setup rápido](#setup-rápido) abaixo. As seções depois dela são os passos manuais detalhados que
-ela executa por você; leia-as se quiser automatizar uma peça isolada.
+## Instalação única para usuários
 
-São dois caminhos, e são alternativas entre si, não etapas:
+~~~bash
+npm install --global @vizuh/sabi-controller
+sabi setup
+sabi status
+sabi doctor
+~~~
 
-- **A — o mod** (recomendado se você usa Command Code): o Sabi roda dentro do harness, roteia o
-  catálogo da assinatura e não precisa de proxy nem de chave de API.
-- **B — o proxy**: o Sabi roda como um endpoint local compatível com OpenAI. Use para harnesses que só
-  aceitam uma `baseURL`, ou para rotear seus próprios modelos via OpenRouter/Ollama.
+O `setup` é idempotente. Ele mantém o daemon e o estado no escopo do usuário, detecta hosts compatíveis, instala apenas hooks do Sabi com suporte e permite que o harness continue normalmente se o Sabi estiver indisponível. Use `sabi setup --no-hooks` se quiser o daemon sem alterar a configuração do host. Não é necessário ter conta do Command Code, checkout do repositório ou instalação por worktree.
 
-Dá para instalar os dois; eles não interferem (mecanismos diferentes, namespaces de modelo diferentes).
+O pacote do controller é publicado separadamente por tags `controller-v*`. Se o npm ainda não tiver uma versão publicada, use o checkout abaixo apenas como fallback de mantenedor/desenvolvimento; não o trate como a instalação normal do usuário.
 
-## Setup rápido
+## O que é instalado?
 
-```bash
-git clone https://github.com/vizuh/sabi && cd sabi && npm install
-npm run setup
-```
+| Superfície | Função | Exige Command Code? | Exige chaves de provedor? |
+|---|---|---:|---:|
+| Controller/daemon do Sabi | Coordenação de sessões e worktrees no escopo do usuário | Não | Não |
+| Mod do Command Code | Roteamento de modelo + esforço por rodada dentro do Command Code | Sim | Não |
+| Proxy local | Roteamento de modelo/provedor para clientes compatíveis com OpenAI | Não | Sim, para upstreams BYOK |
 
-Pergunta qual harness (Command Code / OpenCode / Hermes) e, separadamente, se quer ativar o Jev.
-Para Command Code e OpenCode, roda o mesmo escritor certificado que a seção detalhada de cada
-harness abaixo documenta. Para Hermes, automatiza as partes mecânicas da receita manual abaixo
-(criar `HERMES_HOME`, copiar o plugin, escrever `config.yaml`) — esse caminho continua
-**não certificado**, exatamente como a seção do Hermes diz; ele imprime o candidato de janela de
-contexto para você verificar, não o afirma como verdade. Flags pulam qualquer pergunta:
-`npm run setup -- --harness=command-code --class=a`, `--harness=opencode --no-jev`,
-`--harness=hermes --hermes-home=<caminho>`. Sem flag de harness e sem TTY para perguntar, não
-escreve nada e imprime o uso — não existe harness padrão seguro, cada escolha grava um arquivo
-diferente. `--jev` só liga `judge.enabled`/`judge.baseURL` em `sabi.config.json`; nunca lê,
-imprime ou grava sua `TYPESAFE_API_KEY` — exporte-a você mesmo, como sempre.
-Kilo e Prime Agent não são automatizados — `--harness=kilo`/`prime-agent` só aponta para
-[as receitas manuais](harnesses.md).
+Essas superfícies são independentes, não etapas. Instalar o controller não ativa silenciosamente o proxy nem o mod do Command Code.
 
-## Requisitos
+## Checkout do mantenedor (somente desenvolvimento)
 
-| | |
+Use o checkout para desenvolver o Sabi, rodar a suíte completa ou testar uma integração ainda não empacotada:
+
+~~~bash
+git clone https://github.com/vizuh/sabi
+cd sabi
+npm install
+npm run controller -- setup
+npm run controller -- doctor
+npm run controller -- integrations list
+~~~
+
+O antigo `npm run setup` também é um utilitário de desenvolvimento para escrever uma configuração específica de proxy ou Hermes. Ele não é o caminho de instalação para usuários.
+
+## Requisitos por superfície
+
+| Superfície | Requisitos |
 |---|---|
-| Node | 22.6 ou mais novo (type stripping; desenvolvido no 24) |
-| Harness | Command Code para o caminho A; qualquer coisa compatível com OpenAI para o caminho B |
-| Acesso | nenhum — o repositório é público |
-| Chaves | caminho A: nenhuma; caminho B: uma chave de upstream (ex.: OpenRouter) e opcionalmente uma chave TypeSafe para o Jev |
-| Plano | só caminho A: todo id em `harness.tiers` precisa estar coberto — veja [Cobertura de plano](#cobertura-de-plano) |
+| Controller base | Node 22.6+ e o pacote publicado `@vizuh/sabi-controller` |
+| Mod do Command Code | Command Code, plano cobrindo `harness.tiers` e o mod publicado `@vizuh/sabi` |
+| Proxy local | Node 22.6+, cliente compatível com OpenAI e credenciais dos upstreams pagos habilitados |
+| Checkout do mantenedor | Node 22.6+, git e o repositório |
 
-## A — mod do Command Code
+## Integração opcional — mod nativo do Command Code
 
-```bash
-git clone https://github.com/vizuh/sabi && cd sabi
+Use isto apenas se quiser roteamento por rodada de modelo e esforço de raciocínio dentro do Command Code. Não é necessário para instalar o Sabi.
+
+### Mod publicado
+
+~~~bash
+cmd mods add -g npm:@vizuh/sabi
+cmd mods list
+~~~
+
+### Checkout local (somente desenvolvimento)
+
+~~~bash
+git clone https://github.com/vizuh/sabi
+cd sabi
 npm install
 cmd mods add ./packages/adapters/command-code
-```
-
-`cmd mods add` registra o pacote como fonte de mod para o **projeto** (grava
-`.commandcode/settings.json` ao lado do seu checkout, que está no gitignore). Ele não copia nada: o
-pacote é referenciado no lugar, e é por isso que o clone precisa ficar onde está.
-
-O que foi adicionado:
-
-```json
-{ "mods": { "sources": ["/caminho/para/sabi/packages/adapters/command-code"] } }
-```
-
-O pacote declara o que entrega no próprio `package.json`:
-
-```json
-{ "commandcode": { "mods": ["./mod/sabi.ts"] } }
-```
-
-Se você preferir não manter um checkout, o mesmo mod é publicado no npm como um único arquivo empacotado, sem dependências de runtime, com um `sabi.config.json` padrão próprio:
-
-```bash
-cmd mods add -g npm:@vizuh/sabi     # escopo de usuário — carrega em todo projeto
-```
-
-Um `sabi.config.json` no projeto (ou `~/.config/sabi/sabi.config.json`) tem precedência sobre o padrão que vem no pacote. As atualizações vêm de `cmd mods update`. O caminho B abaixo continua precisando do clone.
+~~~
 
 ### Confirmar que carregou
 
@@ -133,7 +123,9 @@ O mod também grava sua decisão por rodada na sessão, como entrada customizada
 cmd mods remove sabi          # ou: cmd mods remove ./packages/adapters/command-code
 ```
 
-## B — proxy local
+## Integração opcional — proxy local compatível com OpenAI
+
+Use isto quando um cliente aceita uma `baseURL` e você quer rotear suas próprias credenciais de upstream. Isso é separado do daemon do controller; na versão atual, o proxy ainda é um processo em primeiro plano iniciado a partir do checkout, então esse caminho opcional exige checkout e `npm start`.
 
 ```bash
 npm install
