@@ -678,3 +678,14 @@ adapter, not the whole product.
 
 No code, credentials, user configuration, live task, paid inference, deployment or package
 publication was changed by this documentation set.
+
+## [2026-09-20] feat | Add Command Code evidence parity and VNext Spec Kit plan
+
+Normalized planned Command Code rounds into the shared `DecisionRecord` JSONL at the harness
+workspace, kept legacy custom entries, added privacy-safe tool/session handling and unknown-safe
+usage semantics, and made logging fail open. Added the VNext spec/task plan for verification,
+recovery, catalogs, replay/promotion and learned routing; no Jev/catalog/cost behavior was enabled.
+
+Validation: focused Command Code tests passed 15/15, full `npm test` passed 384/384, `npm run
+typecheck` passed, and `git diff --check` passed. No live provider request, secret, user configuration,
+deployment or publication was performed.
