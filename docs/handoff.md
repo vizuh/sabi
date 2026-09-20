@@ -320,7 +320,7 @@ Verification: focused controller tests pass, including a CLI replay test and dae
 
 ## Public controller installation phase 2 — 2026-09-20
 
-PR #28 (`feat/global-installation-phase2`) is open against `main`. The controller package now treats
+PR #28 (`feat/global-installation-phase2`) is merged into `main`. The controller package now treats
 `sabi setup` as the explicit user-consent point: it detects real executable harnesses, installs only
 the supported Claude/Codex/OpenCode bridges that are present, preserves existing configuration, and
 passes the current host session identity through planning. A hook can therefore keep a trivial
@@ -418,3 +418,33 @@ accepted the input but reported quota/rate-limit state, so the controller refres
 rerouted through additional eligible sessions/targets without claiming success. The final run did
 not receive `QUOTA_HANDOFF_OK`; this is a recovery/safety proof, not a successful end-to-end receipt.
 The recovery loop is now bounded to three replacement attempts and the structured handoff is retained.
+
+## Runtime-pinned catalog evidence and PR #31 follow-up — 2026-09-20
+
+PR #31 is merged. Its follow-up fixes now distinguish Sabi's inference-round scheduler and
+pre-session controller routing from the optional Orca lifecycle adapter; the full decision is in
+`docs/decisions.md`.
+
+The mutable local catalog evidence was refreshed with these commands and versions:
+
+- Command Code: `cmd 1.58.0` at `/home/hugocarvalho/.nvm/versions/node/v24.15.0/bin/cmd`; `cmd --list-models` reported 72 models and one explicit free marker,
+  `inclusionai/ling-3.0-flash-sante:free`. Full-output SHA-256:
+  `e2b0f2eff219032619fe258c585051fdec54cdc91d5ba3233818736c1637eb93`.
+- OpenCode: CLI `1.18.31`, local `@opencode-ai/plugin` `1.18.4`; `opencode models` reported 46 entries,
+  including seven `opencode/*-free` entries. Full-output SHA-256:
+  `4b1c758f744cc2d004827fb2dea8c331ef645e6fbb971d57bbcd4ef882f9afd6`.
+- Orca: `orca-ide 1.4.201`; the trial versions and lifecycle caveat are recorded in
+  `docs/decisions.md`.
+
+Neither installed catalog runtime exposed a source repository and commit in its version/package
+metadata. The IDs and free labels are therefore runtime observations, not source-pinned benchmark
+claims; repeat the probes after upgrades before treating a model as available. Next fix list:
+preserve this provenance with every catalog refresh, rerun the Orca lifecycle probe after upgrades,
+and do not publish a controller release from catalog presence alone.
+
+The free OpenCode/Sabi review used `opencode run --dir /tmp/sabi-runtime-evidence --model
+opencode/ling-3.0-flash-fin-free` with the Sabi plugin and a temporary loopback daemon. It returned
+`SABI_FREE_REVIEW_OK`; Sabi observed the real Orca inventory (34 worktrees, 14 sessions), Jev chose
+the bounded `CONTINUE` action, and execution remained native to the current OpenCode session. The
+prompt was read-only, no file was edited, and no cross-session dispatch or paid upstream request
+was made. Validation on this branch: 366 tests passed and `npm run typecheck` passed.
