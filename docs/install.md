@@ -358,9 +358,9 @@ This summarizes recorded traffic; it does not invoke a harness or replay a paid 
 ### Hermes
 
 Hermes is served through the same proxy, plus an optional plugin that adds stable attribution. This
-follows `packages/adapters/hermes/README.md`: the plugin and a Hermes → Sabi → mock probe are verified
-in isolation, but **no real Hermes profile has been run against Sabi yet** — treat this as a template,
-not a certified path.
+follows `packages/adapters/hermes/README.md`: the pinned Hermes main-conversation and resume path
+has a native Hermes → Sabi → mock acceptance probe. Auxiliary calls, direct provider rebinding and
+real-provider quality remain separate gates; do not read this as a paid-provider certification.
 
 1. Create a new `HERMES_HOME`. Do not point it at an existing personal profile.
 2. Copy `packages/adapters/hermes/plugin/` to `$HERMES_HOME/plugins/sabi-metadata/`.

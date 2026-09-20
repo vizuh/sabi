@@ -55,7 +55,7 @@ This is a capability map, not a claim that every row has passed a live end-to-en
 | OpenCode | proxy/provider + optional plugin | proxy model routing; native switching **not claimed** | source/tests + bounded local receipt path |
 | Claude Code | controller hook | **not claimed** inside the harness | source/tests; live receipt gate remains |
 | Codex | controller hook | **not claimed** inside the harness | source/tests; live receipt gate remains |
-| Hermes | OpenAI-compatible proxy path | proxy routing only | executable discovery is not support proof |
+| Hermes | OpenAI-compatible proxy + pinned native probe | main/resume proxy routing certified; auxiliary paths separate | executable discovery is not support proof |
 
 ### What does it look like?
 
@@ -344,13 +344,13 @@ packages/core                    trajectory state, policy, judge application, ro
 packages/server                  OpenAI-compatible proxy (SSE passthrough + tap), TypeSafe client, /v1/models, report
 packages/adapters/command-code   the in-process mod (mod/sabi.ts) + the BYOK provider writer (src/connect.ts)
 packages/adapters/opencode       OpenCode config writer (npm run connect:opencode)
-packages/adapters/hermes         opt-in metadata bridge and isolated compatibility probe
+packages/adapters/hermes         opt-in native proxy-routing adapter and isolated compatibility probe
 packages/adapters/prime-agent   private isolated proxy/timing probe; no native adapter
 ```
 
 `npm run mod` loads the mod from a checkout. The proxy uses one shared effective-envelope check before adding `stream_options.include_usage` for eligible upstreams, rewrites the response `model` field back to the synthetic alias, taps the SSE stream for usage, and logs decision records with the privacy limits described above. Judge calls are made before forwarding and are recorded on the decision (`judge.status`, probabilities, override direction, latency, token cost).
 
-The compatibility notes and isolated probes for Hermes, Prime Agent, OpenCode and Kilo live in [docs/harnesses.md](docs/harnesses.md). Native per-round hooks remain gated until same-trajectory behavior is proven. Future work includes learned model profiles and quota awareness.
+The compatibility notes and isolated probes for Hermes, Prime Agent, OpenCode and Kilo live in [docs/harnesses.md](docs/harnesses.md). Hermes' pinned main/resume proxy path is certified through its public middleware seam; auxiliary calls, direct provider rebinding and real-provider quality remain separate gates. Future work includes learned model profiles and quota awareness.
 
 ## Prior art
 

@@ -1,8 +1,11 @@
 # Hermes compatibility
 
-Checked 2026-09-18. **Hermes CLI → Sabi → local mock passed; full Hermes/Sabi support
-is not certified.** The metadata bridge and an isolated Hermes → Sabi → mock probe are implemented. Native model/effort routing stays gated. No Python policy copy, provider
-rebinding, planner API, tool wrapper, or second agent loop was added.
+Checked 2026-09-20. **The pinned Hermes main conversation and resume path route through
+Sabi's native OpenAI-compatible proxy.** The adapter uses Hermes' public `llm_request`
+middleware for attribution; Sabi's shared core performs the per-request model/effort/provider
+decision. This is certified against the pinned synthetic native probe, not against every Hermes
+auxiliary or a real paid provider. No Python policy copy, provider rebinding, planner API, tool
+wrapper, or second agent loop was added.
 
 ## Version and installation
 
@@ -21,7 +24,7 @@ rebinding, planner API, tool wrapper, or second agent loop was added.
   were visible there. The Sabi proxy fixture used system Node **22.23.1**.
   Telemetry collection and sending were explicitly disabled in the probe config.
 
-## Bridge and config
+## Adapter and config
 
 [`packages/adapters/hermes`](../../packages/adapters/hermes/README.md) contains a
 zero-dependency plugin and its focused tests. It adds `X-Sabi-Client: hermes`,
@@ -34,7 +37,8 @@ other provider kwarg, including tools, argument strings, ordering, reasoning
 settings, stream options and unknown SDK objects. It registers only
 `llm_request`. Middleware failure is fail-open, not a budget or permission stop.
 Hermes' opaque `turn_id` spans a user turn and its tool requests; it is not a
-per-inference request ID.
+per-inference request ID. Sabi creates a unique request ID for each received
+request and makes the routing decision from the evolving trajectory.
 
 The [config template](../../packages/adapters/hermes/config.yaml.example) selects
 `chat_completions`, manual alias registration and `discover_models: false`.
@@ -81,8 +85,10 @@ No Sabi endpoints were added to satisfy these probes.
 Artifacts under `.sabi/compat/hermes/`: `install.log`,
 `metadata-project-tests.log`, direct-client baseline
 `runs/20260918T133226072567Z/summary.json`, and proxy reports, including the final post-review run
-`runs/20260918T140344697168Z/summary.json` with its `sabi.json`. The tracked
-`probe_client.py --via-sabi` starts the real local `createSabiServer` through
+`runs/20260918T140344697168Z/summary.json` with its `sabi.json`. Fresh delivery validation also
+recorded direct and Sabi runs at `20260920T095355901450Z` and `20260920T095310066130Z`; the latter's
+`sabi.json` contains the three `mid → cheap → mid` decisions and unique request receipts. The
+tracked `probe_client.py --via-sabi` starts the real local `createSabiServer` through
 `probe_sabi.mjs` with synthetic capability/config fixtures. No real model is contacted.
 
 ## Source evidence and remaining gates

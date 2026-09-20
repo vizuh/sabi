@@ -608,3 +608,19 @@ review wording now distinguishes a free OpenCode model request from any configur
 Validation: `npm test` passed 378/378, `npm run typecheck` passed, focused controller/adapter tests
 passed 35/35, and `git diff --check` passed. No live task, secret, user configuration, deployment or
 paid model request was changed by this patch.
+
+## [2026-09-20] feat | Complete the pinned Hermes native proxy-routing contract
+
+Formalized the Hermes V1 adapter and task checklist. The thin public `llm_request` middleware
+preserves the complete request, adds validated opaque session/turn attribution, and leaves
+per-request model/effort/provider scheduling to the existing Sabi proxy behind `sabi-code`.
+Updated compatibility, harness, install and handoff docs to distinguish the certified main/resume
+path from uncertified auxiliary calls, direct provider rebinding, paid quality and ContextEngine
+replacement.
+
+Validation: 12 Hermes adapter tests passed; direct Hermes → mock and Hermes → actual Sabi → mock
+probes both exited `passed_with_metadata_probe_limit`. The Sabi probe recorded three unique request
+receipts, `mid → cheap → mid`, one hashed session, two hashed turns, `client: hermes`, `outcome: ok`,
+and preserved the tool call/result. The full Node suite passed 378/378, `npm run typecheck` passed,
+and `git diff --check` passed. No secrets or paid inference were used. Specs and deferred gates are
+in `docs/specs/hermes-sabi-routing.md` and `docs/tasks/hermes-sabi-routing.md`.

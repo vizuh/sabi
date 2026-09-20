@@ -1,8 +1,11 @@
-# Hermes metadata bridge
+# Hermes × Sabi native proxy-routing adapter
 
 Opt-in, zero-dependency `llm_request` plugin for Hermes **0.21.3** at
 [`01382698fc32ec7740b6a204d9b7a6abeac74d33`](https://github.com/NousResearch/hermes-agent/tree/01382698fc32ec7740b6a204d9b7a6abeac74d33).
-This is attribution, not native model/effort routing or full Hermes certification.
+The adapter is the native Hermes seam for Sabi's proxy path: Hermes keeps its
+normal loop, while Sabi schedules each Chat Completions request against the
+trajectory. The middleware adds attribution only; it does not duplicate policy
+or create a second agent loop.
 See [compatibility evidence](../../../docs/research/hermes-compatibility.md).
 
 ## Contract
@@ -18,8 +21,14 @@ See [compatibility evidence](../../../docs/research/hermes-compatibility.md).
 - Hermes `turn_id` identifies a user turn, including its tool-loop requests.
   It is **not** a unique inference-request ID. Sabi assigns request IDs.
 - No provider rebinding, policy copy, execution wrapper, tool hook, HTTP client,
-  retry, or second agent loop. Hermes middleware is fail-open, so it cannot be
-  a permission or budget enforcement gate.
+  retry, or second agent loop. The configured `sabi-code` provider is the routing
+  boundary; Sabi changes the upstream execution target behind it. Hermes
+  middleware is fail-open, so it cannot be a permission or budget enforcement
+  gate.
+- Sabi makes a fresh bounded routing decision for each inference request. The
+  same Hermes `turn_id` groups tool-loop requests; the resumed user turn gets a
+  new turn ID. This preserves trajectory-level scheduling without confusing a
+  turn identity with Sabi's unique request identity.
 
 ## Isolated opt-in recipe
 
@@ -43,7 +52,23 @@ hosts, URL credentials, query strings and fragments. Changing the model away fro
 Rollback: stop selecting this isolated profile, or remove `sabi-metadata` from
 its `plugins.enabled`. Preserve the profile; do not delete user state or change
 other providers. Without the plugin, custom-provider transport can still work but
-stable session attribution is unknown.
+stable session attribution is unknown and Sabi cannot safely group the trajectory.
+
+## V1 contract and acceptance
+
+The completed V1 contract is recorded in
+[`docs/specs/hermes-sabi-routing.md`](../../../docs/specs/hermes-sabi-routing.md).
+The implementation checklist is in
+[`docs/tasks/hermes-sabi-routing.md`](../../../docs/tasks/hermes-sabi-routing.md).
+
+The supported path is deliberately one-way:
+
+```text
+Hermes → custom:sabi / sabi-code → Sabi proxy → configured upstream
+```
+
+Sabi does not claim that a Hermes subscription model can be transferred into
+another provider, and catalog presence is not treated as plan entitlement.
 
 ## Focused tests
 

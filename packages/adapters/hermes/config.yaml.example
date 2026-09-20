@@ -33,6 +33,8 @@ model_overrides:
       supports_reasoning: false
 
 plugins:
+  # The plugin adds safe session/turn attribution. Sabi performs the actual
+  # per-request routing behind the sabi-code alias.
   enabled: [sabi-metadata]
 
 # No path around Sabi on failure. These are native Hermes settings.

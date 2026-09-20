@@ -9,6 +9,13 @@ real cross-terminal completion remain separate evidence gates. The public `@vizu
 still publishes the inference adapter; `@vizuh/sabi-controller` remains a separate bundle/release
 lane until its live receipt gates pass.
 
+The pinned Hermes 0.21.3 adapter is now a completed V1 native proxy-routing path: Hermes owns its
+loop and execution, the public `llm_request` middleware adds opaque session/turn attribution, and
+Sabi schedules each request behind the `sabi-code` alias. The isolated native probe verifies a real
+tool loop, resume, three unique Sabi request receipts and shared-core routing `mid → cheap → mid`.
+Direct provider rebinding, auxiliary/subagent calls, compaction replacement and paid-provider
+quality remain explicit separate gates.
+
 ## Product narrative and controller hardening — 2026-09-20
 
 The README now leads with the user outcome, separates the in-harness inference scheduler from the
