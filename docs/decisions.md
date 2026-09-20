@@ -739,6 +739,26 @@ Promote only after live free-model and fallback receipts provide runtime-pinned 
 durable health or learned profiles only if cross-process recovery and held-out outcome data justify
 them. Keep paid probing and subscription claims outside the automatic path.
 
+## [2026-09-20] Free OpenCode evidence closes native execution only
+
+### Decision
+
+Treat the bounded `opencode/ling-3.0-flash-fin-free` run as evidence for native OpenCode free-model
+execution and Sabi plugin/daemon continuity. Do not count it as controller model-health evidence:
+the plugin registered the current session, the bounded action set was `CONTINUE`, and no controller
+execution receipt was needed.
+
+### Why
+
+The safe current-session result is the correct behavior for a read-only smoke. Claiming that it
+proved per-turn model switching or spawned-target health would confuse native harness execution with
+controller lifecycle execution.
+
+### Revisit later?
+
+Run the quota/fallback case only when an addressable controller target is available. Keep unknown or
+paid observations behind explicit spend approval and pin runtime/catalog evidence for each run.
+
 ## [2026-09-20] Controller execution evidence is typed, bounded and retry-safe
 
 ### Decision
