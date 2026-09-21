@@ -221,6 +221,7 @@ test('doctor and config report local boundaries without reading secrets', () => 
   const doctorRecord = JSON.parse(doctor.stdout)
   assert.equal(doctorRecord.runtime.daemon, 'not-configured')
   assert.equal(doctorRecord.checks.some((check: { name: string }) => check.name === 'node'), true)
+  assert.equal(doctorRecord.checks.some((check: { name: string }) => check.name === 'hooks'), true)
 
   const config = run(['config', '--json'], cwd)
   assert.equal(config.status, 0)
@@ -336,6 +337,24 @@ test('setup --hooks installs all host bridges in isolated config paths', () => {
   assert.equal(existsSync(path.join(cwd, 'claude', 'settings.json')), true)
   assert.equal(existsSync(path.join(cwd, 'codex', 'hooks.json')), true)
   assert.equal(existsSync(path.join(cwd, 'opencode', 'opencode.json')), true)
+})
+
+test('setup --no-hooks wins when both hook flags are passed', () => {
+  const cwd = workspace()
+  const stateDir = path.join(cwd, 'controller-state')
+  const harnessPath = fakeHarnessPath(cwd, ['claude'])
+  const setup = run(['setup', '--no-start', '--hooks', '--no-hooks', '--json'], cwd, {
+    SABI_CONTROLLER_HOME: stateDir,
+    PATH: harnessPath,
+    SABI_CONTROLLER_HARNESSES: 'claude',
+    SABI_CLAUDE_SETTINGS: path.join(cwd, 'claude', 'settings.json'),
+    SABI_HOOK_COMMAND: 'sabi-test',
+  })
+  assert.equal(setup.status, 0)
+  const record = JSON.parse(setup.stdout)
+  assert.deepEqual(record.integrations.installed, [])
+  assert.deepEqual(record.hooks, [])
+  assert.equal(existsSync(path.join(cwd, 'claude', 'settings.json')), false)
 })
 
 test('setup installs hooks by default only for detected supported harnesses', () => {

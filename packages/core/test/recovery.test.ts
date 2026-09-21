@@ -168,6 +168,30 @@ test('candidateBeatsIncumbent: a non-overlapping-interval test, not a point-esti
   assert.equal(candidateBeatsIncumbent(candidate, undefined), false)
 })
 
+test('a structurally incomplete row is skipped instead of disabling the profile (#69)', () => {
+  const good = [
+    row({ sessionId: 's-good', tier: 'strong', upstreamModel: 'm-strong', state: { failure: 'hard' } }),
+    row({ sessionId: 's-good', tier: 'strong', upstreamModel: 'm-strong', state: { failure: 'none' } }),
+  ]
+  const malformed = { sessionId: 's-good', sessionKnown: true, outcome: 'ok' } as unknown as DecisionRecord
+  const shapeless = [
+    malformed,
+    { sessionId: 's-good', sessionKnown: true, outcome: 'ok', state: null } as unknown as DecisionRecord,
+    { sessionId: 's-good', sessionKnown: true, outcome: 'ok', state: { failure: 42 } } as unknown as DecisionRecord,
+  ]
+  assert.doesNotThrow(() => computeRecovery([...shapeless, ...good]))
+  const profile = computeRecovery([...shapeless, ...good])
+  assert.deepEqual(recoveryStats(profile, 'strong', 'm-strong'), { recoveries: 1, nonRecoveries: 0 })
+})
+
+test('rows without a usable session identity are never grouped', () => {
+  const records = [
+    { ...row({ state: { failure: 'hard' } }), sessionId: undefined } as unknown as DecisionRecord,
+    { ...row({ state: { failure: 'none' } }), sessionId: undefined } as unknown as DecisionRecord,
+  ]
+  assert.doesNotThrow(() => computeRecovery(records))
+  assert.equal(computeRecovery(records).size, 0)
+})
 test('recoveryPairs decodes tier/upstreamModel without ever splitting a hand-built key', () => {
   const records = [
     row({ tier: 'strong', upstreamModel: 'weird::model/id', state: { failure: 'hard' } }),

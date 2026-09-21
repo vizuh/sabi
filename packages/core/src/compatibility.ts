@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { buildEffectiveRequestEnvelope } from './request.ts'
-import type { ChatRequestBody, ModelModality, RouteDecision, SabiConfig, UpstreamEntry } from './types.ts'
+import type { ChatRequestBody, ModelEntry, ModelModality, RouteDecision, SabiConfig, UpstreamEntry } from './types.ts'
 
 export class SabiRouteError extends Error {
   status: number
@@ -31,19 +31,52 @@ export function servesInputModalities(
 }
 
 /**
- * First tier, in configuration order, whose declared modalities cover `required`. Tier order is the
- * preference order, so a proxy that lists cheap before strong falls forward to the cheapest model
- * that can actually take the input.
+ * First tier, in sorted tier-name order, whose declared modalities cover `required`. Name order
+ * is the documented preference order, so the fallback never depends on JSON declaration order:
+ * the same tier set always resolves the same way no matter how the config file lists it.
  */
 export function firstServingTier<T>(
   tiers: Record<string, T>,
   required: readonly ModelModality[],
   declared: (tier: T) => ModelModality[] | undefined,
 ): string | undefined {
-  for (const [name, tier] of Object.entries(tiers)) {
-    if (servesInputModalities(declared(tier), required)) return name
+  for (const name of Object.keys(tiers).sort()) {
+    if (servesInputModalities(declared(tiers[name] as T), required)) return name
   }
   return undefined
+}
+
+/** Declared per-million-token route cost, or infinity when unknown — unknown never beats known. */
+export function modelRouteCost(model: Pick<ModelEntry, 'cost'> | undefined): number {
+  const input = model?.cost?.input
+  const output = model?.cost?.output
+  if (typeof input !== 'number' || typeof output !== 'number') return Number.POSITIVE_INFINITY
+  if (!Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) {
+    return Number.POSITIVE_INFINITY
+  }
+  return input + output
+}
+
+/**
+ * Cheapest tier satisfying `serves`, ties broken by tier name — independent of JSON declaration
+ * order. Cost is the declared `cost.input + cost.output`; tiers without a usable declared cost
+ * sort after every priced tier, alphabetically among themselves.
+ */
+export function cheapestServingTier(
+  models: Record<string, ModelEntry>,
+  serves: (name: string, entry: ModelEntry) => boolean,
+): string | undefined {
+  return Object.keys(models)
+    .filter((name) => {
+      const entry = models[name]
+      return entry !== undefined && serves(name, entry)
+    })
+    .sort((a, b) => {
+      const costA = modelRouteCost(models[a])
+      const costB = modelRouteCost(models[b])
+      if (costA !== costB) return costA - costB
+      return a < b ? -1 : a > b ? 1 : 0
+    })[0]
 }
 
 /** Single definition of the kill-switch predicate: omitted or true means usable. */

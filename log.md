@@ -922,3 +922,141 @@ stability, plan-change sensitivity).
 - `packages/core/test/*.test.ts` — 154/154 pass
 - `packages/controller/test/*.test.ts` — 109/109 pass
 - `git diff --check` — clean
+
+## [2026-09-21] fix | judge egress, loopback boundary, proxy trajectory signals, stream outcomes (#59 #60 #67 #68)
+
+- **#59 judge obeys the telemetry policy.** `buildJudgeState` is content-free by default: raw instruction/tool excerpts are replaced with lengths + SHA-256 shape, tool names use the same `hashIdentity('tool', …)` invariant as the decision log. Raw egress is an explicit opt-in via `judge.includeSnippets` (preferred) or `telemetry.captureSnippets`; `server.ts` passes both switches. Fail-open unchanged (error/timeout → deterministic policy).
+- **#60 loopback boundary.** The proxy now rejects non-loopback `Host`, non-loopback `Origin`/`Referer`, and non-JSON chat content-types (403/415 before any round executes, nothing logged); `/healthz` no longer leaks the absolute log path. No `Access-Control-Allow-Origin` is ever set. Legitimate local clients (no `Origin`, or loopback `Origin`, JSON bodies) are unaffected.
+- **#67 proxy trajectory carries window + streak.** `route()` derives `contextWindow` as the smallest declared window only when every reachable tier declares one, and marks `repeatedFailure`/streak from the previous identified round (`RouteContext.previousFailure`, tracked in server session memory, cleared on compaction). Unattributed requests get a window at most — no borrowed streak. First hard round is streak 1 (matches harness/evals); the judge state always carries `context_generation` (0 when unattributed) so the cache-key shape is stable and documented.
+- **#68 stream outcomes.** Clean EOF after a terminal choice completes with usage intact (missing `[DONE]` no longer discards a billed round); a mid-stream provider error ends with an explicit SSE `error` frame instead of a silent truncation (deadline/abort paths still terminate); error bodies decode leniently so a non-UTF-8 429 keeps its status, `Retry-After` and `transport` outcome, while success bodies stay strict.
+
+**Tests**: new `proxy-trajectory` (5), `loopback-boundary` (7), `stream-outcomes` (3) plus `sse` (+2), `upstream` (+1), `judge` (+2, default-redaction) and `config` (+1) cases; `proxy-contract` disconnect expectation updated to the error-frame behavior. One self-caught regression during the work: the first error-frame draft destroyed deadline-before-headers responses instead of answering 504 — fixed and covered by the existing deadline tests.
+
+**Verified**: `npm test` 445/445 pass, `npm run typecheck` clean, `git diff --check` clean. No paid request, secret, user config, publication or deployment.
+## [2026-09-21] fix | Decision-log privacy, observable log failures, surplus egress (#61, #69, #70)
+
+Closes the three logging/surplus findings against `b143bc08`, verified first against the real code.
+
+**#61 — decision-log privacy.** `hashIdentity` was unsalted SHA-256, dictionary-reversible against
+the small tool/command namespace (the issue's `ebc60d14…` value for `shell_command` reproduced
+exactly). It is now HMAC-SHA256 keyed by a per-install random salt created once at
+`~/.config/sabi/.identity-salt` (`XDG_CONFIG_HOME`-aware, mode `0600`, `SABI_ID_SALT` /
+`SABI_ID_SALT_FILE` overrides for tests and managed environments); unreadable storage falls back
+to an ephemeral per-process salt with a one-time stderr warning, never to unsalted output.
+`sanitizeError` missed bare `sk-…`, quoted `"api_key":"sk-…"` (the old pattern required the char
+after the keyword to be `=`, `:` or space — a following quote or space defeated it) and bare
+`AKIA…`/`ghp_…`/credential URLs. It now redacts quote-tolerantly plus known bare-token shapes and
+drops anything still matching the canary to `upstream error redacted (possible secret)`; clean
+errors (`typesafe 401: nope`) are unchanged. The canary also gains `sk-` `{8,}`, `ghp_`/`ghu_`/
+`ghs_`/`github_pat_` and credential-URL/password-assignment shapes.
+
+**#69 — observable logging, robust recovery.** `appendDecision` threw on a broken log path and the
+server swallowed it after headers were sent (silent under-count). It no longer throws: each
+failure warns once per file on stderr and bumps a persistent sidecar
+(`<log>.write-failures.json`) that `npm run report` now surfaces. `readDecisions` skips lines
+that parse but are not objects; `computeRecovery` skips rows without a usable `state`/session
+identity instead of throwing away the whole process profile — one malformed row no longer
+disables the recovery signal.
+
+**#70 — surplus egress.** The secret-path keyword was anchored to the component start, so
+`prod-secrets.yaml`, `app-secrets.json`, `legacy-credentials.txt` and `service-token-prod.yaml`
+were sent to the external reviewer. Keywords now match on a separator boundary with the existing
+secret-extension qualification, so those are refused while ordinary names (`src/tokens.ts`,
+`src/secret-sauce.ts`, `docs/password-policy.md`) stay admissible. The shared content canary
+covers the new token shapes, so the surplus and council pre-gates inherit them.
+
+Fail-open and metadata-only behavior preserved: no raw prompts/claims/secrets in Git, no new
+capture, receipts still hashes and counts. Session grouping hashes change once across this
+upgrade (old and new hashes do not correlate — the intended privacy effect).
+
+Validation: `npm test` 434/434, `npm run typecheck` clean, `git diff --check` clean.
+## 2026-09-21 — Hook/upgrade/startup hardening (#71, #73, #76)
+
+**Scope**: `packages/controller/src/lifecycle.ts`, `hooks.ts`, `cli.ts`;
+`packages/server/src/server.ts`, `index.ts`; focused tests only. No paid
+providers, secrets, external worktrees, or unrelated files.
+
+- **#71** — `upgradeController` installs with `--ignore-scripts` and, for
+  npm-managed installs, verifies registry signatures (`npm audit signatures`)
+  after a successful install, failing the upgrade otherwise. Server startup
+  wraps `listen()` so a busy port prints one line (port + `SABI_PORT`/stop
+  hint) instead of an `EADDRINUSE` stack. Startup credential warnings
+  (`credentialWarnings()` in `server.ts`) report field names plus the
+  referenced `$VAR` only — a literal key pasted into `apiKey` is never echoed.
+- **#73** — `restoreHookBackups` no longer recreates a deleted harness config
+  from `.sabi-backup`, and removes the backup once uninstall has run (kept only
+  when the current file is unreadable). The create-once backup semantics are
+  now documented at the write site.
+- **#76** — `SABI_HOOK_COMMAND` is validated as executable-plus-arguments at
+  install time: shell metacharacters (`;|&$\`` etc.) and unterminated quotes
+  are rejected with an error that does not echo the value, and nothing is
+  written. Quoted multi-word paths and plain flags still work. `sabi doctor`
+  gains a `hooks` check via `checkHookHealth()`: baked absolute hook/plugin
+  paths that no longer exist are reported stale with a repair hint
+   (`sabi hooks install`); bare executable names are left to the host `PATH`.
+
+**Verified**:
+- focused: `hooks.test.ts`, `lifecycle.test.ts`, `server/test/startup.test.ts` pass
+- `npm test` — 435/435 pass
+- `npm run typecheck` — clean
+- `git diff --check` — clean
+
+## [2026-09-21] fix | CI gate covers the whole tree; pt-BR doc drift closed (#63, #64)
+
+- **#63** — dropped the `paths` filter from `.github/workflows/controller-ci.yml`
+  (both `pull_request` and `push` to `main`). The gate now runs `npm ci`,
+  `npm run typecheck`, `npm test` and the clean-prefix controller package test
+  on every PR and every main push, so `packages/server`, the remaining
+  `packages/adapters/*`, `packages/evals` and `scripts/**` can no longer merge
+  without checks. The suite is cheap (`npm ci` pulls 14 packages); no filter
+  list to hand-maintain when a package is added.
+- **#64.1** — `README.pt-BR.md` no longer states a test count in the verify
+  block, matching the EN and zh-CN READMEs. Counts drifted across docs
+  (59 vs 184 vs 385 vs 407); the suite reports its own size at run time
+  (476/476 on this checkout).
+- **#64.2** — the pt-BR service sentence now says the macOS (LaunchAgent) and
+  Windows (Task Scheduler) installers exist in the CLI and only the real-machine
+  validation is outstanding, instead of reading as "unsupported".
+- **#64.3** — `sabi setup --hooks` is a recognized explicit alias again
+  (symmetry with `--no-hooks`): listed in setup help, documented as the
+  default, with `--no-hooks` winning when both are passed. No behavior change
+  beyond the help text; `README.pt-BR.md`, `docs/install.md` and
+  `docs/install.pt-BR.md` already documented this form and are true again.
+  New focused test: `--hooks` + `--no-hooks` together installs nothing.
+- **#64.4** — the pt-BR `Planejado:` line no longer lists `evals` and the
+  `opencode` adapter as planned; both exist in-tree (`packages/evals/src/run.ts`,
+  `packages/adapters/opencode/src/connect.ts`) and the same file's structure
+  list already says so. Remaining planned items: learned model profiles,
+  quota awareness. `prime-agent` stays described as partial in the structure list.
+- **#64.5** — `docs/install.pt-BR.md` OpenCode paragraph now describes the
+  derived modalities (`sabiModels` advertises `text`+`image` per alias from the
+  tiers it can serve), matching `docs/install.md` and
+  `packages/adapters/opencode/src/connect.ts:60-66`, instead of asking the user
+  to hand-edit `modalities.input`.
+
+**Verified**:
+- focused: `packages/controller/test/cli.test.ts` — 17/17 pass
+- `npm test` — 476/476 pass
+- `npm run typecheck` — clean
+- `git diff --check` — clean
+- `.github/workflows/controller-ci.yml` parses as valid YAML
+- No paid request, secret, user configuration, deployment or publication.
+  Not pushed; no PR opened. `docs/visual-story.md:70` keeps its illustrative
+  `184 / 184 passed` diagram label (explicitly illustrative per
+  `docs/visual-story.md`, not a prose suite claim) — left untouched.
+## [2026-09-21] fix | shared session identity is not a host compaction (#74)
+
+Proxy-only. `observeSession` keyed compaction on one shrink of the hashed
+`sessionId` (`hashIdentity('session', client, session)`), so a second
+worktree/subagent reusing the same session string with a smaller transcript
+advanced `contextGeneration`, dropped the measured floor and invalidated the
+judge cache. One small request now only arms a candidate (`pendingBaseline`);
+the shrink must still hold against the same baseline on the next request to
+confirm (advance generation, drop tokens/streak). A recovery to the old size
+drops the candidate fail-open with no generation advance. No new capture —
+counts only — and unattributed requests are unchanged.
+
+Verified: focused `proxy.test.ts` 19/19 (updated compaction test to the
+two-step contract plus a shared-identity recovery regression), `npm test`
+476/476, `npm run typecheck` clean, `git diff --check` clean. No paid request,
+secret, user config, publication or deployment.

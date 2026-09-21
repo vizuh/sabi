@@ -218,6 +218,17 @@ test('an image round is charged the per-image bound in context tokens', () => {
   assert.equal(withImage.contextTokens, (plain.contextTokens ?? 0) + 3000)
 })
 
+test('a modality fallback does not depend on tier declaration order', () => {
+  const state = trajectoryFromRound(round({ inputModalities: ['text', 'image'], mediaCounts: { image: 1 } }))
+  const reordered: Record<string, CatalogTier> = {
+    strong: visionTiers.strong,
+    cheap: visionTiers.cheap,
+    mid: visionTiers.mid,
+  }
+  assert.equal(planRound(state, policy, visionTiers)?.tier, 'mid')
+  assert.equal(planRound(state, policy, reordered)?.tier, 'mid')
+})
+
 test('with no tier able to read the image, the round stays on the session model', () => {
   const state = trajectoryFromRound(round({ inputModalities: ['text', 'image'], mediaCounts: { image: 1 } }))
   const plan = planRound(state, policy, { cheap: visionTiers.cheap, strong: visionTiers.strong })

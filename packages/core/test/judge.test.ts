@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { applyJudge, buildJudgeState, JUDGE_QUESTIONS, judgeTriggers } from '../src/judge.ts'
+import { hashIdentity } from '../src/log.ts'
 import { route } from '../src/router.ts'
 import type { RecoveryProfile } from '../src/recovery.ts'
 import type { RouteDecision, SabiConfig } from '../src/types.ts'
@@ -72,7 +73,7 @@ test('the judge is consulted for failure and unclassified rounds only', () => {
 
 test('judge state carries the last instruction and tool excerpt within the budget', () => {
   const decision = route(failingBody(), base)
-  const state = buildJudgeState(failingBody(), decision, 6000) as Record<string, unknown>
+  const state = buildJudgeState(failingBody(), decision, 6000, { includeSnippets: true }) as Record<string, unknown>
   assert.equal((state.last_instruction as string).includes('run the tests'), true)
   const tool = state.last_tool as { names: string[]; result_excerpt: string }
   assert.deepEqual(tool.names, ['shell_command'])
@@ -87,8 +88,31 @@ test('judge state carries the last instruction and tool excerpt within the budge
       { role: 'tool', content: 'y'.repeat(50_000) },
     ],
   }
-  const bounded = buildJudgeState(huge, route(huge, base), 6000)
+  const bounded = buildJudgeState(huge, route(huge, base), 6000, { includeSnippets: true })
   assert.ok(JSON.stringify(bounded).length <= 6000, 'state must respect maxStateChars')
+})
+
+test('judge state is content-free by default: no raw prompts, excerpts or clear tool names', () => {
+  const decision = route(failingBody(), base)
+  const state = buildJudgeState(failingBody(), decision, 6000) as Record<string, unknown>
+  const serialized = JSON.stringify(state)
+  assert.ok(!serialized.includes('run the tests'), 'raw instruction must not leave by default')
+  assert.ok(!serialized.includes('2 failed'), 'raw tool excerpt must not leave by default')
+  assert.ok(!serialized.includes('shell_command'), 'clear tool names must not leave by default')
+  const tool = state.last_tool as Record<string, unknown>
+  assert.equal(tool.result_excerpt, '')
+  assert.match(String(tool.result_excerpt_sha256), /^[a-f0-9]{64}$/)
+  assert.ok((tool.result_excerpt_chars as number) > 0)
+  assert.match(String(state.last_instruction_sha256), /^[a-f0-9]{64}$/)
+  // Tool identity keeps the same hashed invariant the decision log uses.
+  assert.deepEqual(tool.names, [hashIdentity('tool', 'shell_command')])
+  assert.ok(!(state.available_tools as string[]).includes('shell_command'))
+})
+
+test('telemetry.captureSnippets also opts the judge into raw excerpts', () => {
+  const decision = route(failingBody(), base)
+  const state = buildJudgeState(failingBody(), decision, 6000, { captureSnippets: true }) as Record<string, unknown>
+  assert.match(String(state.last_instruction), /run the tests/)
 })
 
 test('a low real-problem probability vetoes the escalation', () => {
@@ -314,9 +338,11 @@ test('a difficulty override reroutes around a disabled upstream instead of hard-
       down: { baseURL: 'http://127.0.0.1:2/v1', enabled: false },
     },
     models: {
-      mid: { upstream: 'mock', model: 'm-mid' },
-      cheap: { upstream: 'mock', model: 'm-cheap' },
-      strong: { upstream: 'down', model: 'm-strong' },
+      // Declared cheap-first on purpose: the fallback must still pick the cheapest priced
+      // tier ('mid'), proving it does not depend on JSON declaration order.
+      cheap: { upstream: 'mock', model: 'm-cheap', cost: { input: 5, output: 5 } },
+      mid: { upstream: 'mock', model: 'm-mid', cost: { input: 0.1, output: 0.1 } },
+      strong: { upstream: 'down', model: 'm-strong', cost: { input: 1, output: 1 } },
     },
     aliases: { 'sabi-code': 'auto' },
     policy: base.policy,
@@ -325,7 +351,7 @@ test('a difficulty override reroutes around a disabled upstream instead of hard-
   const decision = route(unclassifiedBody(), config)
   assert.equal(decision.tier, 'cheap')
   // Difficulty=demanding would normally escalate to 'strong', but its upstream is disabled;
-  // 'mid' is declared before 'cheap' and is the first enabled/capable alternate.
+  // the fallback is the cheapest enabled/capable tier ('mid'), not the first-declared one.
   const { decision: next, record } = applyJudge(decision, config, {
     realProblem: 0.5,
     difficulty: 'demanding',
@@ -350,10 +376,11 @@ test('a host compaction reaches the judge state so a stale verdict cannot be reu
   assert.equal(decision.state.contextKnown, true)
   const state = buildJudgeState(failingBody(), decision, 6000) as Record<string, unknown>
   assert.equal((state.round as Record<string, unknown>).context_generation, 3)
-  // The same conversation without a boundary carries no generation, so the two judge states
+  // The same conversation without a boundary carries generation 0, so the two judge states
   // hash differently and a cached verdict from before the rewrite cannot be served after it.
+  // (Unattributed requests have no session continuity: 0 documents "no boundary observed".)
   const plain = buildJudgeState(failingBody(), route(failingBody(), base), 6000) as Record<string, unknown>
-  assert.equal((plain.round as Record<string, unknown>).context_generation, undefined)
+  assert.equal((plain.round as Record<string, unknown>).context_generation, 0)
 })
 
 test('the shadow evidence answer is recorded and never changes the route', () => {

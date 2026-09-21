@@ -1,6 +1,21 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { estimateCost, hashIdentity, sessionIdFor } from '../src/log.ts'
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import {
+  appendDecision,
+  decisionLogWriteFailures,
+  estimateCost,
+  getIdentitySalt,
+  hashIdentity,
+  readDecisions,
+  readLogWriteFailures,
+  resetIdentitySaltCache,
+  resetLogWriteFailuresForTests,
+  sessionIdFor,
+} from '../src/log.ts'
+import type { DecisionRecord } from '../src/types.ts'
 
 const usage = { promptTokens: 100, completionTokens: 20, cachedTokens: 40, totalTokens: 120 }
 
@@ -14,6 +29,88 @@ test('unknown sessions are unique; explicit identities are hashed and namespaced
   assert.ok(!id.includes('private-session'))
 })
 
+test('identity hashes are salted: same salt is stable, different salts diverge', () => {
+  const priorSalt = process.env.SABI_ID_SALT
+  try {
+    process.env.SABI_ID_SALT = 'test-salt-a'
+    resetIdentitySaltCache()
+    assert.equal(getIdentitySalt(), 'test-salt-a')
+    const a1 = hashIdentity('session', 'opencode', 's1')
+    const a2 = hashIdentity('session', 'opencode', 's1')
+    assert.match(a1, /^[a-f0-9]{64}$/)
+    assert.equal(a1, a2)
+    assert.ok(!a1.includes('s1'))
+
+    process.env.SABI_ID_SALT = 'test-salt-b'
+    resetIdentitySaltCache()
+    const b1 = hashIdentity('session', 'opencode', 's1')
+    assert.match(b1, /^[a-f0-9]{64}$/)
+    assert.notEqual(a1, b1, 'a global unsalted hash would be identical on every machine')
+  } finally {
+    if (priorSalt === undefined) delete process.env.SABI_ID_SALT
+    else process.env.SABI_ID_SALT = priorSalt
+    resetIdentitySaltCache()
+  }
+})
+
+test('a created salt file is user-scoped and mode 0600', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-salt-'))
+  const priorFile = process.env.SABI_ID_SALT_FILE
+  const priorSalt = process.env.SABI_ID_SALT
+  try {
+    delete process.env.SABI_ID_SALT
+    const saltFile = path.join(dir, 'sub', '.identity-salt')
+    process.env.SABI_ID_SALT_FILE = saltFile
+    resetIdentitySaltCache()
+    const first = getIdentitySalt()
+    assert.ok(first.length >= 16)
+    const second = getIdentitySalt()
+    assert.equal(first, second, 'the salt must be stable within the process')
+    assert.ok(readFileSync(saltFile, 'utf8').includes(first))
+    assert.equal(statSync(saltFile).mode & 0o777, 0o600)
+  } finally {
+    if (priorFile === undefined) delete process.env.SABI_ID_SALT_FILE
+    else process.env.SABI_ID_SALT_FILE = priorFile
+    if (priorSalt === undefined) delete process.env.SABI_ID_SALT
+    else process.env.SABI_ID_SALT = priorSalt
+    resetIdentitySaltCache()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a failed decision-log write never throws and is counted for the report', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-logfail-'))
+  try {
+    // A regular file where the log directory should be: mkdirSync must fail.
+    const blocker = path.join(dir, 'blocker')
+    writeFileSync(blocker, 'not a directory')
+    const logFile = path.join(blocker, 'decisions.jsonl')
+    resetLogWriteFailuresForTests()
+    const before = decisionLogWriteFailures()
+    const record = { ts: 't', sessionId: 's' } as DecisionRecord
+    assert.doesNotThrow(() => appendDecision(record, logFile))
+    assert.equal(decisionLogWriteFailures(), before + 1)
+    const persisted = readLogWriteFailures(logFile)
+    assert.equal(persisted, undefined, 'the sidecar cannot be written when the disk path itself is broken')
+  } finally {
+    resetLogWriteFailuresForTests()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('readDecisions skips lines that parse but are not records', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-logread-'))
+  try {
+    const logFile = path.join(dir, 'decisions.jsonl')
+    const valid = { ts: 't', sessionId: 's', sessionKnown: true } as DecisionRecord
+    writeFileSync(logFile, ['null', '42', '"str"', '[1,2]', JSON.stringify(valid), '{oops'].join('\n'))
+    const rows = readDecisions(logFile)
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0]?.sessionId, 's')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 test('missing or invalid prices remain unknown while explicit free pricing is zero', () => {
   assert.equal(estimateCost(usage), undefined)
   assert.equal(estimateCost(usage, { input: NaN, output: 2 }), undefined)
