@@ -933,3 +933,40 @@ stability, plan-change sensitivity).
 **Tests**: new `proxy-trajectory` (5), `loopback-boundary` (7), `stream-outcomes` (3) plus `sse` (+2), `upstream` (+1), `judge` (+2, default-redaction) and `config` (+1) cases; `proxy-contract` disconnect expectation updated to the error-frame behavior. One self-caught regression during the work: the first error-frame draft destroyed deadline-before-headers responses instead of answering 504 — fixed and covered by the existing deadline tests.
 
 **Verified**: `npm test` 445/445 pass, `npm run typecheck` clean, `git diff --check` clean. No paid request, secret, user config, publication or deployment.
+## [2026-09-21] fix | Decision-log privacy, observable log failures, surplus egress (#61, #69, #70)
+
+Closes the three logging/surplus findings against `b143bc08`, verified first against the real code.
+
+**#61 — decision-log privacy.** `hashIdentity` was unsalted SHA-256, dictionary-reversible against
+the small tool/command namespace (the issue's `ebc60d14…` value for `shell_command` reproduced
+exactly). It is now HMAC-SHA256 keyed by a per-install random salt created once at
+`~/.config/sabi/.identity-salt` (`XDG_CONFIG_HOME`-aware, mode `0600`, `SABI_ID_SALT` /
+`SABI_ID_SALT_FILE` overrides for tests and managed environments); unreadable storage falls back
+to an ephemeral per-process salt with a one-time stderr warning, never to unsalted output.
+`sanitizeError` missed bare `sk-…`, quoted `"api_key":"sk-…"` (the old pattern required the char
+after the keyword to be `=`, `:` or space — a following quote or space defeated it) and bare
+`AKIA…`/`ghp_…`/credential URLs. It now redacts quote-tolerantly plus known bare-token shapes and
+drops anything still matching the canary to `upstream error redacted (possible secret)`; clean
+errors (`typesafe 401: nope`) are unchanged. The canary also gains `sk-` `{8,}`, `ghp_`/`ghu_`/
+`ghs_`/`github_pat_` and credential-URL/password-assignment shapes.
+
+**#69 — observable logging, robust recovery.** `appendDecision` threw on a broken log path and the
+server swallowed it after headers were sent (silent under-count). It no longer throws: each
+failure warns once per file on stderr and bumps a persistent sidecar
+(`<log>.write-failures.json`) that `npm run report` now surfaces. `readDecisions` skips lines
+that parse but are not objects; `computeRecovery` skips rows without a usable `state`/session
+identity instead of throwing away the whole process profile — one malformed row no longer
+disables the recovery signal.
+
+**#70 — surplus egress.** The secret-path keyword was anchored to the component start, so
+`prod-secrets.yaml`, `app-secrets.json`, `legacy-credentials.txt` and `service-token-prod.yaml`
+were sent to the external reviewer. Keywords now match on a separator boundary with the existing
+secret-extension qualification, so those are refused while ordinary names (`src/tokens.ts`,
+`src/secret-sauce.ts`, `docs/password-policy.md`) stay admissible. The shared content canary
+covers the new token shapes, so the surplus and council pre-gates inherit them.
+
+Fail-open and metadata-only behavior preserved: no raw prompts/claims/secrets in Git, no new
+capture, receipts still hashes and counts. Session grouping hashes change once across this
+upgrade (old and new hashes do not correlate — the intended privacy effect).
+
+Validation: `npm test` 434/434, `npm run typecheck` clean, `git diff --check` clean.

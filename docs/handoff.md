@@ -112,7 +112,19 @@ configuration change, publication or deployment was performed by this change set
 
 ## Last meaningful update
 
-2026-09-20
+2026-09-21
+
+## Logging privacy, observable failures, surplus egress — 2026-09-21
+
+Closed issues #61 (salted identity hashing, `sanitizeError` gaps), #69 (silent log-write and
+recovery-profile failures) and #70 (secret-path anchor, credential canaries) in this worktree.
+Identity hashes are now per-install HMAC (`~/.config/sabi/.identity-salt`, mode 0600);
+`appendDecision` never throws and records failures to stderr plus a sidecar the report surfaces;
+`computeRecovery` skips shape-invalid rows; surplus/council egress refuses prefixed secret names
+and common token shapes while ordinary source names stay admissible. Full details in `log.md`.
+
+Validation: `npm test` 434/434, `npm run typecheck` clean, `git diff --check` clean. No paid
+request, live dispatch, user configuration change, publication or deployment. Not pushed.
 
 ## Harness × model × token routing contract — 2026-09-20
 

@@ -70,7 +70,15 @@ const MAX_FILES = 64
 const MAX_CLAIMS = 20
 const MAX_CLAIM_CHARS = 800
 const MAX_EVIDENCE_CHARS = 400
-const SENSITIVE_COMPONENT = /^(?:\.env(?:\..*)?|\.npmrc|\.netrc|\.pypirc|\.dockerconfigjson|id_(?:rsa|dsa|ecdsa|ed25519)(?:\..*)?|(?:secrets?|credentials?|passwords?|tokens?)(?:$|[._-](?:json|ya?ml|txt|env|ini|conf|cfg|properties|local|prod(?:uction)?|dev(?:elopment)?|test|staging)(?:[._-].*)?))$/i
+const SENSITIVE_EXACT = /^(?:\.env(?:\..*)?|\.npmrc|\.netrc|\.pypirc|\.dockerconfigjson|id_(?:rsa|dsa|ecdsa|ed25519)(?:\..*)?)$/i
+/**
+ * Secret keywords matched anywhere in a path component on a separator boundary, qualified by a
+ * secret-config extension (or end of component). The boundary keeps ordinary source names such
+ * as `tokens.ts` or `secret-sauce.ts` admissible while refusing the prefixed names services
+ * actually use (`prod-secrets.yaml`, `app-secrets.json`, `legacy-credentials.txt`,
+ * `service-token-prod.yaml`).
+ */
+const SENSITIVE_KEYWORD = /(?:^|[._-])(?:secrets?|credentials?|passwords?|tokens?)(?:$|[._-](?:json|ya?ml|txt|env|ini|conf|cfg|properties|local|prod(?:uction)?|dev(?:elopment)?|test|staging)(?:[._-].*)?$)/i
 const SENSITIVE_EXTENSION = /\.(?:pem|key|p12|pfx|crt|cer|der)$/i
 const CATEGORY = new Set<ReviewClaim['category']>(['bug', 'test-gap', 'api-contract', 'other'])
 const SEVERITY = new Set<ReviewClaim['severity']>(['low', 'medium', 'high'])
@@ -87,7 +95,8 @@ function hash(value: string): string {
 
 export function isSensitiveFile(value: string): boolean {
   const file = value.trim().replaceAll('\\', '/')
-  return file.split('/').some((component) => SENSITIVE_COMPONENT.test(component) || SENSITIVE_EXTENSION.test(component))
+  return file.split('/').some((component) =>
+    SENSITIVE_EXACT.test(component) || SENSITIVE_KEYWORD.test(component) || SENSITIVE_EXTENSION.test(component))
 }
 
 function safeFile(value: unknown): string | undefined {

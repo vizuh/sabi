@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs'
-import { defaultLogPath, estimateCost, loadConfig, readDecisions } from '@sabi/core'
+import { defaultLogPath, estimateCost, loadConfig, readDecisions, readLogWriteFailures } from '@sabi/core'
 
 const config = loadConfig()
 const logFile = defaultLogPath()
 const asJson = process.argv.includes('--json')
+const writeFailures = readLogWriteFailures(logFile)
 
 if (!existsSync(logFile)) {
   console.error(`No decision log at ${logFile} — start Sabi and send a request first.`)
@@ -154,6 +155,7 @@ if (asJson) {
         decisions: rows.length,
         sessions: sessions.size,
         unattributedRequests,
+        logWriteFailures: writeFailures,
         unknownCostRows,
         unknownCounterfactualRows,
         unknownJudgeUsageCalls,
@@ -192,6 +194,9 @@ if (asJson) {
 } else {
   console.log(`Sabi report — ${logFile}`)
   console.log(`decisions ${rows.length} · known sessions ${sessions.size} · unattributed requests ${unattributedRequests} · errors ${errors} · transport ${transports}`)
+  if (writeFailures) {
+    console.log(`log-write failures ${writeFailures.failures} · last ${writeFailures.lastTs} (${writeFailures.lastError}) — telemetry under-counted from that point`)
+  }
   console.log('')
   console.log(`by tier   ${formatMap(byTier)}`)
   console.log(`by rule   ${formatMap(byRule)}`)
