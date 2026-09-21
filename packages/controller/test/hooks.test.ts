@@ -127,6 +127,115 @@ test('OpenCode follows its active config directory when Orca provides one', () =
   }
 })
 
+test('installOpenCode refuses an ephemeral plugin path in a real config without touching it', () => {
+  const root = workspace()
+  try {
+    // A non-existent, non-temp config path: the refusal must happen before any
+    // filesystem write, so nothing is ever created there.
+    const realConfigDir = '/nonexistent-sabi-test-real-config'
+    assert.throws(() => installHooks({
+      harnesses: ['opencode'],
+      stateDir: path.join(root, 'state'),
+      env: {
+        ...process.env,
+        HOME: root,
+        OPENCODE_CONFIG_DIR: realConfigDir,
+        ORCA_OPENCODE_CONFIG_DIR: '',
+        SABI_OPENCODE_HOOK_SOURCE: path.resolve('packages/adapters/opencode/src/sabi-hook.mjs'),
+      },
+    }), /Refusing to register the ephemeral plugin path .* in .*nonexistent-sabi-test-real-config/)
+    assert.equal(existsSync(path.join(realConfigDir, 'opencode.json')), false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('installOpenCode prunes stale Sabi plugin entries and keeps unrelated plugins', () => {
+  const root = workspace()
+  try {
+    const config = path.join(root, 'opencode', 'opencode.json')
+    const stateDir = path.join(root, 'state')
+    mkdirSync(path.dirname(config), { recursive: true })
+    const staleEphemeral = path.join(os.tmpdir(), 'sabi-controller-cli-prune-fixture', 'controller-state', 'hooks', 'opencode.mjs')
+    const staleDeadFile = path.join(root, 'old-state', 'hooks', 'opencode.mjs')
+    const unrelated = path.join(root, 'unrelated-plugin.mjs')
+    writeFileSync(config, JSON.stringify({ plugin: [staleEphemeral, staleDeadFile, unrelated] }))
+    installHooks({
+      harnesses: ['opencode'],
+      stateDir,
+      env: {
+        ...process.env,
+        HOME: root,
+        SABI_OPENCODE_CONFIG: config,
+        OPENCODE_CONFIG_DIR: '',
+        ORCA_OPENCODE_CONFIG_DIR: '',
+        SABI_OPENCODE_HOOK_SOURCE: path.resolve('packages/adapters/opencode/src/sabi-hook.mjs'),
+      },
+    })
+    const written = JSON.parse(readFileSync(config, 'utf8')).plugin
+    assert.equal(written.includes(staleEphemeral), false)
+    assert.equal(written.includes(staleDeadFile), false)
+    assert.equal(written.includes(unrelated), true)
+    assert.equal(written.includes(path.join(stateDir, 'hooks', 'opencode.mjs')), true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('uninstall removes stale Sabi plugin entries alongside the current install', () => {
+  const root = workspace()
+  try {
+    const config = path.join(root, 'opencode', 'opencode.json')
+    const stateDir = path.join(root, 'state')
+    mkdirSync(path.dirname(config), { recursive: true })
+    const env = {
+      ...process.env,
+      HOME: root,
+      SABI_CONTROLLER_HOME: stateDir,
+      SABI_OPENCODE_CONFIG: config,
+      OPENCODE_CONFIG_DIR: '',
+      ORCA_OPENCODE_CONFIG_DIR: '',
+      SABI_OPENCODE_HOOK_SOURCE: path.resolve('packages/adapters/opencode/src/sabi-hook.mjs'),
+    }
+    installHooks({ harnesses: ['opencode'], stateDir, env })
+    const staleEphemeral = path.join(os.tmpdir(), 'sabi-controller-cli-prune-fixture-2', 'controller-state', 'hooks', 'opencode.mjs')
+    const unrelated = path.join(root, 'unrelated-plugin.mjs')
+    const withStale = JSON.parse(readFileSync(config, 'utf8'))
+    writeFileSync(config, JSON.stringify({ ...withStale, plugin: [...withStale.plugin, staleEphemeral, unrelated] }))
+    const restored = restoreHookBackups({ harnesses: ['opencode'], env })
+    assert.equal(restored.find(({ harness }) => harness === 'opencode')?.restored, true)
+    assert.deepEqual(JSON.parse(readFileSync(config, 'utf8')).plugin, [unrelated])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('checkHookHealth reports stale Sabi plugin entries as repairable', () => {
+  const root = workspace()
+  try {
+    const config = path.join(root, 'opencode', 'opencode.json')
+    mkdirSync(path.dirname(config), { recursive: true })
+    const staleEphemeral = path.join(os.tmpdir(), 'sabi-controller-cli-prune-fixture-3', 'controller-state', 'hooks', 'opencode.mjs')
+    writeFileSync(config, JSON.stringify({ plugin: [staleEphemeral] }))
+    const health = checkHookHealth({
+      env: {
+        ...process.env,
+        HOME: root,
+        SABI_OPENCODE_CONFIG: config,
+        OPENCODE_CONFIG_DIR: '',
+        ORCA_OPENCODE_CONFIG_DIR: '',
+        SABI_CONTROLLER_HOME: path.join(root, 'state'),
+      },
+    })
+    const opencode = health.find(({ harness }) => harness === 'opencode')
+    assert.equal(opencode?.installed, true)
+    assert.equal(opencode?.stale, true)
+    assert.match(opencode?.detail ?? '', /stale Sabi plugin entry/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('SABI_HOOK_COMMAND keeps executable-plus-arguments but rejects shell metacharacters', () => {
   validateHookCommand('sabi-test')
   validateHookCommand('node /path/to/sabi.mjs')

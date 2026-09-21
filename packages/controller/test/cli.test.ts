@@ -31,7 +31,23 @@ function fakeHarnessPath(cwd: string, harnesses: string[]): string {
 function run(args: string[], cwd: string, env: Record<string, string> = {}) {
   return spawnSync(process.execPath, [cliPath, ...args], {
     cwd,
-    env: { ...process.env, SABI_LOG: undefined, ORCA_CLI_COMMAND: '/nonexistent/sabi-test-orca-binary', ...env },
+    env: {
+      ...process.env,
+      SABI_LOG: undefined,
+      ORCA_CLI_COMMAND: '/nonexistent/sabi-test-orca-binary',
+      // Harness-config isolation: an Orca terminal exports a real shared OpenCode
+      // config dir and a CODEX_HOME, and the user's real ~/.claude exists, so a
+      // spawned `sabi setup` could otherwise install hooks into live host configs.
+      // Every spawned CLI resolves harness configs inside the throwaway cwd.
+      SABI_CLAUDE_SETTINGS: path.join(cwd, 'claude', 'settings.json'),
+      SABI_CODEX_HOOKS: path.join(cwd, 'codex', 'hooks.json'),
+      SABI_OPENCODE_CONFIG: path.join(cwd, 'opencode', 'opencode.json'),
+      OPENCODE_CONFIG_DIR: '',
+      ORCA_OPENCODE_CONFIG_DIR: '',
+      CLAUDE_CONFIG_DIR: undefined,
+      CODEX_HOME: undefined,
+      ...env,
+    },
     stdio: ['pipe', 'pipe', 'pipe'],
     encoding: 'utf8',
   })
@@ -41,7 +57,21 @@ function runAsync(args: string[], cwd: string, env: Record<string, string> = {})
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cliPath, ...args], {
       cwd,
-      env: { ...process.env, SABI_LOG: undefined, ORCA_CLI_COMMAND: '/nonexistent/sabi-test-orca-binary', ...env },
+      env: {
+        ...process.env,
+        SABI_LOG: undefined,
+        ORCA_CLI_COMMAND: '/nonexistent/sabi-test-orca-binary',
+        // Harness-config isolation: same contract as run() — a spawned CLI must
+        // resolve every harness config inside the throwaway cwd.
+        SABI_CLAUDE_SETTINGS: path.join(cwd, 'claude', 'settings.json'),
+        SABI_CODEX_HOOKS: path.join(cwd, 'codex', 'hooks.json'),
+        SABI_OPENCODE_CONFIG: path.join(cwd, 'opencode', 'opencode.json'),
+        OPENCODE_CONFIG_DIR: '',
+        ORCA_OPENCODE_CONFIG_DIR: '',
+        CLAUDE_CONFIG_DIR: undefined,
+        CODEX_HOME: undefined,
+        ...env,
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     let stdout = ''
