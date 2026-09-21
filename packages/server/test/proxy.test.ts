@@ -337,6 +337,23 @@ test('jev upgrades an unclassified round when the step is demanding', async () =
   judgeOutcome = defaultJudge
 })
 
+test('state-conditioned judge evidence stays bounded for oversized turns', async () => {
+  const response = await postChat({
+    model: 'sabi-code',
+    stream: false,
+    messages: [
+      system,
+      { role: 'user', content: `inspect the auth flow ${'x'.repeat(12000)}` },
+      { role: 'assistant', tool_calls: [{ function: { name: 'shell_command', arguments: '{"command":"npm test"}' } }] },
+      { role: 'tool', content: `Tests: 1 failed\n${'x'.repeat(12000)}` },
+    ],
+  })
+  assert.equal(response.status, 200)
+  assert.ok(lastJudgeState)
+  assert.ok(JSON.stringify(lastJudgeState).length <= 6000)
+  assert.ok(lastJudgeState.evidence)
+})
+
 test('the judge is not called for rounds outside callOn', async () => {
   const before = judgeCalls
   await postChat({

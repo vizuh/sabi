@@ -73,6 +73,49 @@ test('registry rejects malformed registration fields', () => {
       sessionId: 'id', adapter: 'claude', harness: 'claude', worktree: stateDir,
       outcome: 'failed', receipt: { phase: 'not-a-phase', observedAt: 'now' },
     }), /receipt must include/)
+    assert.throws(() => recordSessionOutcome(stateDir, {
+      sessionId: 'id', adapter: 'claude', harness: 'claude', worktree: stateDir,
+      outcome: 'failed', capsuleMeta: { sourceGeneration: 1 },
+    }), /capsuleMeta must include/)
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true })
+  }
+})
+
+test('registry persists only bounded capsule metadata and survives a restart', () => {
+  const stateDir = workspace()
+  try {
+    recordSessionOutcome(stateDir, {
+      sessionId: 'capsule-session', adapter: 'codex', harness: 'codex', worktree: stateDir,
+      outcome: 'failed',
+      receipt: { phase: 'failed', observedAt: '2026-09-20T12:00:00.000Z' },
+      capsuleMeta: { failureSignature: 'typescript-error', sourceGeneration: 2 },
+    }, 200_000)
+    // Simulate a process restart: read back from disk through a fresh call, not held state.
+    const restarted = readSessionRegistry(stateDir, 200_001)
+    assert.equal(restarted.length, 1)
+    assert.deepEqual(restarted[0]!.lastCapsuleMeta, { failureSignature: 'typescript-error', sourceGeneration: 2 })
+    assert.equal(readFileSync(registryPath(stateDir), 'utf8').includes('verifiedFacts'), false)
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true })
+  }
+})
+
+test('duplicate outcome delivery for the same session collapses to one bounded entry', () => {
+  const stateDir = workspace()
+  try {
+    const input = {
+      sessionId: 'dup-session', adapter: 'codex', harness: 'codex', worktree: stateDir,
+      outcome: 'completed' as const,
+      receipt: { phase: 'completed' as const, observedAt: '2026-09-20T12:00:00.000Z', requestId: 'req-1' },
+      capsuleMeta: { failureSignature: 'typescript-error' },
+    }
+    const first = recordSessionOutcome(stateDir, input, 300_000)
+    const duplicate = recordSessionOutcome(stateDir, input, 300_001)
+    assert.equal(first.id, duplicate.id)
+    assert.equal(readSessionRegistry(stateDir, 300_002).length, 1)
+    assert.deepEqual(duplicate.lastCapsuleMeta, { failureSignature: 'typescript-error' })
+    assert.deepEqual(duplicate.lastReceipt, { phase: 'completed', observedAt: '2026-09-20T12:00:00.000Z', requestId: 'req-1' })
   } finally {
     rmSync(stateDir, { recursive: true, force: true })
   }

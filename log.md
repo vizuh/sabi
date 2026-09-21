@@ -1174,3 +1174,15 @@ serves. Local gates before merge: PR CI green, `npm test` 504/504, `npm run type
 `git diff --check` clean, bundle builds via `pack.mjs`, offline eval unchanged (5/8 pass,
 -388.4% warning fixture — not a product benchmark). No controller tag: `packages/controller`
 unchanged since `controller-v0.1.0`. No paid request, secret, or user configuration changed.
+
+## [2026-09-21] feat | Evidence-aware scheduler foundation
+
+Rebased the Spec Kit scheduler work onto the current `origin/main` and preserved the 0.1.4
+contracts. Added evidence/verification/scope provenance, generation-aware recovery planning,
+bounded controller capsules, shadow semantic profiles, fixture-only replay, and PRE/LIVE/POST
+evaluation contracts. Judge evidence is content-free by default; raw snippets require explicit
+egress opt-in. Capsule labels reject secret-like content, and decision-log serialization now uses
+an allowlisted projection so structurally compatible extra fields cannot persist prompts or keys.
+
+This remains an additive foundation: no live provider-quality claim, automatic profile promotion,
+durable learning, external capsule consumer, deployment, or publication is implied.

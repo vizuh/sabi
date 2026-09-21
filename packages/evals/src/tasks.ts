@@ -1,4 +1,11 @@
-import type { ChatMessage } from '@sabi/core'
+import type { ChatMessage, EpisodeEvidenceSource, EpisodePhase, RecoveryObservation, ScopeCoverage, SemanticEpisode, VerificationState } from '@sabi/core'
+
+export interface EvalRouteMetadata {
+  model?: string
+  harness?: string
+  provider?: string
+  effort?: string
+}
 
 export interface EvalTask {
   id: string
@@ -21,6 +28,37 @@ export interface EvalTask {
    * context generation advances.
    */
   compactedAfterRound?: number
+  /** Normalized episode metadata; absent values remain explicitly unknown. */
+  operation?: string
+  phase?: EpisodePhase
+  route?: EvalRouteMetadata
+  verification?: VerificationState
+  coverage?: ScopeCoverage
+  recovery?: RecoveryObservation
+  evidence?: EpisodeEvidenceSource
+  usage?: { promptTokens: number; completionTokens: number; cachedTokens: number; totalTokens: number }
+  cost?: number
+  latencyMs?: number
+}
+
+export function normalizeEvalEpisode(task: EvalTask): SemanticEpisode {
+  return {
+    id: task.id,
+    phase: task.phase ?? 'live',
+    operation: task.operation ?? task.id,
+    ...(task.route?.model ? { model: task.route.model } : {}),
+    ...(task.route?.harness ? { harness: task.route.harness } : {}),
+    ...(task.route?.provider ? { provider: task.route.provider } : {}),
+    ...(task.route?.effort ? { effort: task.route.effort } : {}),
+    result: task.outcome === 'pass' ? 'recovered' : task.outcome === 'fail' ? 'failed' : 'incomplete',
+    verification: task.verification ?? { status: 'unknown' },
+    coverage: task.coverage ?? { source: 'unknown' },
+    ...(task.recovery ? { recovery: task.recovery } : {}),
+    ...(task.usage ? { usage: task.usage } : {}),
+    ...(task.cost !== undefined ? { cost: task.cost } : {}),
+    ...(task.latencyMs !== undefined ? { latencyMs: task.latencyMs } : {}),
+    evidence: task.evidence ?? 'fixture',
+  }
 }
 
 const tools = (): Array<{ function: { name: string } }> => [

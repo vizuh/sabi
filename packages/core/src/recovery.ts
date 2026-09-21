@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto'
 import { defaultLogPath, readDecisions } from './log.ts'
-import type { DecisionRecord } from './types.ts'
+import { isRecoveryAction, normalizeRecoveryAction } from './recovery-actions.ts'
+import type { DecisionRecord, RecoveryAction, RecoveryObservation, RecoveryOutcome, TrajectoryState } from './types.ts'
 
 export interface RecoveryStats {
   recoveries: number
@@ -143,4 +145,106 @@ export function recoveryPairs(profile: RecoveryProfile): Array<{ tier: string; u
  */
 export function candidateBeatsIncumbent(candidate: RecoveryRate | undefined, incumbent: RecoveryRate | undefined): boolean {
   return Boolean(candidate && incumbent && candidate.wilsonLower > incumbent.wilsonUpper)
+}
+
+function fingerprintInput(state: TrajectoryState): Record<string, unknown> {
+  return {
+    messageCount: state.messageCount,
+    assistantTurns: state.assistantTurns,
+    toolMessages: state.toolMessages,
+    roundKind: state.roundKind,
+    failure: state.failure,
+    failureEvidence: [...state.failureEvidence].sort().slice(0, 8),
+    repeatedFailure: state.repeatedFailure === true,
+    failureStreak: state.failureStreak ?? 0,
+    contextGeneration: state.contextGeneration ?? 0,
+    toolNames: [...state.toolNames].sort().slice(0, 24),
+    lastToolNames: [...state.lastToolNames].slice(0, 8),
+    verification: state.verification
+      ? { status: state.verification.status, reason: state.verification.reason, generation: state.verification.generation }
+      : undefined,
+    scopeCoverage: state.scopeCoverage,
+  }
+}
+
+/** Stable, bounded fingerprint of route-relevant state; no transcript or raw output is included. */
+export function stateFingerprint(state: TrajectoryState): string {
+  return createHash('sha256').update(JSON.stringify(fingerprintInput(state))).digest('hex').slice(0, 32)
+}
+
+/** Stable failure key used for attribution and safe report grouping. */
+export function failureSignature(state: TrajectoryState): string {
+  const value = JSON.stringify({ failure: state.failure, evidence: [...state.failureEvidence].sort().slice(0, 8), roundKind: state.roundKind })
+  return createHash('sha256').update(value).digest('hex').slice(0, 24)
+}
+
+export interface RecoveryReplayReceipt {
+  safe: boolean
+  receiptId?: string
+}
+
+export interface RecoveryAttributionInput {
+  before: TrajectoryState
+  after?: TrajectoryState
+  action: RecoveryAction | string
+  route?: string
+  outcome?: RecoveryOutcome
+  /** True only when a captured comparable state was independently matched. */
+  matched?: boolean
+  /** Replay must be explicitly fixture-safe and separately receipted. */
+  replay?: RecoveryReplayReceipt
+}
+
+function outcomeOf(input: RecoveryAttributionInput): RecoveryOutcome {
+  if (input.outcome) return input.outcome
+  if (!input.after) return 'unknown'
+  return input.after.failure === 'none' ? 'recovered' : input.after.failure === 'transport' ? 'unknown' : 'failed'
+}
+
+/** Attribute one recovery without collapsing observation, matched state, and replay evidence. */
+export function attributeRecovery(input: RecoveryAttributionInput): RecoveryObservation {
+  const beforeFingerprint = stateFingerprint(input.before)
+  const sameGeneration = input.after === undefined || (input.before.contextGeneration ?? 0) === (input.after.contextGeneration ?? 0)
+  const replayed = input.replay?.safe === true && typeof input.replay.receiptId === 'string' && input.replay.receiptId.trim().length > 0
+  const matched = input.matched === true && input.after !== undefined && stateFingerprint(input.after) === beforeFingerprint && sameGeneration
+  const evidenceGrade = replayed ? 'replayed' : matched ? 'matched' : 'observed'
+  return {
+    failureSignature: failureSignature(input.before),
+    stateFingerprint: beforeFingerprint,
+    action: normalizeRecoveryAction(input.action),
+    ...(input.route ? { route: input.route.slice(0, 160) } : {}),
+    outcome: outcomeOf(input),
+    evidenceGrade,
+    contextGeneration: input.before.contextGeneration ?? 0,
+    ...(replayed ? { receiptId: input.replay!.receiptId!.slice(0, 128) } : {}),
+  }
+}
+
+/** Convert adjacent, same-generation records into explicitly observed recovery observations. */
+export function computeRecoveryObservations(records: readonly DecisionRecord[]): RecoveryObservation[] {
+  const result: RecoveryObservation[] = []
+  const bySession = new Map<string, DecisionRecord[]>()
+  for (const record of records) {
+    if (record.sessionKnown !== true) continue
+    const bucket = bySession.get(record.sessionId)
+    if (bucket) bucket.push(record)
+    else bySession.set(record.sessionId, [record])
+  }
+  for (const session of bySession.values()) {
+    for (let i = 0; i < session.length - 1; i += 1) {
+      const current = session[i]!
+      const next = session[i + 1]!
+      if (current.outcome !== 'ok' || next.outcome !== 'ok') continue
+      if (current.state.failure !== 'hard' || next.state.failure === 'transport') continue
+      if ((current.state.contextGeneration ?? 0) !== (next.state.contextGeneration ?? 0)) continue
+      result.push(attributeRecovery({
+        before: current.state,
+        after: next.state,
+        action: current.recovery?.action ?? 'continue',
+        route: current.upstreamModel,
+        outcome: next.state.failure === 'none' ? 'recovered' : 'failed',
+      }))
+    }
+  }
+  return result
 }

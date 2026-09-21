@@ -1,5 +1,6 @@
 import { decideTier, extractTrajectoryState, estimateCost, type CostRates, type SabiConfig, type TrajectoryState } from '@sabi/core'
-import type { EvalTask } from './tasks.ts'
+import { normalizeEvalEpisode, type EvalTask } from './tasks.ts'
+import type { SemanticEpisode } from '@sabi/core'
 
 export interface EvalConfigInput {
   policy?: Record<string, string>
@@ -33,6 +34,8 @@ export interface TaskRounds {
 
 export interface EvalSummary {
   tasks: TaskRounds[]
+  /** Normalized, labelled episodes; fixture evidence is never treated as live evidence. */
+  episodes: SemanticEpisode[]
   totals: {
     tasks: number
     passed: number
@@ -83,6 +86,7 @@ export function runEval(config: EvalConfigInput, tasks: EvalTask[]): EvalSummary
   const baselineRates = config.models[baselineTier]?.cost
 
   const results: TaskRounds[] = []
+  const episodes: SemanticEpisode[] = []
   const byRule: Record<string, number> = {}
   const byTier: Record<string, number> = {}
   let totalRounds = 0
@@ -177,6 +181,7 @@ export function runEval(config: EvalConfigInput, tasks: EvalTask[]): EvalSummary
       baselineTier,
       outcome: task.outcome,
     })
+    episodes.push(normalizeEvalEpisode(task))
 
     if (task.outcome === 'pass') {
       passed += 1
@@ -199,6 +204,7 @@ export function runEval(config: EvalConfigInput, tasks: EvalTask[]): EvalSummary
 
   return {
     tasks: results,
+    episodes,
     totals: { tasks: tasks.length, passed, failed, blocked, rounds: totalRounds },
     routing: { byRule, byTier },
     baseline: { tier: baselineTier, rounds: totalRounds, cost: unknownBaselineCost ? null : baselineCost },
@@ -216,6 +222,7 @@ export function formatSummary(summary: EvalSummary): string {
     `rules    ${[...Object.entries(summary.routing.byRule)].map(([k, v]) => `${k}:${v}`).join(' ') || '—'}`,
     `baseline ${summary.baseline.tier} → ${money(summary.baseline.cost)} · sabi → ${money(summary.sabi.cost)} · savings ${summary.sabi.savingsPct === null ? 'unknown' : `${summary.sabi.savingsPct.toFixed(1)}%`} (offline repricing)`,
     `quality  ${summary.quality.passedWithinBaseline}/${summary.totals.passed} passed tasks never above the baseline · ${summary.quality.failedEscalated}/${summary.totals.failed} failed tasks escalated to strong`,
+    `episodes ${summary.episodes.filter((episode) => episode.phase === 'pre').length} PRE · ${summary.episodes.filter((episode) => episode.phase === 'live').length} LIVE · ${summary.episodes.filter((episode) => episode.phase === 'post').length} POST (fixture evidence)`,
   ]
   return lines.join('\n')
 }

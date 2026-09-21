@@ -1,10 +1,23 @@
 import { createHash } from 'node:crypto'
 import { cheapestServingTier, isEnabledUpstream, servesInputModalities } from './compatibility.ts'
+import { planRecovery, recoveryPlanFromCandidate } from './recovery-actions.ts'
 import { decideTier } from './policy.ts'
 import { hashIdentity } from './log.ts'
 import { candidateBeatsIncumbent, recoveryRate, type RecoveryProfile } from './recovery.ts'
 import { textOf } from './state.ts'
-import type { ChatRequestBody, JudgeConfig, JudgeRecord, SabiConfig, RouteDecision } from './types.ts'
+import { looksLikeCanary } from './telemetry.ts'
+import type {
+  ChatRequestBody,
+  EvidenceSource,
+  JudgeConfig,
+  JudgeEvidence,
+  JudgeEvidenceSlotName,
+  JudgeEvidenceValue,
+  JudgeRecord,
+  RecoveryAction,
+  SabiConfig,
+  RouteDecision,
+} from './types.ts'
 
 export interface JudgeQuestions {
   real_problem: {
@@ -76,10 +89,15 @@ export interface JudgeOutcome {
   evidenceRedundant?: number
   model?: string
   usage?: { inputTokens: number; outputTokens: number }
+  /** Optional action suggestion; runtime validation keeps it inside the allowlist. */
+  recoveryAction?: RecoveryAction | string
 }
 
 export function judgeTriggers(decision: RouteDecision, config: JudgeConfig): boolean {
   if (!config.enabled) return false
+  if (decision.state.failure === 'transport' || decision.state.failureEvidence.includes('permission-denial')) return false
+  if (decision.state.verification?.reason === 'invalid-receipt') return false
+  if (decision.recovery?.action === 'ask-user') return false
   const callOn = config.callOn ?? ['failure', 'unclassified']
   return callOn.includes(decision.rule)
 }
@@ -107,6 +125,99 @@ function sha256Hex(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex')
 }
 
+const JUDGE_SLOTS: readonly JudgeEvidenceSlotName[] = ['intent', 'mutation', 'failure', 'verification', 'constraint', 'priorFailure', 'contextBoundary']
+
+function unknownEvidence(): JudgeEvidenceValue {
+  return { status: 'unknown' }
+}
+
+function evidenceValue(
+  value: unknown,
+  source: EvidenceSource,
+  status: JudgeEvidenceValue['status'],
+  generation?: number,
+  limit = 800,
+  includeValue = false,
+): JudgeEvidenceValue {
+  if (typeof value !== 'string') return unknownEvidence()
+  const clean = value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim()
+  if (!clean || looksLikeCanary(clean)) return unknownEvidence()
+  return {
+    ...(includeValue ? { value: trimmed(clean, limit) } : {}),
+    source,
+    status,
+    ...(generation !== undefined ? { contextGeneration: generation } : {}),
+  }
+}
+
+function verificationEvidence(decision: RouteDecision, includeValue: boolean): JudgeEvidenceValue {
+  const verification = decision.state.verification
+  if (!verification || verification.status === 'not-required') return unknownEvidence()
+  const status = verification.status === 'passed' || verification.status === 'failed' ? 'verified' : verification.status === 'unknown' ? 'unknown' : 'observed'
+  return evidenceValue(
+    [verification.status, verification.reason, verification.receiptId].filter(Boolean).join(': '),
+    verification.receiptId ? 'harness' : 'summary',
+    status,
+    verification.generation,
+    180,
+    includeValue,
+  )
+}
+
+/** Build bounded, state-conditioned evidence. Raw values are opt-in with the same egress gate as snippets. */
+export function buildJudgeEvidence(body: ChatRequestBody, decision: RouteDecision, maxChars = 2_400, egress?: JudgeEgress): JudgeEvidence {
+  const messages = Array.isArray(body.messages) ? body.messages : []
+  const lastUser = [...messages].reverse().find((message) => message?.role === 'user')
+  const generation = decision.state.contextGeneration
+  const includeValue = judgeAllowsSnippets(egress)
+  const mutationTools = new Set(['edit_file', 'write_file', 'edit', 'write', 'apply_patch'])
+  const historicalMutations = messages
+    .filter((message) => message?.role === 'assistant')
+    .flatMap((message) => message.tool_calls ?? [])
+    .map((call) => String(call?.function?.name ?? ''))
+    .filter((name) => mutationTools.has(name))
+  const evidence: JudgeEvidence = {
+    intent: evidenceValue(textOf(lastUser?.content), 'user', 'observed', generation, 800, includeValue),
+    mutation: decision.state.roundKind === 'implementation' || historicalMutations.length > 0
+      ? evidenceValue([...new Set([...historicalMutations, ...decision.state.lastToolNames].filter((name) => mutationTools.has(name)))].join(', '), 'tool', 'observed', generation, 180, includeValue)
+      : unknownEvidence(),
+    failure: decision.state.failureEvidence.length > 0
+      ? evidenceValue(decision.state.failureEvidence.slice(0, 4).join(', '), 'tool', 'observed', generation, 180, includeValue)
+      : unknownEvidence(),
+    verification: verificationEvidence(decision, includeValue),
+    constraint: decision.state.scopeCoverage && ((decision.state.scopeCoverage.missing?.length ?? 0) > 0 || (decision.state.scopeCoverage.expected !== undefined && (decision.state.scopeCoverage.ratio ?? 0) < 1))
+      ? evidenceValue(`scope ${decision.state.scopeCoverage.observed ?? 0}/${decision.state.scopeCoverage.expected ?? '?'}`, 'harness', 'observed', generation, 280, includeValue)
+      : unknownEvidence(),
+    priorFailure: decision.state.repeatedFailure === true || (decision.state.failureStreak ?? 0) > 1
+      ? evidenceValue(`streak ${decision.state.failureStreak ?? 2}: ${decision.state.failureEvidence.slice(0, 2).join(', ')}`, 'tool', 'observed', generation, 240, includeValue)
+      : unknownEvidence(),
+    contextBoundary: generation !== undefined
+      ? evidenceValue(String(generation), 'harness', 'observed', generation, 32, includeValue)
+      : unknownEvidence(),
+    omitted: [],
+  }
+  const encoded = (): string => JSON.stringify(evidence)
+  for (const slot of JUDGE_SLOTS) {
+    if (evidence[slot].status === 'unknown' || !evidence[slot].value) evidence.omitted.push(slot)
+  }
+  while (encoded().length > maxChars) {
+    const slot = JUDGE_SLOTS.find((candidate) => Boolean(evidence[candidate].value && evidence[candidate].value!.length > 80))
+    if (!slot) break
+    const item = evidence[slot]
+    item.value = item.value!.slice(0, Math.max(80, Math.floor(item.value!.length / 2)))
+  }
+  if (encoded().length > maxChars) {
+    for (const slot of JUDGE_SLOTS) {
+      if (encoded().length <= maxChars) break
+      if (evidence[slot].value) {
+        evidence[slot] = unknownEvidence()
+        if (!evidence.omitted.includes(slot)) evidence.omitted.push(slot)
+      }
+    }
+  }
+  return evidence
+}
+
 export function buildJudgeState(
   body: ChatRequestBody,
   decision: RouteDecision,
@@ -124,6 +235,7 @@ export function buildJudgeState(
   // (server.ts saveDecision) and the judge state must keep the same invariant.
   const hashedLastTools = decision.state.lastToolNames.slice(0, 6).map((name) => hashIdentity('tool', name))
   const hashedAvailable = decision.state.toolNames.slice(0, 40).map((name) => hashIdentity('tool', name))
+  let evidence = buildJudgeEvidence(body, decision, Math.max(800, Math.floor(maxChars / 2)), egress)
   const build = (): Record<string, unknown> => ({
     round: {
       index: decision.state.assistantTurns,
@@ -156,10 +268,15 @@ export function buildJudgeState(
         }),
     failure_evidence_heuristic: decision.state.failureEvidence.slice(0, 3),
     available_tools: allowSnippets ? decision.state.toolNames.slice(0, 40) : hashedAvailable,
+    evidence,
   })
   let state = build()
   while (allowSnippets && JSON.stringify(state).length > maxChars && excerpt.length > 200) {
     excerpt = excerpt.slice(0, Math.floor(excerpt.length / 2))
+    state = build()
+  }
+  if (JSON.stringify(state).length > maxChars) {
+    evidence = buildJudgeEvidence(body, decision, Math.max(400, Math.floor(maxChars / 4)), egress)
     state = build()
   }
   return state
@@ -194,6 +311,18 @@ export function applyJudge(
     finalTier: decision.tier,
     overridden: false,
     usage: outcome.usage,
+  }
+
+  const hardGate = decision.state.failure === 'transport' || decision.state.failureEvidence.includes('permission-denial') || decision.state.verification?.reason === 'invalid-receipt' || decision.recovery?.action === 'ask-user'
+  if (hardGate) {
+    record.note = 'deterministic recovery gate bypassed judge action'
+    return { decision, record }
+  }
+  if (outcome.recoveryAction !== undefined) {
+    next = {
+      ...next,
+      recovery: recoveryPlanFromCandidate(outcome.recoveryAction, next.recovery ?? planRecovery({ state: decision.state })),
+    }
   }
 
   const required = decision.state.inputModalities ?? []

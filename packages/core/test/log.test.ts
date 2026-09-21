@@ -9,6 +9,7 @@ import {
   estimateCost,
   getIdentitySalt,
   hashIdentity,
+  parseDecisionRecord,
   readDecisions,
   readLogWriteFailures,
   resetIdentitySaltCache,
@@ -141,4 +142,51 @@ test('missing or invalid prices remain unknown while explicit free pricing is ze
   const cost = estimateCost(usage, { input: 10, output: 20, cacheRead: 1 })
   assert.ok(cost)
   assert.ok(Math.abs(cost.total - ((60 * 10 + 40) + 20 * 20) / 1e6) < 1e-10)
+})
+
+test('legacy decision rows remain readable when additive evidence fields are omitted', () => {
+  const record = parseDecisionRecord(JSON.stringify({
+    ts: '2026-09-20T00:00:00.000Z',
+    sessionId: 'legacy',
+    alias: 'sabi-code',
+    mode: 'auto',
+    rule: 'first-turn',
+    tier: 'mid',
+    reason: 'reason withheld (telemetry.allowlistOnly)',
+    upstream: 'mock',
+    upstreamModel: 'mock-mid',
+    stream: false,
+    state: {
+      messageCount: 1,
+      assistantTurns: 0,
+      toolMessages: 0,
+      lastRole: 'user',
+      contextChars: 4,
+      estimatedTokens: 2,
+      hasTools: false,
+      toolNames: [],
+      lastToolNames: [],
+      roundKind: 'first-turn',
+      failure: 'none',
+      failureEvidence: [],
+    },
+    outcome: 'ok',
+  }))
+  assert.ok(record)
+  assert.equal(record?.state.verification, undefined)
+  assert.equal(record?.recovery, undefined)
+})
+
+test('decision sanitization drops structurally compatible unknown fields', () => {
+  const record = parseDecisionRecord({
+    ts: 't',
+    sessionId: 's',
+    state: { messageCount: 1, rawPrompt: 'do-not-persist' },
+    rawPrompt: 'do-not-persist',
+    credentials: 'do-not-persist',
+  } as unknown as DecisionRecord)
+  assert.ok(record)
+  assert.equal('rawPrompt' in record!, false)
+  assert.equal('credentials' in record!, false)
+  assert.equal('rawPrompt' in record!.state, false)
 })

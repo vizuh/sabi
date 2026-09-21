@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import os from 'node:os'
 import path from 'node:path'
 import type { AgentHarness, AgentSession, ControllerSignals, HandoffSnapshot } from '../src/types.ts'
-import { runController, selectRoute, structuredHandoff } from '../src/controller.ts'
+import { buildRecoveryCapsule, runController, selectRoute, structuredHandoff } from '../src/controller.ts'
 import { clearModelHealth, modelHealth } from '../src/model-health.ts'
 
 const signals: ControllerSignals = {
@@ -305,4 +305,70 @@ process.exit(result.status ?? 1)
     else process.env.PATH = previousPath
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('recovery capsule survives structured handoff serialization and stays distinct from the receipt', () => {
+  const capsule = buildRecoveryCapsule({
+    failureSignature: 'typescript-error',
+    verifiedFacts: [{ label: 'build fails on strict null checks', status: 'verified', source: 'tool', receiptBacked: true }],
+    attemptedApproaches: ['retry-same'],
+    verifiedNonSolutions: [{ label: 'bumping tsconfig target did not help', status: 'verified', source: 'tool', receiptBacked: true }],
+    lastKnownCleanPoint: 'before-auth-migration',
+    recommendedNextAction: 'retry-with-feedback',
+    sourceGeneration: 1,
+  })
+  assert.ok(capsule)
+  const message = structuredHandoff('finish the review', { ...handoff, recoveryCapsule: capsule })
+  const payload = JSON.parse(message.split('\n')[1]!) as Record<string, unknown>
+  assert.deepEqual(payload.recoveryCapsule, capsule)
+  assert.equal('receiptId' in capsule!, false)
+  assert.equal('idempotencyKey' in capsule!, false)
+  assert.equal('targetId' in capsule!, false)
+})
+
+test('recovery capsule stays within the configured handoff character bound', () => {
+  const longLabel = 'x'.repeat(500)
+  const capsule = buildRecoveryCapsule({
+    failureSignature: 'typescript-error',
+    verifiedFacts: Array.from({ length: 20 }, (_, index) => ({ label: `${longLabel}-${index}`, status: 'observed' as const, source: 'tool' as const })),
+    attemptedApproaches: Array.from({ length: 20 }, (_, index) => `${longLabel}-${index}`),
+    verifiedNonSolutions: Array.from({ length: 20 }, (_, index) => ({ label: `${longLabel}-${index}`, status: 'observed' as const, source: 'tool' as const })),
+  })
+  assert.ok(capsule)
+  assert.ok(JSON.stringify(capsule).length <= 2_000)
+})
+
+test('recovery capsule downgrades unreceipted and stale claims', () => {
+  const unreceipted = buildRecoveryCapsule({
+    failureSignature: 'typescript-error',
+    verifiedFacts: [
+      { label: 'model claims the fix works', status: 'verified', source: 'summary', receiptBacked: false },
+      { label: 'test suite passed', status: 'verified', source: 'tool', receiptBacked: true },
+    ],
+  })
+  assert.ok(unreceipted)
+  assert.equal(unreceipted!.verifiedFacts[0]!.status, 'unverified')
+  assert.equal(unreceipted!.verifiedFacts[1]!.status, 'verified')
+
+  const stale = buildRecoveryCapsule({
+    failureSignature: 'typescript-error',
+    verifiedFacts: [{ label: 'test suite passed before compaction', status: 'verified', source: 'tool', receiptBacked: true }],
+    recommendedNextAction: 'retry-with-feedback',
+    sourceGeneration: 1,
+    currentGeneration: 2,
+  })
+  assert.ok(stale)
+  assert.equal(stale!.verifiedFacts[0]!.status, 'unverified')
+  assert.equal(stale!.recommendedNextAction, undefined)
+})
+
+test('recovery capsule drops secret-like labels before handoff', () => {
+  const capsule = buildRecoveryCapsule({
+    failureSignature: 'typescript-error',
+    attemptedApproaches: ['sk-live-ABCDEF1234567890abcdef', 'safe retry'],
+    verifiedFacts: [{ label: 'BEGIN RSA PRIVATE KEY', status: 'observed', source: 'summary' }],
+  })
+  assert.ok(capsule)
+  assert.deepEqual(capsule!.attemptedApproaches, ['safe retry'])
+  assert.deepEqual(capsule!.verifiedFacts, [])
 })

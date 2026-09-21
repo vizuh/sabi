@@ -29,6 +29,66 @@ export type EvidenceCode =
   | 'rate-limited'
   | 'quota-exceeded'
   | 'timeout'
+  | 'mutation'
+  | 'verification-receipt'
+  | 'summary-claim'
+  | 'scope-observed'
+  | 'constraint'
+  | 'prior-failure'
+  | 'context-boundary'
+  | 'observation'
+
+export type EvidenceSource = 'tool' | 'user' | 'harness' | 'judge' | 'summary'
+export type EvidenceStatus = 'observed' | 'verified' | 'unverified' | 'contradicted'
+export type VerificationStatus = 'not-required' | 'needed' | 'attempted' | 'passed' | 'failed' | 'unknown'
+export type VerificationReason =
+  | 'mutation-without-receipt'
+  | 'summary-without-receipt'
+  | 'stale-generation'
+  | 'invalid-receipt'
+  | 'missing-receipt'
+  | 'scope-unknown'
+  | 'user-denial'
+  | 'contradicted'
+export type ScopeCoverageSource = 'explicit' | 'inferred' | 'unknown'
+
+export interface ScopeCoverage {
+  expected?: number
+  observed?: number
+  ratio?: number
+  source: ScopeCoverageSource
+  missing?: string[]
+}
+
+export interface TrajectoryEvidence {
+  code: EvidenceCode
+  source: EvidenceSource
+  status: EvidenceStatus
+  contextGeneration: number
+  detail?: string
+}
+
+export interface VerificationReceipt {
+  id: string
+  status: Extract<VerificationStatus, 'passed' | 'failed'>
+  generation: number
+  source: Exclude<EvidenceSource, 'summary' | 'judge'>
+  valid?: boolean
+}
+
+export interface VerificationState {
+  status: VerificationStatus
+  reason?: VerificationReason
+  receiptId?: string
+  generation?: number
+}
+
+export interface ScopeInput {
+  expected?: string[] | number
+  observed?: string[] | number
+  source?: ScopeCoverageSource
+  missing?: string[]
+}
 
 export interface ChatToolCall {
   id?: string
@@ -55,6 +115,13 @@ export interface ChatRequestBody {
   tools?: ChatToolDef[]
   stream?: boolean
   stream_options?: Record<string, unknown>
+  /** Optional host metadata. These fields are bounded and never contain transcript text. */
+  requestedScope?: string[]
+  observedScope?: string[]
+  scope?: ScopeInput
+  verificationReceipt?: VerificationReceipt
+  contextGeneration?: number
+  summaryClaim?: boolean
   [key: string]: unknown
 }
 
@@ -98,6 +165,63 @@ export interface TrajectoryState {
   inputModalities?: ModelModality[]
   /** Media content parts found in the request, by kind. */
   mediaCounts?: Partial<Record<Exclude<ModelModality, 'text'>, number>>
+  /** Bounded allowlisted claims carried by the current trajectory. */
+  evidence?: TrajectoryEvidence[]
+  verification?: VerificationState
+  scopeCoverage?: ScopeCoverage
+}
+
+export type RecoveryAction =
+  | 'continue'
+  | 'retry-same'
+  | 'retry-with-feedback'
+  | 'gather-evidence'
+  | 'escalate-model'
+  | 'fresh-context'
+  | 'rollback-with-reflection'
+  | 'ask-user'
+
+export type RecoveryReasonCode =
+  | 'none'
+  | 'transport'
+  | 'hard-failure'
+  | 'missing-evidence'
+  | 'repeated-failure'
+  | 'user-denial'
+  | 'invalid-receipt'
+  | 'exhausted-routes'
+  | 'unsupported-capability'
+  | 'stale-generation'
+  | 'no-safe-continuation'
+  | 'verified'
+
+export interface RecoveryRouteConstraint {
+  excludeRoutes?: string[]
+  excludeProviders?: string[]
+  requireCapability?: string
+}
+
+export interface RecoveryPlan {
+  action: RecoveryAction
+  reason: RecoveryReasonCode
+  constraints?: RecoveryRouteConstraint
+  retryable: boolean
+  source: 'deterministic' | 'judge'
+}
+
+export interface RecoveryPlannerInput {
+  state: TrajectoryState
+  verification?: VerificationState
+  userDenied?: boolean
+  invalidReceipt?: boolean
+  exhaustedRoutes?: boolean
+  unsupportedCapability?: boolean
+  retriesRemaining?: number
+  availableRoutes?: string[]
+  currentRoute?: string
+  currentProvider?: string
+  safeRollback?: boolean
+  hasFeedback?: boolean
 }
 
 export interface CostRates {
@@ -251,6 +375,7 @@ export interface RouteDecision {
   upstream: string
   upstreamModel: string
   state: TrajectoryState
+  recovery?: RecoveryPlan
 }
 
 export interface CostBreakdown {
@@ -309,4 +434,85 @@ export interface DecisionRecord {
   transport?: number
   /** Tier that served the round after a transport-fallback retry, when the planned tier failed first. */
   fallback?: string
+  /** Optional graded recovery attribution; legacy records omit it. */
+  recovery?: RecoveryObservation
+}
+
+export type RecoveryEvidenceGrade = 'observed' | 'matched' | 'replayed'
+export type RecoveryOutcome = 'recovered' | 'failed' | 'unknown'
+
+export interface RecoveryObservation {
+  failureSignature: string
+  stateFingerprint: string
+  action: RecoveryAction
+  route?: string
+  outcome: RecoveryOutcome
+  evidenceGrade: RecoveryEvidenceGrade
+  contextGeneration: number
+  receiptId?: string
+}
+
+export type EpisodePhase = 'pre' | 'live' | 'post'
+export type EpisodeResult = 'recovered' | 'failed' | 'incomplete' | 'unknown'
+export type EpisodeEvidenceSource = 'fixture' | 'source-test' | 'ci' | 'live-runtime'
+
+export interface SemanticEpisode {
+  id?: string
+  phase: EpisodePhase
+  operation: string
+  taskClass?: string
+  model?: string
+  harness?: string
+  provider?: string
+  effort?: string
+  environment?: string
+  result: EpisodeResult
+  verification?: VerificationState
+  coverage?: ScopeCoverage
+  recovery?: RecoveryObservation
+  usage?: UsageTotals
+  cost?: number
+  latencyMs?: number
+  evidence: EpisodeEvidenceSource
+}
+
+export type ShadowLifecycle = 'shadow' | 'backtested' | 'active' | 'rejected' | 'rolled-back'
+
+export interface ProfileCandidate {
+  id: string
+  operation: string
+  model?: string
+  harness?: string
+  sampleCount: number
+  minimumSamples: number
+  status: ShadowLifecycle
+  backtest?: { passed: boolean; holdoutPassed?: boolean; reason?: string }
+  rollbackReference?: string
+}
+
+export type JudgeEvidenceSlotName =
+  | 'intent'
+  | 'mutation'
+  | 'failure'
+  | 'verification'
+  | 'constraint'
+  | 'priorFailure'
+  | 'contextBoundary'
+
+export interface JudgeEvidenceValue {
+  status: EvidenceStatus | 'unknown'
+  value?: string
+  source?: EvidenceSource
+  contextGeneration?: number
+}
+
+export interface JudgeEvidence {
+  intent: JudgeEvidenceValue
+  mutation: JudgeEvidenceValue
+  failure: JudgeEvidenceValue
+  verification: JudgeEvidenceValue
+  constraint: JudgeEvidenceValue
+  priorFailure: JudgeEvidenceValue
+  contextBoundary: JudgeEvidenceValue
+  omitted: JudgeEvidenceSlotName[]
 }

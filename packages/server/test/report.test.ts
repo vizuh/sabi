@@ -92,3 +92,28 @@ test('report counts shadow evidence-redundancy answers without acting on them', 
   const out = report([shadow, row])
   assert.deepEqual(out.judge.evidenceRedundant, { scored: 1, redundant: 1, threshold: 0.6 })
 })
+
+test('report exposes bounded local semantic profiles without claiming universal rankings', () => {
+  const out = report([{ ...row, state: { roundKind: 'verification' }, latencyMs: 25 }])
+  assert.equal(out.semanticProfiles.length, 1)
+  assert.equal(out.semanticProfiles[0].operation, 'verification')
+  assert.equal(out.semanticProfiles[0].model, 'fixture-model')
+  assert.equal(out.semanticProfiles[0].confidence, 'low')
+})
+
+test('report keeps observational and replayed recovery evidence separate', () => {
+  const recovery = (evidenceGrade: 'observed' | 'matched' | 'replayed') => ({
+    failureSignature: 'failure-1',
+    stateFingerprint: 'state-1',
+    action: 'retry-with-feedback',
+    outcome: 'recovered',
+    evidenceGrade,
+    contextGeneration: 0,
+  })
+  const out = report([
+    { ...row, recovery: recovery('observed') },
+    { ...row, recovery: recovery('matched') },
+    { ...row, recovery: recovery('replayed') },
+  ])
+  assert.deepEqual(out.recoveryEvidenceGrades, { observed: 1, matched: 1, replayed: 1 })
+})

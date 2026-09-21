@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { runEval, type EvalConfigInput } from '../src/harness.ts'
-import { TASK_SET, type EvalTask } from '../src/tasks.ts'
+import { TASK_SET, normalizeEvalEpisode, type EvalTask } from '../src/tasks.ts'
+import { replayFixture, selectCalibratedSubset } from '../src/backtest.ts'
+import type { RecoveryObservation } from '@sabi/core'
 
 const config: EvalConfigInput = {
   policy: {
@@ -124,4 +126,51 @@ test('a compaction boundary restarts the failure streak instead of reporting stu
   assert.notEqual(last?.repeatedFailure, true)
   assert.equal(last?.failureStreak, 1)
   assert.equal(last?.contextGeneration, 1)
+})
+
+test('normalized episodes keep coverage, verification, causal grade, and failure phase labels separate', () => {
+  const recovery: RecoveryObservation = {
+    failureSignature: 'failure-1',
+    stateFingerprint: 'state-1',
+    action: 'retry-with-feedback',
+    outcome: 'recovered',
+    evidenceGrade: 'matched',
+    contextGeneration: 0,
+  }
+  const episodes = (['pre', 'live', 'post'] as const).map((phase) => normalizeEvalEpisode({
+    id: `phase-${phase}`,
+    name: 'fixture',
+    instruction: 'fixture',
+    messages: [],
+    outcome: 'pass',
+    note: 'fixture only',
+    phase,
+    verification: { status: 'unknown', reason: 'invalid-receipt' },
+    coverage: { expected: 20, observed: 13, ratio: 0.65, source: 'explicit' },
+    recovery,
+  }))
+  assert.deepEqual(episodes.map((episode) => episode.phase), ['pre', 'live', 'post'])
+  assert.deepEqual(episodes.map((episode) => episode.coverage?.ratio), [0.65, 0.65, 0.65])
+  assert.deepEqual(episodes.map((episode) => episode.verification?.status), ['unknown', 'unknown', 'unknown'])
+  assert.deepEqual(episodes.map((episode) => episode.recovery?.evidenceGrade), ['matched', 'matched', 'matched'])
+})
+
+test('fixture replay requires an explicit side-effect-safe seam and returns fixture evidence', () => {
+  const replay = replayFixture({ id: 'safe-fixture', input: { value: 2 }, sideEffectSafe: true, execute: ({ value }) => value * 2 })
+  assert.deepEqual(replay, { id: 'safe-fixture', output: 4, evidence: 'fixture' })
+})
+
+test('calibrated fixture selection is deterministic and keeps a holdout', () => {
+  const items = TASK_SET.slice(0, 6)
+  const first = selectCalibratedSubset(items, { sampleSize: 3, seed: 'fixed-seed' })
+  const second = selectCalibratedSubset(items, { sampleSize: 3, seed: 'fixed-seed' })
+  assert.equal(first.calibrated, true)
+  assert.deepEqual(first.selected.map((item) => item.id), second.selected.map((item) => item.id))
+  assert.deepEqual(first.holdout.map((item) => item.id), second.holdout.map((item) => item.id))
+  assert.equal(new Set([...first.selected, ...first.holdout]).size, 6)
+})
+
+test('missing calibration is explicit rather than an empty success', () => {
+  const result = selectCalibratedSubset([{ id: 'only-task' }], { sampleSize: 3 })
+  assert.deepEqual(result, { selected: [], holdout: [], calibrated: false, seed: 'sabi-v1', reason: 'insufficient-calibration' })
 })

@@ -576,6 +576,39 @@ publication, login-service persistence, universal Orca activation or cross-termi
 Only publish a `controller-v*` tag after the clean-machine and Phase E live host gates pass. Add
 platform service installers and broader harness claims as separate evidence-backed changes.
 
+## [2026-09-20] Evidence-aware adaptive scheduler vNext foundation
+
+### Decision
+
+Use GitHub Spec Kit to specify and implement the first evidence-aware scheduler slice while keeping
+the deterministic router as the active policy. Add typed evidence provenance, verification and scope
+coverage, recovery actions and graded recovery attribution, bounded judge evidence slots, controller
+recovery capsules, semantic profiles, and calibrated offline eval subsets. Keep profile candidates
+shadow/backtest-only; no learned candidate changes active routing.
+
+### Why
+
+The supplied research synthesis identifies a stronger loop than `state -> tier -> model`:
+`state -> missing evidence/recovery action -> route -> observe -> validated episode`. The repository
+already had bounded state, receipts, controller handoffs, and fixture evals, so additive contracts
+and pure helpers were sufficient; a database, queue, RL loop, or new provider was not.
+
+### Tradeoffs and limits
+
+- Observed, matched, and replayed recovery are separate; fixture replay is explicit and never runs
+  implicitly on live work.
+- Semantic profiles report local evidence by operation/model/harness, but they do not establish a
+  universal model ranking or change routing.
+- PRE/LIVE/POST labels describe offline fixture evidence; they are not live provider receipts.
+- The controller capsule preserves bounded verified facts and failed approaches, but a real external
+  harness consuming the capsule is not proven by local tests.
+
+### Revisit later?
+
+Only promote candidates after holdout/backtest and regression gates show benefit. Add live token
+receipts, durable multi-process learning, or utility-based active routing only with a real harness
+contract and outcome evidence.
+
 ## [2026-09-19] Linux user service is the first ambient-runtime backend
 
 ### Decision
