@@ -12,12 +12,13 @@
 
 ## Phase 1 — safe planning
 
-- [ ] Add deterministic pre-gates for sensitive paths, public/synthetic scope,
-      available resource, and per-request call budget.
-- [ ] Add a JEV plan schema that returns mode, intent, seat objectives, and an
-      explicit `none`/`unsure` path. JEV must not execute the next action.
-- [ ] Add a plan receipt before any seat starts; record the actual plan and the
-      inventory snapshot hash, not a mutable catalog claim.
+- [x] Add deterministic pre-gates for sensitive paths, public/synthetic scope,
+      available resource, and per-request call budget (`councilPreGate`).
+- [x] Add a JEV plan schema that returns mode, intent, seat objectives, and an
+      explicit `none`/`unsure` path. JEV must not execute the next action
+      (`CouncilPlan` with `reason` union including `unsure`; no execution).
+- [x] Add a plan receipt before any seat starts; record the actual plan and the inventory
+      snapshot hash, not a mutable catalog claim.
 
 ## Phase 2 — harness adapters
 

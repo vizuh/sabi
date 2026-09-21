@@ -2,11 +2,14 @@ import { execFileSync } from 'node:child_process'
 import {
   appendSurplusReviewReceipt,
   buildSafeReviewPacket,
+  councilPreGate,
+  createCouncilPlanReceipt,
   defaultSurplusLogPath,
   newSurplusReviewReceipt,
   parseReviewClaims,
   surplusResources,
   textOf,
+  type CouncilPlan,
   type SafeReviewPacket,
   type SabiConfig,
   type SurplusResource,
@@ -144,6 +147,38 @@ export async function runSurplusReview(input: {
     appendSurplusReviewReceipt(receipt, logFile)
     return { receipt, claims: [], logFile, resource }
   }
+
+  const preGate = councilPreGate({
+    intent: input.intent,
+    mode: 'probe',
+    maxCalls: 1,
+    changedFiles: source.changedFiles,
+    diff: source.diff,
+    resources,
+  }, input.cwd)
+  if (!preGate.ok) {
+    const blockedReceipt = newSurplusReviewReceipt({
+      intent: input.intent, resource, status: 'blocked', parseStatus: 'not-run',
+      claimCount: 0, errorCode: preGate.reason, now: input.now,
+    })
+    appendSurplusReviewReceipt(blockedReceipt, logFile)
+    return { receipt: blockedReceipt, claims: [], logFile, resource }
+  }
+
+  const plan: CouncilPlan = {
+    version: 1,
+    mode: 'probe',
+    intent: input.intent,
+    reason: preGate.note === 'public-scope' ? 'unsure' : 'single-uncertainty',
+    seats: [{
+      seatId: 'surplus-seat-0',
+      objective: 'surplus-inference-shadow-review',
+      capability: 'text',
+    }],
+    crossExamination: false,
+    maxCalls: 1,
+  }
+  createCouncilPlanReceipt(plan, resources, undefined, input.now)
   const packet = packetResult.packet
   if (!packet.diff.trim()) {
     const receipt = newSurplusReviewReceipt({ intent: input.intent, resource, status: 'skipped', parseStatus: 'not-run', claimCount: 0, packetSha256: packet.diffSha256, errorCode: 'no-tracked-diff', now: input.now })

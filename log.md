@@ -846,3 +846,69 @@ and architecture notes remain English; no runtime or package behavior changed.
 Added Portuguese versions of the adapter index and Hermes user guide, linked them from the
 Portuguese README and English source pages, and kept package implementation references in English.
 No runtime, provider, credential or package behavior changed.
+
+## [2026-09-20] feat | Phase 1 pre-gates, plan receipts, council ledger hardening
+
+Completed all three Phase 1 items from `docs/tasks/surplus-council.md`
+in the `surplus-council-ledger` worktree. Changes are local; no commit,
+push or publication was performed.
+
+**Deterministic pre-gates** (`packages/core/src/council.ts`):
+
+Added `councilPreGate(input, cwd?)` returning `{ ok, reason }` (or `{ ok: true, note: 'public-scope' }`
+when the git remote is a public GitHub repo). Hard blocks for: sensitive file paths (reuses
+`hasSensitivePath` from `surplus.ts`), canary/secret markers in the diff (reuses `looksLikeCanary`
+from `telemetry.ts`), no zero-cost resource available, and per-request call budget below the mode
+minimum (`minCallsForMode`). `mode: 'none'` is always viable; an empty task boundary returns
+`no-uncertainty`. Public scope is a soft signal (a note on the ok result), not a hard block.
+
+**JEV plan schema** (`CouncilPlan`): already present in the type system. Exported `CouncilPlanReason`
+as a named type and added `'unsure'` to the `reason` union for the explicit unsure path. `CouncilPlan`
+is data-only — it has no execution, so the "JEV must not execute the next action" constraint is
+satisfied by construction.
+
+**Plan receipt** (`createCouncilPlanReceipt`): New function that writes a council ledger receipt
+with `stage: 'plan'`, `status: 'planned'`, `evidence: 'none'`, `source: 'live'`. Records
+`planSha256` (deterministic hash of the plan summary — mode, intent, reason, seat objectives,
+crossExamination, synthesizer, maxCalls) and `inventorySha256` (hash of the zero-cost resource
+inventory alias/provider/model triple). Independence is `'full'` when a separate synthesizer is
+declared or `mode === 'none'`; otherwise `'reduced'`. This satisfies "record the actual plan and
+the inventory snapshot hash, not a mutable catalog claim" — the hashes bind the plan to a specific
+inventory snapshot and are tamper-evident via the append-only JSONL ledger.
+
+**Surplus review wiring** (`packages/controller/src/surplus.ts`): `runSurplusReview` now runs
+`buildSafeReviewPacket` first (preserving the existing surplus-level `'secret-path'` / `'unsafe-path'`
+reasons), then `councilPreGate` as a second gate (catching `'no-resource'`, `'budget-exceeded'`,
+`'no-uncertainty'`). When the pre-gate passes, `createCouncilPlanReceipt` writes a plan receipt to
+the council ledger before any model call is attempted. If the pre-gate fails, a surplus receipt
+with the pre-gate reason as `errorCode` is written and the review exits early.
+
+**CLI** (`packages/controller/src/cli.ts`): Added `sabi council plan` action — runs the pre-gate
+with git-discovered changed files/diff, and if viable, writes a plan receipt and prints the plan
+hash, inventory hash, receipt ID, and independence. Also added `sabi council pregate` action
+(reports the pre-gate result without writing a plan receipt). Tightened `sabi council record
+--harness` to require an explicit value (the `?? 'unknown'` fallback is removed and an error is
+thrown instead). Added `--independence=<full|reduced>` and `--plan-reason=<reason>` flags.
+
+**Receipt hardening** (`CouncilLedgerReceipt`):
+- Sanitization: `appendCouncilLedgerReceipt` now uses a `RECEIPT_KEYS` loop that serializes only
+  the 25 known receipt fields, preventing any unknown key (`rawPrompt`, `credentials`, etc.) from
+  persisting to the JSONL ledger.
+- `independence`: `'full' | 'reduced'` field (defaults to `'full'` when absent or invalid via an
+  `INDEPENDENCE` set check).
+- `planSha256?` / `inventorySha256?`: new opaque hash fields on the receipt type and in `RECEIPT_KEYS`.
+- `runtimeVersion?`: confirmed present on `CouncilLedgerReceipt` (not a blocker); the existing
+  surplus test asserting `rows[0]?.runtimeVersion === '1.18.31'` is satisfied.
+- `transportStatus`: field is correctly spelled (an earlier draft typo `transportationStatus` was
+  caught and fixed before any test run).
+
+**Tests**: 16 new tests in `packages/core/test/council.test.ts` covering `minCallsForMode`,
+`councilPreGate` (7 cases), `CouncilPlan` reason union, receipt sanitization + independence
+validation, and `createCouncilPlanReceipt` (5 cases: hash persistence, independence logic,
+stability, plan-change sensitivity).
+
+**Verified**:
+- `npm run typecheck` — clean
+- `packages/core/test/*.test.ts` — 154/154 pass
+- `packages/controller/test/*.test.ts` — 109/109 pass
+- `git diff --check` — clean

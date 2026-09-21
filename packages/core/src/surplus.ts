@@ -85,7 +85,7 @@ function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex')
 }
 
-function isSensitiveFile(value: string): boolean {
+export function isSensitiveFile(value: string): boolean {
   const file = value.trim().replaceAll('\\', '/')
   return file.split('/').some((component) => SENSITIVE_COMPONENT.test(component) || SENSITIVE_EXTENSION.test(component))
 }
@@ -98,7 +98,7 @@ function safeFile(value: unknown): string | undefined {
   return file.slice(0, 240)
 }
 
-function hasSensitivePath(files: string[]): boolean {
+export function hasSensitivePath(files: string[]): boolean {
   return files.some((file) => file.split(' => ').some((part) => isSensitiveFile(part)))
 }
 

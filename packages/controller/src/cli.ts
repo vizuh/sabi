@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import path from 'node:path'
-import { appendCouncilLedgerReceipt, configureFreeQuality, defaultConfigPath, loadConfig, newCouncilLedgerReceipt, readCouncilLedgerReceipts, readSurplusReviewReceipts, surplusResources, type CouncilEvidenceLevel, type CouncilIntent, type CouncilMode, type CouncilReceiptSource, type CouncilReceiptStatus, type CouncilStage, type SurplusReviewIntent } from '@sabi/core'
+import { appendCouncilLedgerReceipt, councilPreGate, createCouncilPlanReceipt, configureFreeQuality, defaultConfigPath, loadConfig, newCouncilLedgerReceipt, readCouncilLedgerReceipts, readSurplusReviewReceipts, surplusResources, type CouncilEvidenceLevel, type CouncilIndependence, type CouncilIntent, type CouncilMode, type CouncilPlan, type CouncilPlanReason, type CouncilReceiptSource, type CouncilReceiptStatus, type CouncilStage, type SurplusReviewIntent } from '@sabi/core'
 import {
   controllerPreferencesPath,
   controllerStateDir,
@@ -76,7 +77,7 @@ function printHelp(): void {
   sabi replay [--cwd=<path>] [--last=<n>] [--json]
   sabi setup [--no-start] [--no-hooks] [--free-quality] [--json]
   sabi surplus [inventory|review|history] [--cwd=<path>] [--intent=bug-hunt|test-gap|api-contract] [--alias=<alias>] [--json]
-  sabi council [history|record] [--harness=<id>] [--runtime-version=<version>] [--provider=<id>] [--model=<id>] [--seat=<id>] [--task-key=<key>] [--stage=<stage>] [--mode=<mode>] [--intent=<intent>] [--status=<status>] [--evidence=<level>] [--source=<source>] [--claims=<n>] [--verified-claims=<n>] [--input-tokens=<n>] [--output-tokens=<n>] [--latency-ms=<n>] [--http-status=<n>] [--input-sha256=<sha>] [--output-sha256=<sha>] [--error-code=<code>] [--json]
+  sabi council [history|record|pregate|plan] [--harness=<id>] [--runtime-version=<version>] [--provider=<id>] [--model=<id>] [--seat=<id>] [--task-key=<key>] [--stage=<stage>] [--mode=<mode>] [--intent=<intent>] [--status=<status>] [--evidence=<level>] [--source=<source>] [--independence=<full|reduced>] [--plan-reason=<reason>] [--claims=<n>] [--verified-claims=<n>] [--input-tokens=<n>] [--output-tokens=<n>] [--latency-ms=<n>] [--http-status=<n>] [--input-sha256=<sha>] [--output-sha256=<sha>] [--error-code=<code>] [--max-calls=<n>] [--cwd=<path>] [--json]
   sabi integrations [list|repair] [--json]
   sabi upgrade [--version=<semver>|latest] [--json]
   sabi uninstall [--keep-config] [--json]
@@ -278,6 +279,8 @@ function runCouncil(argv: string[]): void {
     }
     return
   }
+  if (action === 'pregate') return runCouncilPregate(argv)
+  if (action === 'plan') return runCouncilPlan(argv, logFile)
   if (action !== 'record') throw new Error(`unsupported council action '${action}'`)
   const stage = flagValue(argv, '--stage') as CouncilStage | undefined
   const mode = flagValue(argv, '--mode') as CouncilMode | undefined
@@ -285,15 +288,20 @@ function runCouncil(argv: string[]): void {
   const status = flagValue(argv, '--status') as CouncilReceiptStatus | undefined
   const evidence = flagValue(argv, '--evidence') as CouncilEvidenceLevel | undefined
   const source = flagValue(argv, '--source') as CouncilReceiptSource | undefined
+  const independence = flagValue(argv, '--independence') as CouncilIndependence | undefined
   if (!stage || !COUNCIL_STAGES.includes(stage)) throw new Error(`invalid council stage '${stage ?? ''}'`)
   if (!mode || !COUNCIL_MODES.includes(mode)) throw new Error(`invalid council mode '${mode ?? ''}'`)
   if (!intent || !COUNCIL_INTENTS.includes(intent)) throw new Error(`invalid council intent '${intent ?? ''}'`)
   if (!status || !COUNCIL_STATUSES.includes(status)) throw new Error(`invalid council status '${status ?? ''}'`)
   if (!evidence || !COUNCIL_EVIDENCE.includes(evidence)) throw new Error(`invalid council evidence '${evidence ?? ''}'`)
   if (!source || !COUNCIL_SOURCES.includes(source)) throw new Error(`invalid council source '${source ?? ''}'`)
+  if (independence !== undefined && !COUNCIL_INDEPENDENCE.includes(independence)) throw new Error(`invalid council independence '${independence ?? ''}'`)
+  if (!stage || !mode || !intent || !status || !evidence || !source) throw new Error('council record requires --stage, --mode, --intent, --status, --evidence and --source')
+  const harness = flagValue(argv, '--harness')
+  if (!harness) throw new Error('--harness is required for council record')
   const receipt = newCouncilLedgerReceipt({
     taskKey: flagValue(argv, '--task-key'),
-    harness: flagValue(argv, '--harness') ?? 'unknown',
+    harness,
     runtimeVersion: flagValue(argv, '--runtime-version'),
     provider: flagValue(argv, '--provider'),
     model: flagValue(argv, '--model'),
@@ -304,6 +312,7 @@ function runCouncil(argv: string[]): void {
     status,
     evidence,
     source,
+    independence,
     inputSha256: flagValue(argv, '--input-sha256'),
     outputSha256: flagValue(argv, '--output-sha256'),
     claimCount: numericFlag(argv, '--claims'),
@@ -317,6 +326,111 @@ function runCouncil(argv: string[]): void {
   appendCouncilLedgerReceipt(receipt, logFile)
   if (jsonRequested(argv)) console.log(JSON.stringify({ logFile: logFile ?? undefined, receipt }, null, 2))
   else console.log(`Sabi council receipt: ${receipt.receiptId} → ${logFile ?? 'default user config path'}`)
+}
+
+const COUNCIL_INDEPENDENCE: CouncilIndependence[] = ['full', 'reduced']
+
+function gitDiff(cwd: string, args: string[]): string {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', timeout: 5000, maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  } catch {
+    return ''
+  }
+}
+
+function runCouncilPregate(argv: string[]): void {
+  const mode = flagValue(argv, '--mode') as CouncilMode | undefined
+  const intent = flagValue(argv, '--intent') as CouncilIntent | undefined
+  if (!mode || !COUNCIL_MODES.includes(mode)) throw new Error(`invalid council mode '${mode ?? ''}'`)
+  if (!intent || !COUNCIL_INTENTS.includes(intent)) throw new Error(`invalid council intent '${intent ?? ''}'`)
+  const maxCalls = numericFlag(argv, '--max-calls')
+  if (maxCalls === undefined || maxCalls < 0) throw new Error('--max-calls is required for council pregate')
+  const cwd = resolvedCwd(argv)
+  const configPath = defaultConfigPath({ cwd })
+  const config = loadConfig(configPath)
+  const resources = surplusResources(config)
+  const diff = gitDiff(cwd, ['diff', '--no-ext-diff', '--unified=3', 'HEAD', '--'])
+  const status = gitDiff(cwd, ['diff', '--name-status', '--find-renames=50%', '-z', 'HEAD', '--'])
+  const changedFiles = status.split('\0').filter(Boolean).flatMap((entry) => {
+    const code = entry.split('\t')[0] ?? ''
+    if (code === 'R' || code === 'C') return []
+    return [entry.split('\t')[1]].filter(Boolean)
+  })
+  const result = councilPreGate({ intent, mode, maxCalls, changedFiles, diff, resources }, cwd)
+  if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
+  else {
+    console.log('Sabi council pre-gate')
+    console.log(`intent: ${intent} — mode: ${mode} — maxCalls: ${maxCalls}`)
+    console.log(`ok: ${result.ok}`)
+    console.log(`reason: ${result.ok ? result.reason : result.reason}${result.ok && result.note ? ` (${result.note})` : ''}`)
+  }
+}
+
+const COUNCIL_PLAN_REASONS: CouncilPlanReason[] = ['none-needed', 'single-uncertainty', 'independent-risks', 'conflicting-claims', 'high-consequence', 'unsure']
+
+function runCouncilPlan(argv: string[], logFile?: string): void {
+  const mode = flagValue(argv, '--mode') as CouncilMode | undefined
+  const intent = flagValue(argv, '--intent') as CouncilIntent | undefined
+  const maxCalls = numericFlag(argv, '--max-calls')
+  const planReason = flagValue(argv, '--plan-reason') as CouncilPlanReason | undefined
+  const harness = flagValue(argv, '--harness') ?? 'unknown'
+  const cwd = resolvedCwd(argv)
+
+  if (!mode || !COUNCIL_MODES.includes(mode)) throw new Error(`invalid council mode '${mode ?? ''}'`)
+  if (!intent || !COUNCIL_INTENTS.includes(intent)) throw new Error(`invalid council intent '${intent ?? ''}'`)
+  if (!maxCalls || maxCalls < 1) throw new Error('--max-calls is required for council plan (must be >= 1)')
+  if (planReason && !COUNCIL_PLAN_REASONS.includes(planReason)) throw new Error(`invalid plan reason '${planReason}'`)
+
+  const diff = gitDiff(cwd, ['diff', '--no-ext-diff', '--unified=3', 'HEAD', '--'])
+  const status = gitDiff(cwd, ['diff', '--name-status', '--find-renames=50%', '-z', 'HEAD', '--'])
+  const changedFiles = status.split('\0').filter(Boolean).flatMap((entry) => {
+    const code = entry.split('\t')[0] ?? ''
+    if (code === 'R' || code === 'C') return []
+    return [entry.split('\t')[1]].filter(Boolean)
+  })
+  const config = loadConfig(defaultConfigPath({ cwd }))
+  const resources = surplusResources(config)
+
+  const preGate = councilPreGate({ intent, mode, maxCalls, changedFiles, diff, resources }, cwd)
+  if (!preGate.ok) {
+    if (jsonRequested(argv)) console.log(JSON.stringify(preGate, null, 2))
+    else {
+      console.log('Sabi council plan blocked')
+      console.log(`reason: ${preGate.reason}`)
+    }
+    process.exitCode = 1
+    return
+  }
+
+  const plan: CouncilPlan = {
+    version: 1,
+    mode,
+    intent,
+    reason: planReason ?? 'single-uncertainty',
+    seats: [{ seatId: 'surplus-seat-0', objective: 'surplus-inference-shadow-review', capability: 'text', harness }],
+    crossExamination: false,
+    maxCalls,
+  }
+  const receipt = createCouncilPlanReceipt(plan, resources, logFile, new Date())
+
+  if (jsonRequested(argv)) console.log(JSON.stringify({
+    ok: true,
+    reason: plan.reason,
+    note: preGate.note,
+    planSha256: receipt.planSha256,
+    inventorySha256: receipt.inventorySha256,
+    independence: receipt.independence,
+    receiptId: receipt.receiptId,
+  }, null, 2))
+  else {
+    console.log('Sabi council plan')
+    console.log(`plan: ${mode} / ${intent} — ${plan.reason}`)
+    console.log(`receipt: ${receipt.receiptId}`)
+    if (receipt.planSha256) console.log(`plan sha256: ${receipt.planSha256}`)
+    if (receipt.inventorySha256) console.log(`inventory sha256: ${receipt.inventorySha256}`)
+    console.log(`independence: ${receipt.independence}`)
+    if (preGate.note) console.log(`note: ${preGate.note}`)
+  }
 }
 
 const SURPLUS_INTENTS: SurplusReviewIntent[] = ['bug-hunt', 'test-gap', 'api-contract']
