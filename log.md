@@ -993,7 +993,7 @@ providers, secrets, external worktrees, or unrelated files.
   written. Quoted multi-word paths and plain flags still work. `sabi doctor`
   gains a `hooks` check via `checkHookHealth()`: baked absolute hook/plugin
   paths that no longer exist are reported stale with a repair hint
-  (`sabi hooks install`); bare executable names are left to the host `PATH`.
+   (`sabi hooks install`); bare executable names are left to the host `PATH`.
 
 **Verified**:
 - focused: `hooks.test.ts`, `lifecycle.test.ts`, `server/test/startup.test.ts` pass
@@ -1044,3 +1044,19 @@ providers, secrets, external worktrees, or unrelated files.
   Not pushed; no PR opened. `docs/visual-story.md:70` keeps its illustrative
   `184 / 184 passed` diagram label (explicitly illustrative per
   `docs/visual-story.md`, not a prose suite claim) — left untouched.
+## [2026-09-21] fix | shared session identity is not a host compaction (#74)
+
+Proxy-only. `observeSession` keyed compaction on one shrink of the hashed
+`sessionId` (`hashIdentity('session', client, session)`), so a second
+worktree/subagent reusing the same session string with a smaller transcript
+advanced `contextGeneration`, dropped the measured floor and invalidated the
+judge cache. One small request now only arms a candidate (`pendingBaseline`);
+the shrink must still hold against the same baseline on the next request to
+confirm (advance generation, drop tokens/streak). A recovery to the old size
+drops the candidate fail-open with no generation advance. No new capture —
+counts only — and unattributed requests are unchanged.
+
+Verified: focused `proxy.test.ts` 19/19 (updated compaction test to the
+two-step contract plus a shared-identity recovery regression), `npm test`
+476/476, `npm run typecheck` clean, `git diff --check` clean. No paid request,
+secret, user config, publication or deployment.

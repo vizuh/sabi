@@ -107,13 +107,22 @@ interface SessionMemory {
   lastFailure?: FailureLevel
   /** Repeated-failure depth flag (1 = first hard round, 2 = repeated), matching the harness. */
   failureStreak?: number
+  /**
+   * Pre-shrink message count of an unconfirmed compaction candidate. A single small
+   * request can also be a second consumer reusing the same session identity with a
+   * smaller transcript, so the generation only advances when the shrink persists on
+   * the next request for the same session.
+   */
+  pendingBaseline?: number
 }
 
 const SESSION_MEMORY_LIMIT = 512
 /**
  * A host compaction rewrites the transcript before the next request, so the first request after
- * it is much smaller than the last one. Nothing else in a live session removes messages; half
- * the count (with a floor, so a short chat cannot trip it) is the conservative detector.
+ * it is much smaller than the last one. Nothing else in a single live session removes messages;
+ * half the count (with a floor, so a short chat cannot trip it) is the conservative detector.
+ * Two consumers can still share one session identity string, so one small request only arms a
+ * candidate: the shrink must still hold on the next request before it counts as a compaction.
  */
 const COMPACTION_MIN_MESSAGES = 8
 const COMPACTION_SHRINK = 0.5
@@ -131,30 +140,43 @@ function observeSession(
   const messages = Array.isArray(body.messages) ? body.messages.length : 0
   if (identity.sessionKnown !== true) return {}
   const memory = state.sessions.get(identity.sessionId)
-  const compacted = memory !== undefined && memory.messages >= COMPACTION_MIN_MESSAGES &&
-    messages > 0 && messages < memory.messages * COMPACTION_SHRINK
-  const generation = (memory?.generation ?? 0) + (compacted ? 1 : 0)
+  const shrunkFrom = (baseline: number): boolean =>
+    baseline >= COMPACTION_MIN_MESSAGES && messages > 0 && messages < baseline * COMPACTION_SHRINK
+  // A pending candidate is confirmed only while the transcript stays small against the same
+  // pre-shrink baseline. A recovery to the old size means the small request was a different
+  // consumer sharing the session identity, not a host rewrite — drop the candidate fail-open.
+  const pending = memory?.pendingBaseline
+  const compacted = pending !== undefined
+    ? shrunkFrom(pending)
+    : (memory !== undefined && shrunkFrom(memory.messages))
+  const confirmed = pending !== undefined && compacted
+  const armed = pending === undefined && compacted
+  const generation = (memory?.generation ?? 0) + (confirmed ? 1 : 0)
   // Re-insert so the map's insertion order keeps tracking recency for eviction.
   state.sessions.delete(identity.sessionId)
   state.sessions.set(identity.sessionId, {
     generation,
     messages,
-    // A compacted transcript invalidates the previous round's size — it described a context the
-    // host has since removed. The next billed round re-establishes a measured floor.
-    tokens: compacted ? undefined : memory?.tokens,
+    // A confirmed transcript invalidates the previous round's size — it described a context
+    // the host has since removed. An unconfirmed small request keeps the measured floor: the
+    // next billed round re-establishes it when the shrink turns out to be real.
+    tokens: confirmed ? undefined : memory?.tokens,
     // A rewrite also restarts the failure streak: the earlier failure is not the attempt the
     // model is continuing. Unattributed requests never carry a previous failure.
-    lastFailure: compacted ? undefined : memory?.lastFailure,
-    failureStreak: compacted ? undefined : memory?.failureStreak,
+    lastFailure: confirmed ? undefined : memory?.lastFailure,
+    failureStreak: confirmed ? undefined : memory?.failureStreak,
+    // Keep the original baseline while a candidate is armed so the next request is judged
+    // against the same pre-shrink size; clear it once the candidate confirms or recovers.
+    ...(armed ? { pendingBaseline: memory?.messages } : {}),
   })
   while (state.sessions.size > SESSION_MEMORY_LIMIT) {
     const oldest = state.sessions.keys().next().value
     if (oldest === undefined) break
     state.sessions.delete(oldest)
   }
-  const previous = compacted ? undefined : memory
+  const previous = confirmed ? undefined : memory
   return {
-    ...(compacted || memory?.tokens === undefined ? {} : { measuredContextTokens: memory.tokens }),
+    ...(confirmed || memory?.tokens === undefined ? {} : { measuredContextTokens: memory.tokens }),
     ...(generation > 0 ? { contextGeneration: generation } : {}),
     ...(previous?.lastFailure !== undefined ? {
       previousFailure: previous.lastFailure,

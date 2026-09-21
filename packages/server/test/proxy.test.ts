@@ -522,7 +522,7 @@ test('a billed total floors the next round of the same session and marks the con
   assert.equal(thirdRecord.state.contextKnown, false)
 })
 
-test('a transcript that comes back much smaller is a host compaction: generation advances, stale size is dropped', async () => {
+test('a transcript that stays much smaller is a host compaction: generation advances on the second small request', async () => {
   const before = (await readDecisions()).length
   const headers = { 'content-type': 'application/json', 'x-sabi-session': 'compaction-session-1' }
   const failingRound = [
@@ -541,6 +541,8 @@ test('a transcript that comes back much smaller is a host compaction: generation
   assert.equal(firstRecord.usage?.totalTokens, 120)
 
   // The host rewrote everything into a summary: the next request is less than half the size.
+  // One small request alone only arms a candidate — a second consumer sharing the session
+  // identity looks the same — so the measured floor and the generation are kept fail-open.
   const second = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
     method: 'POST',
     headers,
@@ -548,9 +550,61 @@ test('a transcript that comes back much smaller is a host compaction: generation
   })
   await second.json()
   const secondRecord = (await waitForDecision(before + 2)).at(-1)!
-  assert.equal(secondRecord.state.contextGeneration, 1)
+  assert.equal(secondRecord.state.contextGeneration, undefined)
+  assert.equal(secondRecord.state.contextKnown, true)
+  assert.equal((lastJudgeState?.round as Record<string, unknown> | undefined)?.context_generation, 0)
+
+  // The shrink persists on the next request, so it confirms as a host compaction.
+  const third = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model: 'sabi-code', stream: false, messages: unclassifiedConversation }),
+  })
+  await third.json()
+  const thirdRecord = (await waitForDecision(before + 3)).at(-1)!
+  assert.equal(thirdRecord.state.contextGeneration, 1)
   // The measured size described the pre-compaction transcript, so it is not carried across.
-  assert.equal(secondRecord.state.contextKnown, false)
+  assert.equal(thirdRecord.state.contextKnown, false)
   // Jev sees the boundary too, which is what changes the cache key across it.
   assert.equal((lastJudgeState?.round as Record<string, unknown> | undefined)?.context_generation, 1)
+})
+
+test('a single small request sharing a session identity is not a compaction', async () => {
+  const before = (await readDecisions()).length
+  const headers = { 'content-type': 'application/json', 'x-sabi-session': 'compaction-session-shared-1' }
+  const failingRound = [
+    { role: 'assistant', tool_calls: [{ function: { name: 'shell_command', arguments: '{"command":"npm test"}' } }] },
+    { role: 'tool', content: 'Tests: 2 failed, 10 passed\nexit code: 1' },
+  ]
+  const longMessages = [system, user, ...failingRound, ...failingRound, ...failingRound, ...failingRound]
+  const first = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model: 'sabi-code', stream: false, messages: longMessages }),
+  })
+  await first.json()
+  await waitForDecision(before + 1)
+
+  // A second consumer reuses the same session identity with a smaller transcript: arms only.
+  const second = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model: 'sabi-code', stream: false, messages: unclassifiedConversation }),
+  })
+  await second.json()
+  const secondRecord = (await waitForDecision(before + 2)).at(-1)!
+  assert.equal(secondRecord.state.contextGeneration, undefined)
+  assert.equal(secondRecord.state.contextKnown, true)
+
+  // The original consumer returns at full size: the candidate recovers, no generation advances.
+  const third = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model: 'sabi-code', stream: false, messages: longMessages }),
+  })
+  await third.json()
+  const thirdRecord = (await waitForDecision(before + 3)).at(-1)!
+  assert.equal(thirdRecord.state.contextGeneration, undefined)
+  assert.equal(thirdRecord.state.contextKnown, true)
+  assert.equal((lastJudgeState?.round as Record<string, unknown> | undefined)?.context_generation, 0)
 })
