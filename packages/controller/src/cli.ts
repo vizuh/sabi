@@ -906,7 +906,7 @@ async function runModelsSuggest(argv: string[]): Promise<void> {
     suggestionsToWrite[tier] = {
       upstream: suggestion.upstream,
       model: suggestion.model,
-      contextWindow: suggestion.contextWindow,
+      contextWindow: suggestion.contextWindow ?? undefined,
       capabilities: {
         inputModalities: suggestion.modalities,
       } as ModelCapabilities,
@@ -926,6 +926,21 @@ async function runModelsSuggest(argv: string[]): Promise<void> {
 
   writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2) + '\n')
   console.log(`Wrote ${Object.keys(suggestionsToWrite).length} suggestion(s) to ${configPath}`)
+}
+
+interface OpenRouterModelRaw {
+  id: string
+  name: string | null
+  context_length: number | null
+  modalities: string[] | null
+  pricing: {
+    prompt: string | null
+    completion: string | null
+  } | null
+  architecture: {
+    input_modalities: string[]
+  } | null
+  provider: string | null
 }
 
 interface OpenRouterModel {
@@ -948,10 +963,10 @@ async function getOpenRouterCatalog(): Promise<OpenRouterModel[]> {
   if (!response.ok) {
     throw new Error(`OpenRouter API returned ${response.status}`)
   }
-  const data = await response.json()
+  const data = await response.json() // unknown
+  const dataArray = (data as { data: unknown[] }).data as OpenRouterModelRaw[] | undefined
+  if (!dataArray) return []
   const models: OpenRouterModel[] = []
-  const dataArray = data.data as Record<string, unknown>[] | undefined
-  if (!dataArray) return models
   for (const model of dataArray) {
     const pricing = model.pricing as Record<string, unknown> | undefined
     const promptPrice = pricing?.prompt
