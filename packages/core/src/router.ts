@@ -1,4 +1,4 @@
-import { ensureRouteCompatible, isEnabledUpstream, SabiRouteError, servesInputModalities } from './compatibility.ts'
+import { cheapestServingTier, ensureRouteCompatible, isEnabledUpstream, SabiRouteError, servesInputModalities } from './compatibility.ts'
 import { decideTier } from './policy.ts'
 import { applyMeasuredContext, extractTrajectoryState } from './state.ts'
 import type { ChatRequestBody, RouteDecision, SabiConfig } from './types.ts'
@@ -55,14 +55,15 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
   const planned = Object.hasOwn(config.models, tier) ? config.models[tier] : undefined
   if (!planned) throw new SabiRouteError(`policy rule '${rule}' maps to unknown tier '${tier}'`, 500)
   // Input modality and upstream availability are both hard constraints, not preferences. A policy
-  // tier that cannot accept the request, or whose upstream is disabled, is skipped for the first
-  // tier (in configuration order) that satisfies both — otherwise disabling one upstream would 400
+  // tier that cannot accept the request, or whose upstream is disabled, is skipped for the cheapest
+  // priced tier that satisfies both (ties by tier name) — otherwise disabling one upstream would 400
   // every round a policy rule happens to map to it, even when another enabled tier could serve it.
+  // Cost order keeps the fallback deterministic and independent of JSON declaration order.
   const servesRound = (entry: typeof planned): boolean =>
     isEnabledUpstream(config.upstreams[entry.upstream]) && servesInputModalities(entry.capabilities?.inputModalities, required)
   if (!servesRound(planned)) {
     const disabled = !isEnabledUpstream(config.upstreams[planned.upstream])
-    const alternate = Object.keys(config.models).find((name) => servesRound(config.models[name]!))
+    const alternate = cheapestServingTier(config.models, (_name, entry) => servesRound(entry))
     if (alternate) {
       rule = disabled ? 'availability' : 'capability'
       reason = disabled

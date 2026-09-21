@@ -3,7 +3,8 @@ import { defaultConfigPath, defaultLogPath, loadConfig, loadConfiguredSecrets, r
 import { createSabiServer } from './server.ts'
 
 const config = loadConfig()
-const secretLoad = loadConfiguredSecrets(config)
+// Explicit opt-in: startup is the one place that installs workspace secrets into process.env.
+const secretLoad = loadConfiguredSecrets(config, { install: true })
 const host = process.env.SABI_HOST ?? config.server?.host ?? '127.0.0.1'
 const port = Number(process.env.SABI_PORT ?? config.server?.port ?? 8787)
 const logFile = defaultLogPath()

@@ -314,9 +314,11 @@ test('a difficulty override reroutes around a disabled upstream instead of hard-
       down: { baseURL: 'http://127.0.0.1:2/v1', enabled: false },
     },
     models: {
-      mid: { upstream: 'mock', model: 'm-mid' },
-      cheap: { upstream: 'mock', model: 'm-cheap' },
-      strong: { upstream: 'down', model: 'm-strong' },
+      // Declared cheap-first on purpose: the fallback must still pick the cheapest priced
+      // tier ('mid'), proving it does not depend on JSON declaration order.
+      cheap: { upstream: 'mock', model: 'm-cheap', cost: { input: 5, output: 5 } },
+      mid: { upstream: 'mock', model: 'm-mid', cost: { input: 0.1, output: 0.1 } },
+      strong: { upstream: 'down', model: 'm-strong', cost: { input: 1, output: 1 } },
     },
     aliases: { 'sabi-code': 'auto' },
     policy: base.policy,
@@ -325,7 +327,7 @@ test('a difficulty override reroutes around a disabled upstream instead of hard-
   const decision = route(unclassifiedBody(), config)
   assert.equal(decision.tier, 'cheap')
   // Difficulty=demanding would normally escalate to 'strong', but its upstream is disabled;
-  // 'mid' is declared before 'cheap' and is the first enabled/capable alternate.
+  // the fallback is the cheapest enabled/capable tier ('mid'), not the first-declared one.
   const { decision: next, record } = applyJudge(decision, config, {
     realProblem: 0.5,
     difficulty: 'demanding',

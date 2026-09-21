@@ -1,4 +1,4 @@
-import { isEnabledUpstream, servesInputModalities } from './compatibility.ts'
+import { cheapestServingTier, isEnabledUpstream, servesInputModalities } from './compatibility.ts'
 import { decideTier } from './policy.ts'
 import { candidateBeatsIncumbent, recoveryRate, type RecoveryProfile } from './recovery.ts'
 import { textOf } from './state.ts'
@@ -160,15 +160,16 @@ export function applyJudge(
 
   // A judge verdict is a tier name, not a route: it can still land on a disabled upstream or a
   // tier that cannot serve this round's modality, same as the initial policy decision could. Fall
-  // back the same way route() does rather than let a judge override hard-fail at post-judge
-  // ensureRouteCompatible revalidation when another tier could actually serve it.
+  // back the same way route() does (cheapest priced tier, ties by name) rather than let a judge
+  // override hard-fail at post-judge ensureRouteCompatible revalidation when another tier could
+  // actually serve it.
   const retier = (tier: string, rule: string, reason: string): boolean => {
     if (!config.models[tier]) return false
     let resolvedTier = tier
     let resolvedRule = rule
     let resolvedReason = reason
     if (!servesRound(tier)) {
-      const alternate = Object.keys(config.models).find(servesRound)
+      const alternate = cheapestServingTier(config.models, (name) => servesRound(name))
       if (alternate) {
         resolvedTier = alternate
         resolvedRule = 'availability'

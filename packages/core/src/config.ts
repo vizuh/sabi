@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { POLICY_ORDER } from './policy.ts'
 import type { SabiConfig } from './types.ts'
 
 const CONFIG_FILE = 'sabi.config.json'
@@ -28,6 +29,13 @@ export interface SecretSearchOptions {
 export interface SecretLoadOptions extends SecretSearchOptions {
   /** Explicit path used by tests and by users who keep secrets outside a workspace. */
   file?: string
+  /**
+   * Whether to install loaded values into the target environment. An explicitly passed
+   * `env` object is always the installation target unless `install: false`; the live
+   * `process.env` is only touched when `install: true` is passed explicitly, so a caller
+   * that only checks credentials never mutates global state by accident.
+   */
+  install?: boolean
 }
 
 export interface SecretLoadResult {
@@ -52,15 +60,25 @@ function nearestConfigAbove(start: string): string | undefined {
   }
 }
 
+/**
+ * Bounded ancestor climb for `secrets/.env`: the workspace root is the containing `.git`
+ * boundary (checked, then stop — never climb above the repo that owns the start dir), with
+ * a hard ancestor cap as the backstop for directories outside any repo. The per-user Sabi
+ * directory remains the fallback for the intended out-of-workspace case.
+ */
+export const MAX_SECRET_SEARCH_DEPTH = 8
+
 function nearestSecretFile(start: string): string | undefined {
   let dir = path.resolve(start)
-  for (;;) {
+  for (let depth = 0; depth <= MAX_SECRET_SEARCH_DEPTH; depth++) {
     const candidate = path.join(dir, SECRET_DIR, SECRET_FILE)
     if (existsSync(candidate)) return candidate
+    if (existsSync(path.join(dir, '.git'))) return undefined
     const parent = path.dirname(dir)
     if (parent === dir) return undefined
     dir = parent
   }
+  return undefined
 }
 
 /**
@@ -88,7 +106,8 @@ export function defaultConfigPath(options: ConfigSearchOptions = {}): string {
 
 /**
  * Secret discovery is optional and provider-neutral: an explicit file wins, then a workspace
- * `secrets/.env`, then the per-user Sabi directory. Existing process variables always win.
+ * `secrets/.env` (bounded climb: at most MAX_SECRET_SEARCH_DEPTH ancestors, never above the
+ * containing `.git`), then the per-user Sabi directory. Existing process variables always win.
  */
 export function secretSearchPaths(options: SecretSearchOptions = {}): string[] {
   const env = options.env ?? process.env
@@ -173,6 +192,11 @@ function validateModelMetadata(value: unknown, label: string): void {
       if (items === undefined) continue
       if (!Array.isArray(items) || items.some((item) => typeof item !== 'string' || !item.trim())) {
         fail(`capabilities.${field}`, 'must be an array of nonempty strings')
+      }
+      // An empty modality list turns the tier into a target that refuses every round that
+      // declares a modality; empty capability arrays are rejected for the modality fields.
+      if ((field === 'inputModalities' || field === 'outputModalities') && (items as string[]).length === 0) {
+        fail(`capabilities.${field}`, 'must not be empty')
       }
       const strings = items as string[]
       if (new Set(strings).size !== strings.length) fail(`capabilities.${field}`, 'must not contain duplicates')
@@ -269,9 +293,25 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
     }
   }
 
+  const knownRules = new Set<string>(POLICY_ORDER)
   for (const [condition, tier] of Object.entries(policy)) {
+    if (!knownRules.has(condition)) {
+      throw new Error(`Sabi config ${source}: policy rule '${condition}' is not a known rule (${POLICY_ORDER.join(', ')})`)
+    }
     if (typeof tier !== 'string' || (tier !== 'off' && !Object.hasOwn(models, tier))) {
       throw new Error(`Sabi config ${source}: policy rule '${condition}' targets unknown tier '${tier}'`)
+    }
+  }
+  // The router falls back to `policy.unclassified`, then to a literal 'cheap'. A config whose
+  // tiers are not literally called `cheap` would otherwise 500 on the first unmatched round,
+  // so when an adaptive (`auto`) alias exists the effective fallback must resolve to a
+  // declared tier at load time. Fixed-alias-only configs (no `auto`) never take this path.
+  if (Object.values(aliases).includes('auto')) {
+    const fallbackTier = typeof policy.unclassified === 'string' && policy.unclassified !== 'off'
+      ? policy.unclassified
+      : 'cheap'
+    if (!Object.hasOwn(models, fallbackTier)) {
+      throw new Error(`Sabi config ${source}: policy.unclassified must resolve to a declared tier (got '${String(policy.unclassified)}')`)
     }
   }
 
@@ -295,6 +335,11 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
       if (judge.callOn !== undefined) {
         if (!Array.isArray(judge.callOn) || judge.callOn.some((rule) => typeof rule !== 'string')) {
           throw new Error(`Sabi config ${source}: judge.callOn must be an array of policy rule names`)
+        }
+        for (const rule of judge.callOn) {
+          if (!knownRules.has(rule)) {
+            throw new Error(`Sabi config ${source}: judge.callOn rule '${rule}' is not a known rule (${POLICY_ORDER.join(', ')})`)
+          }
         }
       }
       for (const [name, value] of Object.entries(judge.thresholds ?? {})) {
@@ -374,6 +419,20 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
       }
       if (tier.minPlan !== undefined && typeof tier.minPlan !== 'string') {
         throw new Error(`Sabi config ${source}: harness.tiers.${tierName}.minPlan must be a string`)
+      }
+      if (tier.inputModalities !== undefined) {
+        if (!Array.isArray(tier.inputModalities) ||
+            tier.inputModalities.length === 0 ||
+            tier.inputModalities.some((modality) => typeof modality !== 'string' || !MODALITIES.includes(modality))) {
+          throw new Error(`Sabi config ${source}: harness.tiers.${tierName}.inputModalities must be a nonempty array of: ${MODALITIES.join(', ')}`)
+        }
+        if (new Set(tier.inputModalities).size !== tier.inputModalities.length) {
+          throw new Error(`Sabi config ${source}: harness.tiers.${tierName}.inputModalities must not contain duplicates`)
+        }
+      }
+      if (tier.contextWindow !== undefined &&
+          (typeof tier.contextWindow !== 'number' || !Number.isSafeInteger(tier.contextWindow) || tier.contextWindow < 1)) {
+        throw new Error(`Sabi config ${source}: harness.tiers.${tierName}.contextWindow must be a safe integer >= 1`)
       }
     }
   }
@@ -478,9 +537,18 @@ function configuredKeyNames(config: SabiConfig): string[] {
   return names
 }
 
-/** Load only configured credential references; never copy unrelated workspace secrets into env. */
+/**
+ * Load only configured credential references; never copy unrelated workspace secrets into env.
+ * Existing variables always win and are never overwritten. Values are reported by name only —
+ * never printed or stored — and are installed into the target environment only when the caller
+ * opts in: an explicitly passed `env` object is the target unless `install: false`, while the
+ * live `process.env` requires `install: true`. A dry run (no install) still reports which
+ * configured keys the file could satisfy, so credential checks need no global side effect.
+ */
 export function loadConfiguredSecrets(config: SabiConfig, options: SecretLoadOptions = {}): SecretLoadResult {
-  const env = options.env ?? process.env
+  const readEnv = options.env ?? process.env
+  const shouldInstall = options.env !== undefined ? options.install !== false : options.install === true
+  const target = options.env ?? process.env
   const names = configuredKeyNames(config)
   if (!names.length) return { loaded: [] }
 
@@ -496,10 +564,10 @@ export function loadConfiguredSecrets(config: SabiConfig, options: SecretLoadOpt
 
   const loaded: string[] = []
   for (const name of names) {
-    if (env[name]) continue
+    if (readEnv[name]) continue
     const value = secretNamesFor(name).map((candidate) => values[candidate]).find((candidate) => candidate)
     if (value) {
-      env[name] = value
+      if (shouldInstall) target[name] = value
       loaded.push(name)
     }
   }

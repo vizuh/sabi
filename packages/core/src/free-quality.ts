@@ -130,7 +130,8 @@ export async function fetchOpenRouterCatalog(
 ): Promise<OpenRouterCatalog> {
   const upstream = config.upstreams.openrouter
   if (!upstream || upstream.enabled === false) throw new Error("OpenRouter upstream is not enabled")
-  loadConfiguredSecrets(config)
+  // Explicit opt-in: the catalog fetch needs the key in this process.
+  loadConfiguredSecrets(config, { install: true })
   const key = resolveKey(upstream.apiKey)
   if (!key) {
     const name = keyReferenceName(upstream.apiKey) ?? 'OPENROUTER_API_KEY'
