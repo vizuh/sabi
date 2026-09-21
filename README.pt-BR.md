@@ -1,5 +1,10 @@
 # Sabi
 
+[![npm version](https://img.shields.io/npm/v/@vizuh/sabi)](https://www.npmjs.com/package/@vizuh/sabi)
+[![license](https://img.shields.io/npm/l/@vizuh/sabi)](https://github.com/vizuh/sabi/blob/main/LICENSE)
+[![CI](https://github.com/vizuh/sabi/actions/workflows/controller-ci.yml/badge.svg)](https://github.com/vizuh/sabi/actions)
+[![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
+
 Agendamento adaptativo de inferência para agentes de IA.
 
 O Sabi fica entre um harness de código e seus provedores de modelo. O harness mantém o loop de agente normal; o Sabi decide qual modelo, qual esforço de raciocínio e qual provedor atende cada rodada de inferência — continuamente, ao longo de toda a trajetória, não só no primeiro prompt.

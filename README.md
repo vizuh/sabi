@@ -1,5 +1,10 @@
 # Sabi
 
+[![npm version](https://img.shields.io/npm/v/@vizuh/sabi)](https://www.npmjs.com/package/@vizuh/sabi)
+[![license](https://img.shields.io/npm/l/@vizuh/sabi)](https://github.com/vizuh/sabi/blob/main/LICENSE)
+[![CI](https://github.com/vizuh/sabi/actions/workflows/controller-ci.yml/badge.svg)](https://github.com/vizuh/sabi/actions)
+[![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
+
 Adaptive routing for coding-agent trajectories.
 
 Sabi sits between a coding harness and the models it can call. The harness keeps its own loop,
@@ -244,3 +249,10 @@ Useful references:
 - [Decisions and boundaries](docs/decisions.md)
 
 Sabi is MIT licensed. The repository is public at https://github.com/vizuh/sabi.
+
+## Community and security
+
+- [Contributing](CONTRIBUTING.md) — ground rules, verification gates, release procedure.
+- [Security policy](SECURITY.md) — supported versions and private vulnerability reporting.
+- [Decisions and boundaries](docs/decisions.md) — what was decided, what is explicitly unclaimed.
+- [Harness evidence](docs/harnesses.md) — per-adapter support, reported as evidence layers.

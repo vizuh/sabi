@@ -11,12 +11,17 @@
     "directory": "packages/adapters/command-code"
   },
   "homepage": "https://github.com/vizuh/sabi#readme",
+  "bugs": {
+    "url": "https://github.com/vizuh/sabi/issues"
+  },
   "keywords": [
     "commandcode",
     "command-code",
     "mod",
     "llm",
-    "routing"
+    "routing",
+    "ai-agents",
+    "inference-scheduling"
   ],
   "exports": {
     ".": "./src/connect.ts"

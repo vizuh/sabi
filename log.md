@@ -1286,3 +1286,14 @@ Verified: core 227/227, server 96/96, adapters 61/61, eval/scripts 41/41 and con
 passed in isolated groups; the sequential controller-plus-setup run passed 154/154; typecheck and
 diff check passed. Default parallel `npm test` was 552/553 because one setup assertion about
 `git-tracked` output failed only in that combined run. No commit, push, deployment or publication.
+
+## [2026-09-21] docs | Repository hygiene (badges, contributing, security, metadata)
+
+Adds `CONTRIBUTING.md` (verification-first PR rules, gates, release procedure) and
+`SECURITY.md` (supported versions, private reporting, scope notes incl. fail-open
+limits), links both from a new Community section in the EN README, and adds identical
+badge rows (npm version, license, CI, node ≥22) to all three README mirrors. The
+published adapter manifest gains `bugs` and two keywords (`ai-agents`,
+`inference-scheduling`); version untouched, so no release is cut by this change. Adds
+the `inference-scheduling` GitHub topic (7 total). No code, secret, or live behavior
+changed.
