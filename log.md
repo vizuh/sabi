@@ -922,3 +922,14 @@ stability, plan-change sensitivity).
 - `packages/core/test/*.test.ts` — 154/154 pass
 - `packages/controller/test/*.test.ts` — 109/109 pass
 - `git diff --check` — clean
+
+## [2026-09-21] fix | judge egress, loopback boundary, proxy trajectory signals, stream outcomes (#59 #60 #67 #68)
+
+- **#59 judge obeys the telemetry policy.** `buildJudgeState` is content-free by default: raw instruction/tool excerpts are replaced with lengths + SHA-256 shape, tool names use the same `hashIdentity('tool', …)` invariant as the decision log. Raw egress is an explicit opt-in via `judge.includeSnippets` (preferred) or `telemetry.captureSnippets`; `server.ts` passes both switches. Fail-open unchanged (error/timeout → deterministic policy).
+- **#60 loopback boundary.** The proxy now rejects non-loopback `Host`, non-loopback `Origin`/`Referer`, and non-JSON chat content-types (403/415 before any round executes, nothing logged); `/healthz` no longer leaks the absolute log path. No `Access-Control-Allow-Origin` is ever set. Legitimate local clients (no `Origin`, or loopback `Origin`, JSON bodies) are unaffected.
+- **#67 proxy trajectory carries window + streak.** `route()` derives `contextWindow` as the smallest declared window only when every reachable tier declares one, and marks `repeatedFailure`/streak from the previous identified round (`RouteContext.previousFailure`, tracked in server session memory, cleared on compaction). Unattributed requests get a window at most — no borrowed streak. First hard round is streak 1 (matches harness/evals); the judge state always carries `context_generation` (0 when unattributed) so the cache-key shape is stable and documented.
+- **#68 stream outcomes.** Clean EOF after a terminal choice completes with usage intact (missing `[DONE]` no longer discards a billed round); a mid-stream provider error ends with an explicit SSE `error` frame instead of a silent truncation (deadline/abort paths still terminate); error bodies decode leniently so a non-UTF-8 429 keeps its status, `Retry-After` and `transport` outcome, while success bodies stay strict.
+
+**Tests**: new `proxy-trajectory` (5), `loopback-boundary` (7), `stream-outcomes` (3) plus `sse` (+2), `upstream` (+1), `judge` (+2, default-redaction) and `config` (+1) cases; `proxy-contract` disconnect expectation updated to the error-frame behavior. One self-caught regression during the work: the first error-frame draft destroyed deadline-before-headers responses instead of answering 504 — fixed and covered by the existing deadline tests.
+
+**Verified**: `npm test` 445/445 pass, `npm run typecheck` clean, `git diff --check` clean. No paid request, secret, user config, publication or deployment.

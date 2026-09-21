@@ -342,6 +342,9 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
           }
         }
       }
+      if (judge.includeSnippets !== undefined && typeof judge.includeSnippets !== 'boolean') {
+        throw new Error(`Sabi config ${source}: judge.includeSnippets must be a boolean`)
+      }
       for (const [name, value] of Object.entries(judge.thresholds ?? {})) {
         if (typeof value !== 'number' || value < 0 || value > 1) {
           throw new Error(`Sabi config ${source}: judge.thresholds.${name} must be a number between 0 and 1`)

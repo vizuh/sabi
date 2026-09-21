@@ -21,6 +21,7 @@ import {
   telemetryPolicy,
   type ChatRequestBody,
   type DecisionRecord,
+  type FailureLevel,
   type JudgeRecord,
   type RecoveryProfile,
   type RouteContext,
@@ -68,6 +69,10 @@ interface SessionMemory {
   messages: number
   /** Provider-billed total of the last completed round, when usage arrived. */
   tokens?: number
+  /** Failure level of the last routed round, for stuck (repeated-failure) detection. */
+  lastFailure?: FailureLevel
+  /** Repeated-failure depth flag (1 = first hard round, 2 = repeated), matching the harness. */
+  failureStreak?: number
 }
 
 const SESSION_MEMORY_LIMIT = 512
@@ -103,16 +108,34 @@ function observeSession(
     // A compacted transcript invalidates the previous round's size — it described a context the
     // host has since removed. The next billed round re-establishes a measured floor.
     tokens: compacted ? undefined : memory?.tokens,
+    // A rewrite also restarts the failure streak: the earlier failure is not the attempt the
+    // model is continuing. Unattributed requests never carry a previous failure.
+    lastFailure: compacted ? undefined : memory?.lastFailure,
+    failureStreak: compacted ? undefined : memory?.failureStreak,
   })
   while (state.sessions.size > SESSION_MEMORY_LIMIT) {
     const oldest = state.sessions.keys().next().value
     if (oldest === undefined) break
     state.sessions.delete(oldest)
   }
+  const previous = compacted ? undefined : memory
   return {
     ...(compacted || memory?.tokens === undefined ? {} : { measuredContextTokens: memory.tokens }),
     ...(generation > 0 ? { contextGeneration: generation } : {}),
+    ...(previous?.lastFailure !== undefined ? {
+      previousFailure: previous.lastFailure,
+      ...(previous.failureStreak !== undefined ? { previousFailureStreak: previous.failureStreak } : {}),
+    } : {}),
   }
+}
+
+/** Persist this round's failure outcome so the next identified round can detect a streak. */
+function rememberFailure(state: ServerState, record: DecisionRecord): void {
+  if (record.sessionKnown !== true) return
+  const memory = state.sessions.get(record.sessionId)
+  if (!memory) return
+  memory.lastFailure = record.state.failure
+  memory.failureStreak = record.state.failureStreak ?? 0
 }
 
 function rememberUsage(state: ServerState, record: DecisionRecord): void {
@@ -131,6 +154,57 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
 
 function sendError(res: ServerResponse, status: number, message: string, type = 'sabi_error'): void {
   sendJson(res, status, { error: { message, type, code: status } })
+}
+
+/**
+ * Loopback origin boundary. The proxy is a local-only server: it must never act on a
+ * cross-origin request, and read-only surfaces must not be reachable from a rebound
+ * origin. Legitimate harness clients are non-browser (no `Origin`) or loopback, so
+ * rejecting anything else breaks no documented flow. Fail-closed here: unlike routing
+ * (which fails open to the deterministic policy), a forbidden origin is never executed.
+ */
+function isLoopbackHost(host: string | undefined): boolean {
+  if (typeof host !== 'string' || !host.trim()) return false
+  const raw = host.trim().toLowerCase()
+  let hostname: string
+  if (raw.startsWith('[')) {
+    const end = raw.indexOf(']')
+    if (end <= 1) return false
+    hostname = raw.slice(1, end)
+  } else if (raw.split(':').length === 2) {
+    hostname = raw.split(':')[0] ?? ''
+  } else if (raw.includes(':')) {
+    hostname = raw // bare IPv6 literal without a port (e.g. ::1)
+  } else {
+    hostname = raw
+  }
+  return hostname === '127.0.0.1' || hostname === 'localhost' ||
+    hostname === '::1' || hostname === '::ffff:127.0.0.1'
+}
+
+/** Absent means a non-browser client (allowed); present must be a loopback origin. */
+function isAllowedOrigin(value: string | undefined): boolean {
+  if (value === undefined) return true
+  const trimmed = value.trim()
+  if (!trimmed || trimmed === 'null') return false
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return false
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+  const host = url.hostname.toLowerCase()
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1'
+}
+
+function originViolation(req: IncomingMessage): string | undefined {
+  if (!isLoopbackHost(req.headers.host)) return 'forbidden host'
+  const origin = Array.isArray(req.headers.origin) ? req.headers.origin.join(',') : req.headers.origin
+  if (!isAllowedOrigin(origin)) return 'forbidden origin'
+  const referer = Array.isArray(req.headers.referer) ? req.headers.referer.join(',') : req.headers.referer
+  if (referer !== undefined && !isAllowedOrigin(referer)) return 'forbidden origin'
+  return undefined
 }
 
 const CLIENTS = new Set<DecisionRecord['client']>(['hermes', 'opencode', 'kilo-cli', 'kilo-vscode', 'prime-agent', 'deepseek-harness', 'command-code', 'sabi-surplus', 'unknown'])
@@ -299,7 +373,22 @@ async function handleRequest(state: ServerState, req: IncomingMessage, res: Serv
   const url = new URL(req.url ?? '/', 'http://sabi.local')
   const path = url.pathname
 
+  const violation = originViolation(req)
+  if (violation) {
+    sendError(res, 403, violation)
+    return
+  }
+
   if (req.method === 'POST' && (path === '/v1/chat/completions' || path === '/chat/completions')) {
+    // `text/plain` is a CORS simple request (no preflight): a foreign page could fire it
+    // without ever reading the response. Only JSON dispatch is a legitimate local call.
+    const contentType = Array.isArray(req.headers['content-type'])
+      ? req.headers['content-type'].join(',')
+      : req.headers['content-type']
+    if (!contentType || !contentType.toLowerCase().includes('application/json')) {
+      sendError(res, 415, 'content-type must be application/json')
+      return
+    }
     await handleChat(state, req, res)
     return
   }
@@ -308,11 +397,11 @@ async function handleRequest(state: ServerState, req: IncomingMessage, res: Serv
     return
   }
   if (req.method === 'GET' && path === '/healthz') {
+    // Never leak the absolute log path: it is host filesystem layout, not health.
     sendJson(res, 200, {
       ok: true,
       models: Object.keys(state.options.config.aliases),
       upstreams: Object.keys(state.options.config.upstreams),
-      log: state.logFile,
     })
     return
   }
@@ -358,6 +447,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       record.cost = served ? estimateCost(record.usage, served.cost) : undefined
     }
     rememberUsage(state, record)
+    rememberFailure(state, record)
     appendDecision(record, state.logFile)
     state.recent.push(record)
     if (state.recent.length > RECENT_LIMIT) state.recent.splice(0, state.recent.length - RECENT_LIMIT)
@@ -411,7 +501,12 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     let judgeRecord: JudgeRecord | undefined
     stage = 'judge'
     if (decision.mode === 'auto' && config.judge && judgeTriggers(decision, config.judge)) {
-      const judgeState = buildJudgeState(body, decision, config.judge.maxStateChars)
+      // The judge endpoint is an explicit egress surface: raw instruction/tool text leaves
+      // only on operator opt-in (`judge.includeSnippets` or `telemetry.captureSnippets`).
+      const judgeState = buildJudgeState(body, decision, config.judge.maxStateChars, {
+        captureSnippets: config.telemetry?.captureSnippets,
+        includeSnippets: config.judge?.includeSnippets,
+      })
       const judgeStarted = Date.now()
       try {
         const result = await abortable(state.judge.ask(judgeState, JUDGE_QUESTIONS, config.judge, signal), signal)
@@ -514,8 +609,28 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     const message = deadline ? 'request deadline exceeded' : aborted ? 'client aborted' :
       error instanceof SabiRouteError ? error.message : stage === 'upstream' ? 'invalid or failed upstream response' : 'sabi internal error'
     if (!res.destroyed && !res.writableFinished) {
-      if (res.headersSent || aborted) res.destroy()
-      else {
+      if (aborted) {
+        res.destroy()
+      } else if (res.headersSent) {
+        if (deadline) {
+          // A transport timeout mid-stream cannot become a status code; terminate the stream
+          // and let the transport record carry the 504.
+          res.destroy()
+        } else {
+          // The status line is already committed (HTTP 200), so the failure cannot become a
+          // status code. End the stream with an explicit SSE error frame (OpenAI shape) instead
+          // of a silent truncation the client cannot distinguish from an early finish.
+          try {
+            const frameMessage = error instanceof UpstreamStreamError
+              ? sanitizeError(error.providerMessage)
+              : message
+            res.write(`data: ${JSON.stringify({ error: { message: frameMessage, type: 'sabi_error', code: status } })}\n\n`)
+            res.end()
+          } catch {
+            res.destroy()
+          }
+        }
+      } else {
         // An incomplete upload must not outlive its failed request budget.
         if (!req.complete) res.setHeader('connection', 'close')
         sendError(res, status, message)

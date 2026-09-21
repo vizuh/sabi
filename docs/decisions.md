@@ -1152,3 +1152,34 @@ sanitizes any non-allowlisted field on write, enforcing the contract.
 
 `sabi council record` requires `--harness=<name>`; the previous default of
 `'unknown'` is removed.
+---
+## [2026-09-21] Privacy/egress hardening for judge, proxy, trajectory and streams (#59 #60 #67 #68)
+
+### Decision
+
+- Judge egress is content-free by default: `buildJudgeState` sends hashed tool identity, evidence
+  codes and length/hash shape, never raw instruction or tool text. Raw excerpts require the explicit
+  `judge.includeSnippets` opt-in (or the shared `telemetry.captureSnippets`). Fail-open is unchanged.
+- The loopback proxy is fail-closed on origin: non-loopback `Host`, non-loopback `Origin`/`Referer`
+  and non-JSON chat bodies are rejected before any round executes, and `/healthz` no longer reports
+  the absolute log path. No CORS allow-origin is ever emitted.
+- The proxy derives `contextWindow` only when every reachable tier declares one, and detects `stuck`
+  from consecutive hard failures of the same identified session (memory cleared on compaction).
+  Unattributed requests get a window at most — no borrowed streak, no guessed generation.
+- A clean EOF after a terminal choice completes with usage intact; mid-stream failures end with an
+  explicit SSE error frame (deadline/abort still terminate); error bodies decode leniently so a
+  non-UTF-8 429 keeps its status and `transport` outcome, while success bodies stay strict.
+
+### Why
+
+Each shipped-config rule or surface implied a guarantee the code did not keep: the judge bypassed
+the telemetry policy it documented, the proxy executed cross-origin simple requests, two policy
+rules could never fire on the proxy path, and three stream cases reported the wrong outcome. The
+fixes keep legitimate local clients working (no `Origin` or loopback `Origin`, JSON bodies) and
+keep all unknowns unknown rather than guessing.
+
+### Revisit later?
+
+Per-install proxy tokens (the controller daemon already has them) if the loopback boundary needs
+authentication beyond origin; judge-signal quality measurement on redacted vs raw state before any
+context-selection work; whether the failure streak should ever count past the harness's depth flag.

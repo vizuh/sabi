@@ -414,3 +414,13 @@ test('secret loading without install never touches the live process environment'
     else process.env[key] = previousValue
   }
 })
+
+test('judge.includeSnippets is an optional boolean egress opt-in', () => {
+  const judge = { enabled: true, baseURL: 'http://127.0.0.1:3/v1' }
+  assert.equal(validateConfig({ ...minimal, judge: { ...judge, includeSnippets: true } }).judge!.includeSnippets, true)
+  assert.equal(validateConfig({ ...minimal, judge }).judge!.includeSnippets, undefined)
+  assert.throws(
+    () => validateConfig({ ...minimal, judge: { ...judge, includeSnippets: 'yes' } }),
+    /judge\.includeSnippets must be a boolean/,
+  )
+})

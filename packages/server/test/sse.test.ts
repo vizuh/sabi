@@ -128,3 +128,29 @@ test('post-terminal choice deltas reject before DONE', () => {
   assert.throws(() => tap.push(encoder.encode(wire)), /continued after terminal/)
   assert.equal(calls, 0)
 })
+
+test('a clean EOF after a terminal choice completes without [DONE] and keeps usage', () => {
+  // [DONE] is a convention, not a requirement: the terminal finish_reason plus a clean
+  // close is a complete round whose billed usage must survive, not a failure.
+  const events = [
+    { model: 'mock-cheap', choices: [{ index: 0, delta: { content: 'ok' } }] },
+    { model: 'mock-cheap', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 40, completion_tokens: 5, total_tokens: 45 } },
+  ]
+  const wire = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')
+  let result: SseTapResult | undefined
+  let calls = 0
+  const tap = createSseTap('sabi-code', (value) => { result = value; calls += 1 })
+  tap.push(encoder.encode(wire))
+  tap.flush()
+  assert.equal(calls, 1)
+  assert.equal(tap.done, true)
+  assert.equal(result?.finishReason, 'stop')
+  assert.deepEqual(result?.usage, { promptTokens: 40, completionTokens: 5, cachedTokens: 0, totalTokens: 45 })
+})
+
+test('a clean EOF without any terminal choice still fails instead of reporting success', () => {
+  const tap = createSseTap('sabi-code', () => {})
+  tap.push(encoder.encode('data: {"model":"mock-cheap","choices":[{"index":0,"delta":{"content":"partial"}}]}\n\n'))
+  assert.throws(() => tap.flush(), /without \[DONE\]/)
+})

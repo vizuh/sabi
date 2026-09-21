@@ -1,7 +1,8 @@
 import { cheapestServingTier, ensureRouteCompatible, isEnabledUpstream, SabiRouteError, servesInputModalities } from './compatibility.ts'
+import { tiersFor } from './config.ts'
 import { decideTier } from './policy.ts'
 import { applyMeasuredContext, extractTrajectoryState } from './state.ts'
-import type { ChatRequestBody, RouteDecision, SabiConfig } from './types.ts'
+import type { ChatRequestBody, FailureLevel, RouteDecision, SabiConfig } from './types.ts'
 
 export { ensureRouteCompatible, isEnabledUpstream, SabiRouteError } from './compatibility.ts'
 
@@ -12,12 +13,17 @@ export function normalizeAlias(model: unknown): string {
 
 /**
  * What a caller can add that the request body cannot show: a measured context from the previous
- * round of this session, and how many transcript rewrites the host has performed. Both optional —
- * an unknown stays unknown.
+ * round of this session, how many transcript rewrites the host has performed, the serving
+ * window for context-pressure, and the previous round's failure for stuck detection. All
+ * optional — an unknown stays unknown. Unattributed requests (no session) carry a window at
+ * most: with no continuity there is no previous failure to compare against.
  */
 export interface RouteContext {
   measuredContextTokens?: number
   contextGeneration?: number
+  contextWindow?: number
+  previousFailure?: FailureLevel
+  previousFailureStreak?: number
 }
 
 export function route(body: ChatRequestBody, config: SabiConfig, context: RouteContext = {}): RouteDecision {
@@ -33,6 +39,33 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
     )
   }
   const state = applyMeasuredContext(extractTrajectoryState(body), context)
+  // The proxy sees the whole wire body but no host catalog handle: the serving window is the
+  // smallest declared window across the tiers the policy could pick — and only when every
+  // reachable tier declares one. Without it `context-pressure` is unreachable: unknown stays unknown.
+  if (state.contextWindow === undefined) {
+    const explicit = context.contextWindow
+    if (typeof explicit === 'number' && Number.isFinite(explicit) && explicit > 0) {
+      state.contextWindow = explicit
+    } else {
+      const candidates = tiersFor(config, 'auto')
+      const windows = candidates.map((tier) => config.models[tier]?.contextWindow)
+      if (windows.length && windows.every((value): value is number =>
+        typeof value === 'number' && Number.isFinite(value) && value > 0)) {
+        state.contextWindow = Math.min(...windows)
+      }
+    }
+  }
+  // Stuck is consecutive hard failures for the same identified session. The proxy learns the
+  // previous round only from its own session memory (server.ts); unattributed requests never
+  // claim a streak. The streak is a repeated-failure depth flag (1 = first hard round,
+  // 2 = repeated), matching the harness — not an unbounded count.
+  if (state.repeatedFailure !== true && context.previousFailure === 'hard' && state.failure === 'hard') {
+    state.repeatedFailure = true
+    state.failureStreak = (context.previousFailureStreak ?? 1) >= 1 ? (context.previousFailureStreak ?? 1) + 1 : 2
+    if (!Number.isSafeInteger(state.failureStreak) || (state.failureStreak ?? 0) < 2) state.failureStreak = 2
+  } else if (state.failure === 'hard' && (state.failureStreak ?? 0) === 0) {
+    state.failureStreak = 1
+  }
   if (target !== 'auto') {
     const model = Object.hasOwn(config.models, target) ? config.models[target] : undefined
     if (!model) throw new SabiRouteError(`alias '${alias}' targets unknown tier '${target}'`, 500)

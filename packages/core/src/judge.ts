@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto'
 import { cheapestServingTier, isEnabledUpstream, servesInputModalities } from './compatibility.ts'
 import { decideTier } from './policy.ts'
+import { hashIdentity } from './log.ts'
 import { candidateBeatsIncumbent, recoveryRate, type RecoveryProfile } from './recovery.ts'
 import { textOf } from './state.ts'
 import type { ChatRequestBody, JudgeConfig, JudgeRecord, SabiConfig, RouteDecision } from './types.ts'
@@ -86,35 +88,77 @@ function trimmed(text: string, limit: number): string {
   return text.length > limit ? `${text.slice(0, limit)}…[truncated]` : text
 }
 
+/**
+ * Which egress switch governs raw judge content. The judge endpoint is an explicit
+ * off-machine surface: raw instruction/tool text leaves only when the operator opts
+ * in via `judge.includeSnippets` (preferred) or the shared `telemetry.captureSnippets`.
+ * The default is content-free — hashed tool identity, evidence codes and shape only.
+ */
+export interface JudgeEgress {
+  captureSnippets?: boolean
+  includeSnippets?: boolean
+}
+
+function judgeAllowsSnippets(egress?: JudgeEgress): boolean {
+  return egress?.includeSnippets === true || egress?.captureSnippets === true
+}
+
+function sha256Hex(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex')
+}
+
 export function buildJudgeState(
   body: ChatRequestBody,
   decision: RouteDecision,
   maxChars = 6000,
+  egress?: JudgeEgress,
 ): Record<string, unknown> {
   const messages = Array.isArray(body.messages) ? body.messages : []
   const lastUser = [...messages].reverse().find((message) => message?.role === 'user')
   const lastTool = [...messages].reverse().find((message) => message?.role === 'tool')
-  let excerpt = trimmed(textOf(lastTool?.content), 2500)
+  const allowSnippets = judgeAllowsSnippets(egress)
+  const rawInstruction = trimmed(textOf(lastUser?.content), 1200)
+  const rawExcerpt = trimmed(textOf(lastTool?.content), 2500)
+  let excerpt = rawExcerpt
+  // Tool names can carry arbitrary private text; the decision log already hashes them
+  // (server.ts saveDecision) and the judge state must keep the same invariant.
+  const hashedLastTools = decision.state.lastToolNames.slice(0, 6).map((name) => hashIdentity('tool', name))
+  const hashedAvailable = decision.state.toolNames.slice(0, 40).map((name) => hashIdentity('tool', name))
   const build = (): Record<string, unknown> => ({
     round: {
       index: decision.state.assistantTurns,
       kind_heuristic: decision.state.roundKind,
       messages: decision.state.messageCount,
       context_tokens_estimate: decision.state.estimatedTokens,
-      // Reaching the request state is what keeps a cached verdict from crossing a rewrite: the
-      // cache key is a hash of this object, so a different generation always misses.
-      ...(decision.state.contextGeneration ? { context_generation: decision.state.contextGeneration } : {}),
+      // The generation is always present (0 for unattributed requests) so the cache key
+      // shape is stable; only an identified session can advance it across a host rewrite.
+      // Without `x-sabi-session` there is no continuity to invalidate — documented, not guessed.
+      context_generation: decision.state.contextGeneration ?? 0,
     },
-    last_instruction: trimmed(textOf(lastUser?.content), 1200),
-    last_tool: {
-      names: decision.state.lastToolNames.slice(0, 6),
-      result_excerpt: excerpt,
-    },
+    ...(allowSnippets
+      ? {
+          last_instruction: rawInstruction,
+          last_tool: {
+            names: decision.state.lastToolNames.slice(0, 6),
+            result_excerpt: excerpt,
+          },
+        }
+      : {
+          last_instruction: '',
+          last_instruction_sha256: sha256Hex(rawInstruction),
+          last_instruction_chars: rawInstruction.length,
+          last_tool: {
+            names: hashedLastTools,
+            result_excerpt: '',
+            result_excerpt_sha256: sha256Hex(rawExcerpt),
+            result_excerpt_chars: rawExcerpt.length,
+          },
+        }),
     failure_evidence_heuristic: decision.state.failureEvidence.slice(0, 3),
-    available_tools: decision.state.toolNames.slice(0, 40),
+    available_tools: allowSnippets ? decision.state.toolNames.slice(0, 40) : hashedAvailable,
   })
   let state = build()
-  while (JSON.stringify(state).length > maxChars && excerpt.length > 200) {
+  while (allowSnippets && JSON.stringify(state).length > maxChars && excerpt.length > 200) {
     excerpt = excerpt.slice(0, Math.floor(excerpt.length / 2))
     state = build()
   }

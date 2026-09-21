@@ -174,6 +174,13 @@ export interface JudgeConfig {
   thresholds?: JudgeThresholds
   maxStateChars?: number
   costPerMTokInput?: number
+  /**
+   * Explicit opt-in for raw prompt/tool-excerpt egress to the judge endpoint.
+   * Default follows `telemetry.captureSnippets`: absent/false means the judge
+   * receives hashed tool identity, evidence codes and shape (lengths/hashes),
+   * never raw instruction or tool-output text.
+   */
+  includeSnippets?: boolean
 }
 
 export interface CatalogTier {

@@ -81,7 +81,7 @@ export function usageFromJson(value: unknown): UsageTotals | undefined {
 }
 
 /** Read bounded JSON/error bodies without buffering an unbounded upstream response. */
-export async function readResponseText(response: Response, cap = 32 * 1024 * 1024): Promise<string> {
+export async function readResponseText(response: Response, cap = 32 * 1024 * 1024, fatal = true): Promise<string> {
   if (!response.body) throw new UpstreamProtocolError('upstream returned no body')
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
@@ -94,7 +94,10 @@ export async function readResponseText(response: Response, cap = 32 * 1024 * 102
       if (size > cap) throw new UpstreamProtocolError('upstream response too large')
       chunks.push(value)
     }
-    return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks))
+    // Success bodies stay strict (fatal): malformed bytes are a protocol violation. Error
+    // bodies decode leniently — a provider 429 with a non-UTF-8 (e.g. Latin-1 HTML) page must
+    // keep its status, Retry-After and transport classification instead of collapsing to 502.
+    return new TextDecoder('utf-8', { fatal }).decode(Buffer.concat(chunks))
   } finally {
     await reader.cancel().catch(() => {})
     reader.releaseLock()
@@ -103,5 +106,5 @@ export async function readResponseText(response: Response, cap = 32 * 1024 * 102
 
 export async function readErrorText(response: Response, cap = 32 * 1024 * 1024): Promise<string> {
   if (!response.body) return ''
-  return readResponseText(response, cap)
+  return readResponseText(response, cap, false)
 }

@@ -874,3 +874,17 @@ needed.
 
 The Portuguese adapter navigation now includes a localized index and Hermes guide, while package
 implementation READMEs remain English developer references.
+
+## Privacy/egress hardening (#59 #60 #67 #68) — 2026-09-21
+
+Implemented in this worktree (`muse/privacy-egress`, local only, not pushed): judge state is
+content-free by default with an explicit `judge.includeSnippets` opt-in; the loopback proxy
+rejects non-loopback Host/Origin/Referer and non-JSON chat bodies and no longer leaks the log
+path from `/healthz`; the proxy route derives a declared-only context window and a
+session-memory stuck streak (unattributed requests: window at most); clean EOF without `[DONE]`
+completes with usage, mid-stream failures end with an SSE error frame, and non-UTF-8 error
+bodies keep their 429/`transport` classification.
+
+Validation: `npm test` 445/445, `npm run typecheck` clean, `git diff --check` clean. No paid
+request, secret, user config, publication or deployment. See `log.md` and `docs/decisions.md`
+for the dated entries.
