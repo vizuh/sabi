@@ -1,5 +1,9 @@
 name: sabi-metadata
 version: "0.1.0"
 description: Opaque attribution headers for the local Sabi Chat Completions alias
+license: MIT
+homepage: https://github.com/vizuh/sabi
 provides_middleware:
   - llm_request
+optional_env:
+  - SABI_HERMES_BASE_URL
