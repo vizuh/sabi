@@ -316,7 +316,7 @@ O que o escritor faz — e o que deliberadamente não faz:
 - Cria um backup (`<config>.sabi-backup`) e nunca o sobrescreve em uma nova execução.
 - Recusa-se a tocar em uma config que não seja JSON válido, e não a modifica.
 - Declara cada alias com a menor janela entre os níveis que ele pode atender. O OpenCode rejeita uma entrada de modelo que defina `limit.context` sem `limit.output`, então um nível sem declaração recebe um teto conservador de 4.096 tokens no cliente — declare `maxOutputTokens` no nível para torná-lo exato.
-- Declara entrada só de texto. Adicione `image` em `modalities.input` apenas quando os níveis para os quais você roteia declararem `capabilities.inputModalities` com `image`; caso contrário, o Sabi vai recusar a rodada.
+- Declara modalidades de entrada por alias a partir dos níveis que o alias pode atender: `sabi-code` e os aliases fixos capazes de imagem anunciam `text` + `image` (`mid`/`strong` declaram `image` na config que acompanha o repositório), enquanto `sabi-cheap` permanece só texto. Uma rodada adaptativa com imagem avança para o primeiro nível capaz de imagem (`rule: capability`); a mesma imagem em `sabi-cheap` é recusada com 400, por desenho.
 - Pula o nível `local` (Ollama) a menos que você passe `--include-local`.
 
 Verifique com `npm run report` (ou `.sabi/decisions.jsonl`): as rodadas aparecem com `client: opencode`. Reverter: remova o provider `sabi` da config, ou restaure o backup.

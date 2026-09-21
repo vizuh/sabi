@@ -17,8 +17,18 @@ tool loop, resume, three unique Sabi request receipts and shared-core routing `m
 Direct provider rebinding, auxiliary/subagent calls, compaction replacement and paid-provider
 quality remain explicit separate gates.
 
-## Host-AI onboarding and OpenRouter-only credential path — 2026-09-20
+## Hook/upgrade/startup hardening (#71, #73, #76) — 2026-09-21
 
+Branch `muse/hooks-lifecycle` (unpushed): controller upgrade installs with
+`--ignore-scripts` plus an `npm audit signatures` gate, server startup reports
+a busy port in one line and never echoes a pasted credential, uninstall removes
+`.sabi-backup` instead of resurrecting deleted configs, `SABI_HOOK_COMMAND`
+rejects shell metacharacters at install time, and `sabi doctor` reports stale
+absolute hook paths. Validation: `npm test` 435/435, `npm run typecheck` and
+`git diff --check` clean. Live host activation and cross-terminal execution
+remain separate evidence gates.
+
+## Host-AI onboarding and OpenRouter-only credential path — 2026-09-20
 The checkout setup wizard now supports a localized, question-led onboarding path for the existing
 Command Code, OpenCode and Hermes adapter surfaces: `--language=en|pt-BR`, explicit Hermes
 `--upstream=openrouter|hermes-nous`, and `--explain=local|ai`. OpenRouter is the only credential it
@@ -112,7 +122,19 @@ configuration change, publication or deployment was performed by this change set
 
 ## Last meaningful update
 
-2026-09-20
+2026-09-21
+
+## Logging privacy, observable failures, surplus egress — 2026-09-21
+
+Closed issues #61 (salted identity hashing, `sanitizeError` gaps), #69 (silent log-write and
+recovery-profile failures) and #70 (secret-path anchor, credential canaries) in this worktree.
+Identity hashes are now per-install HMAC (`~/.config/sabi/.identity-salt`, mode 0600);
+`appendDecision` never throws and records failures to stderr plus a sidecar the report surfaces;
+`computeRecovery` skips shape-invalid rows; surplus/council egress refuses prefixed secret names
+and common token shapes while ordinary source names stay admissible. Full details in `log.md`.
+
+Validation: `npm test` 434/434, `npm run typecheck` clean, `git diff --check` clean. No paid
+request, live dispatch, user configuration change, publication or deployment. Not pushed.
 
 ## Harness × model × token routing contract — 2026-09-20
 
@@ -893,7 +915,40 @@ every adapter's connection contract), `SABI_DSH_BASE_URL` validation (no Sabi-au
 code exists in the DSH bundle to hook it into), the unsalted tool-name hash, and a narrow
 `saveOpenRouterKey` TOCTOU window.
 
-This is on branch `security/full-repo-review`, committed locally only, not pushed. Next agent:
-get an answer on whether Orca's `sabi.dispatch` is reachable by non-human callers (determines real
-severity of the fixed HIGH finding), then decide the proxy-auth design before anyone builds on the
-assumption the local proxy is a trust boundary.
+Merged to `main` via PR from `security/full-repo-review`. Next agent: get an answer on whether
+Orca's `sabi.dispatch` is reachable by non-human callers (determines real severity of the fixed
+HIGH finding), then decide the proxy-auth design before anyone builds on the assumption the local
+proxy is a trust boundary — #60 below (merged separately, in flight while this branch was open)
+adds an origin/Host/Referer check that closes real DNS-rebinding/CSRF exposure but is not
+authentication: it does not stop another local process, or a remote client that simply sets a
+loopback-looking `Host` header, from calling `/v1/chat/completions` or `/decisions` with zero
+credential. The gap this review flagged is narrower than it was, not closed.
+
+## Privacy/egress hardening (#59 #60 #67 #68) — 2026-09-21
+
+Implemented in this worktree (`muse/privacy-egress`, local only, not pushed): judge state is
+content-free by default with an explicit `judge.includeSnippets` opt-in; the loopback proxy
+rejects non-loopback Host/Origin/Referer and non-JSON chat bodies and no longer leaks the log
+path from `/healthz`; the proxy route derives a declared-only context window and a
+session-memory stuck streak (unattributed requests: window at most); clean EOF without `[DONE]`
+completes with usage, mid-stream failures end with an SSE error frame, and non-UTF-8 error
+bodies keep their 429/`transport` classification.
+
+Validation: `npm test` 445/445, `npm run typecheck` clean, `git diff --check` clean. No paid
+request, secret, user config, publication or deployment. See `log.md` and `docs/decisions.md`
+for the dated entries.
+
+## CI gate and pt-BR doc drift (#63, #64) — 2026-09-21
+
+Closed issues #63 (CI `paths` filter skipped `packages/server`, remaining adapters, `evals`,
+`scripts`) and #64 (pt-BR README/install drift) in this worktree. `controller-ci.yml` no longer
+filters by path, so every PR and main push runs the full gate. `sabi setup --hooks` is a
+recognized explicit setup alias again (`--no-hooks` wins on conflict); the pt-BR verify block
+drops the stale test count, the service sentence separates code-exists from real-machine
+validation, the `Planejado:` line no longer contradicts the structure list, and the pt-BR
+OpenCode modalities paragraph describes the code derivation like the EN guide. Full details in
+`log.md`.
+
+Validation: focused `cli.test.ts` 17/17, `npm test` 476/476, `npm run typecheck` clean,
+`git diff --check` clean, workflow YAML parses. No paid request, secret, user configuration,
+deployment or publication. Not pushed.

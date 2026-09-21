@@ -22,9 +22,18 @@ during the review. All fixes below were re-tested with the full suite after ever
 1–4 fixes themselves before commit, since fixed (see each item below):
 the file-mode fix only applied at creation time and never touched a pre-existing file on an
 upgraded install; the control-character regex missed the C1 range (NEL, CSI); the new file-mode
-tests had no Windows guard. A fourth claim (quoting `SABI_HOOK_COMMAND` as one token could break
-an undocumented multi-word usage) was evaluated and rejected — see the "SABI_HOOK_COMMAND
-quoting" item.
+tests had no Windows guard. A fourth claim — quoting `SABI_HOOK_COMMAND` as one token could break
+a multi-word usage — was rejected at the time (no evidenced usage), but turned out to identify a
+real gap in this PR's fix anyway: see item 6, where a stricter fix landed independently on `main`
+while this branch was open and properly supports the multi-word case, which plain quoting cannot.
+
+**Pass 6** — merging `main` (10 commits landed while this branch was open, including its own
+security-relevant PRs: #59/#60/#67/#68 privacy/egress hardening, plus an independent fix for the
+unsalted tool-name hash and for `SABI_HOOK_COMMAND`) produced a real, substantive merge conflict
+in `packages/core/src/log.ts` and its test, not just the usual append-only doc conflicts. Resolved
+by combining both sides' logic rather than picking one — see item 6's "superseded" note below, and
+the corrected "unsalted tool-name hash" and "inference proxy has no
+authentication" write-ups, both revised for what's actually true after the merge.
 
 ## Fixed in this pass
 
@@ -35,7 +44,7 @@ quoting" item.
 | 3 | `scripts/setup.ts` printed "Jev is off by default" without writing `judge.enabled: false` for the OpenCode / Command-Code-Class-B path — the shipped config's `judge.enabled: true` was left untouched | MEDIUM | `scripts/setup.ts` |
 | 4 | Decision log, council ledger, and surplus-review receipts were appended with no explicit file mode — inherited the process umask instead of matching the controller's own `0600`/`0700` convention | LOW | `packages/core/src/log.ts`, `council.ts`, `surplus.ts` |
 | 5 | Controller daemon's bearer-token check used `!==` (non-constant-time string compare) | LOW | `packages/controller/src/daemon.ts` |
-| 6 | `SABI_HOOK_COMMAND` was interpolated unquoted into a persisted hook command string a shell later executes on every prompt submission | LOW | `packages/controller/src/hooks.ts` |
+| 6 | `SABI_HOOK_COMMAND` was interpolated unquoted into a persisted hook command string a shell later executes on every prompt submission — fixed here first, then superseded by a stricter validation-based fix that landed independently on `main` | LOW | `packages/controller/src/hooks.ts` |
 
 ### 1. Orca dispatch — control-character injection (HIGH)
 
@@ -143,48 +152,56 @@ mismatched-length buffers) then `timingSafeEqual`.
 Test: `packages/controller/test/daemon.test.ts` — added a wrong-length-token case alongside the
 existing wrong-value-same-length case.
 
-### 6. `SABI_HOOK_COMMAND` unquoted in a persisted, re-executed command string (LOW)
+### 6. `SABI_HOOK_COMMAND` unquoted in a persisted, re-executed command string (LOW — superseded by a better fix on `main`)
 
 The default branch of `commandFor()` already quoted `process.execPath` and the script path; the
-`SABI_HOOK_COMMAND` override branch did not. All real usages (repo tests, presumably real
-deployments) pass a single bare token (`sabi-test`, or a `sabi` binary name) — not a multi-arg
-command line — so quoting the whole value is the correct fix, not a breaking change to a
-multi-token calling convention that doesn't exist here. The persisted string is written into
+`SABI_HOOK_COMMAND` override branch did not. The persisted string is written into
 `~/.claude/settings.json` / `~/.codex/hooks.json` / the OpenCode config and re-executed by a shell
 on every `UserPromptSubmit`/`SessionStart`/`SessionEnd` — so an unescaped metacharacter in that env
-var (e.g. from a compromised shell profile) becomes a standing injection primitive, not a one-time
-install-time risk. Same-user-only (whoever sets the env var already has code exec), so LOW, but
-free and precedented to fix (the quoting helper already existed in the same function).
+var becomes a standing injection primitive, not a one-time install-time risk.
 
-**Considered and rejected:** the pass-5 code-review flagged that quoting the whole value as one
-token would break an operator who'd previously set `SABI_HOOK_COMMAND` to a multi-word invocation
-(e.g. `"node /opt/sabi/cli.js"`) to work around the very bug being fixed here. Checked: no test,
-doc, or example anywhere in the repo uses or describes a multi-word value — every real usage is a
-single bare token — and the variable is named `_COMMAND`, singular, not `_COMMAND_LINE` or
-`_ARGS`. Quoting-as-one-token is also the objectively safer behavior for a value that becomes part
-of a shell command line; weakening it to preserve an undocumented, unevidenced convenience would
-trade a real fix for a hypothetical compatibility case. Not changed. If a genuine multi-word need
-ever surfaces, the right shape is a documented multi-arg option, not un-quoting this one.
+**First fix in this PR:** `quote(configured)` — wrap the whole value as one shell token. The
+pass-5 code-review flagged that this would break an operator relying on a multi-word invocation
+(e.g. `node /opt/sabi/cli.js`); that was rejected at the time because no test, doc, or example
+anywhere in the repo used a multi-word value.
 
-**Fix:** `quote(configured)` instead of the bare value.
+**Superseded during the merge:** a separate PR on `main` (independent of this review) landed a
+strictly better fix while this branch was open — `validateHookCommand()` tokenizes the value
+(respecting quotes, so `"/opt/my dir/sabi" --flag value` works) and rejects the whole thing with a
+clear error if any token contains a shell metacharacter, rather than quoting it. This properly
+supports the `executable + arguments` shape the code-review was actually worried about, which
+plain quoting cannot: `node /path/to/sabi.mjs` needs to reach the shell as two arguments, and
+`quote()` would have collapsed it into one. The code-review's underlying concern was valid — this
+review's specific rejection of it (no evidenced multi-word usage) was reasonable given the state
+of the repo at the time, but `main`'s fix is the correct general solution the rejection didn't
+anticipate. Dropped this PR's `quote(configured)` call in favor of `main`'s validation, which now
+runs first and makes the quoting unreachable for a value that passes it.
 
-Test: `packages/controller/test/hooks.test.ts` — `a SABI_HOOK_COMMAND containing shell
-metacharacters cannot break out of its quoting`, plus the pre-existing format assertion loosened
-to accept the (correct) quoted form.
+Tests: `packages/controller/test/hooks.test.ts` — `SABI_HOOK_COMMAND keeps executable-plus-
+arguments but rejects shell metacharacters` and the `installHooks` malicious-value test, both from
+`main`'s PR. This review's own now-redundant quoting test was removed.
 
 ## Documented, not fixed — needs a product decision or is out of Sabi's control
 
 ### The inference proxy has no authentication (HIGH, by exploitability — not fixed)
 
 `packages/server/src/server.ts` (`/v1/chat/completions`, `/v1/models`, `/healthz`, `/decisions`)
-has zero authentication anywhere in `handleRequest`. `packages/server/src/index.ts:7` binds to
-`SABI_HOST ?? config.server?.host ?? '127.0.0.1'` verbatim — nothing refuses a non-loopback value
-the way `packages/controller/src/daemon.ts:211` (`isLoopbackControllerHost`) explicitly does for
-the controller daemon. The default is loopback, so this is not "wide open out of the box" — but on
-the default bind, any other local process/user on the same machine can already spend the
-configured upstream's paid API credits via `/v1/chat/completions` or read `/decisions` (recent
-routing telemetry) with zero friction, and nothing stops `SABI_HOST=0.0.0.0` (common in containers
-/ remote-dev / WSL) from silently removing even that.
+has zero *credential* authentication anywhere in `handleRequest`. `packages/server/src/index.ts:7`
+binds to `SABI_HOST ?? config.server?.host ?? '127.0.0.1'` verbatim — nothing refuses a
+non-loopback value the way `packages/controller/src/daemon.ts:211` (`isLoopbackControllerHost`)
+explicitly does for the controller daemon.
+
+**Update from a merge conflict with `main` (#59 #60 #67 #68), which landed while this branch was
+open:** `server.ts` now has `originViolation()` — a `Host`/`Origin`/`Referer` loopback check that
+runs before every request. This closes a real, different vulnerability (a malicious webpage's
+`fetch()` can't forge `Host`, so DNS-rebinding/browser-CSRF against the proxy is now blocked). It
+does **not** add authentication: any non-browser client — another local process, a `curl`, a
+Python script, a remote attacker if `SABI_HOST=0.0.0.0` — can set a loopback-looking `Host` header
+itself and pass the check trivially. On the default bind, any other local process/user on the same
+machine can still spend the configured upstream's paid API credits via `/v1/chat/completions` or
+read `/decisions` (recent routing telemetry) with zero friction, and a non-loopback bind is still
+reachable by exactly the kind of client `originViolation()` doesn't stop. The finding is narrower
+than when this review started, not closed.
 
 **Why not fixed here:** adding auth changes the API contract for every existing adapter
 (`opencode`, `command-code`, `hermes`, `deepseek-harness`, `prime-agent` connect scripts) that
@@ -206,16 +223,17 @@ no Sabi-authored runtime code in the DSH bundle to attach validation to — doin
 require a DSH plugin analogous to Hermes's, which doesn't exist yet. Flagging as a real gap for
 whenever such a plugin is built, not fixing a phantom hook here.
 
-### Unsalted SHA-256 "hash" of tool names gives a false sense of irreversibility (LOW, not fixed)
+### Unsalted SHA-256 "hash" of tool names gives a false sense of irreversibility (LOW — fixed independently on `main`)
 
-`hashIdentity('tool', name)` (`packages/core/src/log.ts`) is bare `SHA256(JSON[kind, ...parts])` —
-no secret, no per-install salt. Tool names are drawn from a small, guessable universe
-(`read_file`, `grep`, `bash`, ...), so anyone with a `decisions.jsonl` can trivially dictionary-
-match the real tool name back out. Same-user-only file today, so this is cosmetic rather than a
-live exposure, but it's worth fixing with an HMAC + per-install key (or just logging the tool name
-in the clear, since it isn't sensitive by itself) before this log is ever exported or shared.
-Deferred here to keep this PR to fixes with an obvious, uncontroversial shape — a keyed-HMAC change
-touches the log format and deserves its own review.
+Originally found as: `hashIdentity('tool', name)` (`packages/core/src/log.ts`) was bare
+`SHA256(JSON[kind, ...parts])` — no secret, no per-install salt. Tool names are drawn from a
+small, guessable universe (`read_file`, `grep`, `bash`, ...), so anyone with a `decisions.jsonl`
+could trivially dictionary-match the real tool name back out. Deferred here originally (a
+keyed-HMAC change touches the log format and deserves its own review), but a separate PR merged
+to `main` while this branch was open and fixed exactly this: `hashIdentity` is now
+`createHmac('sha256', getIdentitySalt())`, with the salt generated once per install at
+`~/.config/sabi/.identity-salt` (mode `0600`). Resolved by that merge, not by this PR — noted here
+so the record is accurate about which change fixed it.
 
 ### `saveOpenRouterKey`'s chmod-after-write has a narrow TOCTOU window (LOW, not fixed)
 

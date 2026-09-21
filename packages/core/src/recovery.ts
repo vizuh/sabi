@@ -28,6 +28,12 @@ function key(tier: string, upstreamModel: string): string {
   return `${tier}::${upstreamModel}`
 }
 
+/** A row whose `state` is missing or not a failure-carrying object cannot be paired. */
+function isUsableState(state: unknown): state is { failure: string; contextGeneration?: number } {
+  return typeof state === 'object' && state !== null &&
+    typeof (state as { failure?: unknown }).failure === 'string'
+}
+
 /**
  * A recovery event: round `i` in a session had `state.failure === 'hard'` (the round that got
  * classified into the `failure` policy rule in the first place), and round `i`'s action is
@@ -63,6 +69,9 @@ export function computeRecovery(records: readonly DecisionRecord[]): RecoveryPro
   const bySession = new Map<string, DecisionRecord[]>()
   for (const record of records) {
     if (record.sessionKnown !== true) continue
+    // A line that parses but lacks a usable session identity carries no pairing signal —
+    // skip it rather than grouping unrelated rows under one key.
+    if (typeof record.sessionId !== 'string' || !record.sessionId) continue
     const bucket = bySession.get(record.sessionId)
     if (bucket) bucket.push(record)
     else bySession.set(record.sessionId, [record])
@@ -73,6 +82,10 @@ export function computeRecovery(records: readonly DecisionRecord[]): RecoveryPro
       const current = session[i]!
       const next = session[i + 1]!
       if (current.outcome !== 'ok' || next.outcome !== 'ok') continue
+      // A structurally incomplete row (valid JSON, missing `state`) is skipped like a
+      // malformed line — it must never disable the profile for the whole process.
+      if (!isUsableState(current.state) || !isUsableState(next.state)) continue
+      if (typeof current.tier !== 'string' || typeof current.upstreamModel !== 'string') continue
       if (current.state.failure !== 'hard') continue
       if (current.state.contextGeneration !== next.state.contextGeneration) continue
       if (next.state.failure === 'transport') continue

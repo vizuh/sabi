@@ -163,7 +163,18 @@ export function createSseTap(alias: string, onFinish: (result: SseTapResult) => 
       buffer += decoder.decode()
       const tail = buffer ? processEvent(buffer) : ''
       buffer = ''
-      if (!done || !result.dataEvents) throw new UpstreamProtocolError('upstream stream ended without [DONE]')
+      if (!done) {
+        // `[DONE]` is a convention of the OpenAI-compatible shape, not a requirement every
+        // compatible provider honours. A clean EOF after a terminal choice on every seen
+        // choice (finish_reason observed, usage may already be recorded) is a complete round
+        // whose usage/cost must survive — not a failure. Anything else (no terminal choice,
+        // usage-only, mid-content cutoff) still fails rather than reporting success.
+        const complete = result.dataEvents > 0 && choicesSeen.size > 0 &&
+          [...choicesSeen].every((index) => choicesFinished.has(index))
+        if (!complete) throw new UpstreamProtocolError('upstream stream ended without [DONE]')
+        done = true
+      }
+      if (!result.dataEvents) throw new UpstreamProtocolError('upstream stream ended without [DONE]')
       flushed = true
       onFinish(result)
       return encoder.encode(tail)

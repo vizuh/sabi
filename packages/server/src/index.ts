@@ -1,34 +1,30 @@
 #!/usr/bin/env node
-import { defaultConfigPath, defaultLogPath, loadConfig, loadConfiguredSecrets, resolveKey } from '@sabi/core'
-import { createSabiServer } from './server.ts'
+import { defaultConfigPath, defaultLogPath, loadConfig, loadConfiguredSecrets } from '@sabi/core'
+import { createSabiServer, credentialWarnings } from './server.ts'
 
 const config = loadConfig()
-const secretLoad = loadConfiguredSecrets(config)
+// Explicit opt-in: startup is the one place that installs workspace secrets into process.env.
+const secretLoad = loadConfiguredSecrets(config, { install: true })
 const host = process.env.SABI_HOST ?? config.server?.host ?? '127.0.0.1'
 const port = Number(process.env.SABI_PORT ?? config.server?.port ?? 8787)
 const logFile = defaultLogPath()
 
-const missingKeys: string[] = []
-for (const [name, upstream] of Object.entries(config.upstreams)) {
-  if (upstream.apiKey === false) continue
-  try {
-    if (!resolveKey(upstream.apiKey)) missingKeys.push(`${name} (${String(upstream.apiKey)})`)
-  } catch (error) {
-    missingKeys.push(`${name} (${(error as Error).message})`)
-  }
-}
-const judge = config.judge
-if (judge?.enabled) {
-  try {
-    if (!resolveKey(judge.apiKey)) missingKeys.push(`judge (${String(judge.apiKey)})`)
-  } catch (error) {
-    missingKeys.push(`judge (${(error as Error).message})`)
-  }
-}
+const missingKeys = credentialWarnings(config)
 
 const sabi = createSabiServer({ config, logFile })
-const actualPort = await sabi.listen(port, host)
+let actualPort: number
+try {
+  actualPort = await sabi.listen(port, host)
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+    console.error(`Sabi port ${port} on ${host} is already in use — stop the other instance or set SABI_PORT to a free port`)
+  } else {
+    console.error(`Sabi failed to listen on ${host}:${port} — ${(error as Error).message}`)
+  }
+  process.exit(1)
+}
 
+const judge = config.judge
 console.log(`Sabi listening on http://${host}:${actualPort}/v1`)
 console.log(`  config : ${defaultConfigPath()}`)
 console.log(`  log    : ${logFile}`)

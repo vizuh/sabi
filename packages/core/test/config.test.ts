@@ -269,3 +269,158 @@ test('model and policy dictionaries cannot resolve inherited properties', () => 
   assert.throws(() => validateConfig({ ...minimal, policy: { unclassified: 'constructor' } }), /unknown tier/)
   assert.throws(() => validateConfig({ ...minimal, models: [] }), /models must be an object/)
 })
+
+test('unknown policy rule names are rejected at load time', () => {
+  assert.throws(
+    () => validateConfig({ ...minimal, policy: { failur: 'cheap', unclassified: 'cheap' } }),
+    /not a known rule/,
+  )
+  assert.doesNotThrow(() => validateConfig(minimal))
+})
+
+test('judge.callOn values must name known policy rules', () => {
+  const judge = { enabled: true, baseURL: 'http://127.0.0.1:1/v1', callOn: ['failure', 'unclassified'] }
+  assert.doesNotThrow(() => validateConfig({ ...minimal, judge }))
+  assert.throws(
+    () => validateConfig({ ...minimal, judge: { ...judge, callOn: ['failur'] } }),
+    /judge\.callOn rule 'failur' is not a known rule/,
+  )
+})
+
+test('an auto alias requires the effective fallback tier to exist at load time', () => {
+  const tiers = {
+    alpha: { upstream: 'mock', model: 'm-alpha' },
+    beta: { upstream: 'mock', model: 'm-beta' },
+  }
+  // No `unclassified` and no literal `cheap`: an adaptive alias would 500 the first
+  // unmatched round, so validation fails before any request.
+  assert.throws(
+    () => validateConfig({
+      upstreams: minimal.upstreams,
+      models: tiers,
+      aliases: { 'sabi-code': 'auto' },
+      policy: { exploration: 'alpha' },
+    }),
+    /policy\.unclassified must resolve/,
+  )
+  assert.doesNotThrow(() => validateConfig({
+    upstreams: minimal.upstreams,
+    models: tiers,
+    aliases: { 'sabi-code': 'auto' },
+    policy: { exploration: 'alpha', unclassified: 'beta' },
+  }))
+  // Fixed-alias-only configs never take the adaptive fallback path.
+  assert.doesNotThrow(() => validateConfig({
+    upstreams: minimal.upstreams,
+    models: tiers,
+    aliases: { 'sabi-fixed': 'alpha' },
+    policy: { exploration: 'alpha' },
+  }))
+})
+
+test('harness tier modalities and windows are validated', () => {
+  const base = {
+    upstreams: { mock: { baseURL: 'http://127.0.0.1:1/v1' } },
+    models: { cheap: { upstream: 'mock', model: 'm-cheap' } },
+    aliases: { 'sabi-code': 'auto' },
+    policy: { unclassified: 'cheap' },
+  }
+  assert.doesNotThrow(() => validateConfig({
+    ...base, harness: { tiers: { cheap: { model: 'm', inputModalities: ['text', 'image'], contextWindow: 1000 } } },
+  }))
+  for (const tiers of [
+    { cheap: { model: 'm', inputModalities: ['imgae'] } },
+    { cheap: { model: 'm', inputModalities: [] } },
+    { cheap: { model: 'm', inputModalities: ['text', 'text'] } },
+    { cheap: { model: 'm', inputModalities: 'text' } },
+  ]) {
+    assert.throws(() => validateConfig({ ...base, harness: { tiers } }), /inputModalities/)
+  }
+  for (const tiers of [
+    { cheap: { model: 'm', contextWindow: 0 } },
+    { cheap: { model: 'm', contextWindow: -5 } },
+    { cheap: { model: 'm', contextWindow: 1.5 } },
+    { cheap: { model: 'm', contextWindow: 'big' } },
+  ]) {
+    assert.throws(() => validateConfig({ ...base, harness: { tiers } }), /contextWindow/)
+  }
+})
+
+test('an empty declared modality list is rejected', () => {
+  assert.throws(
+    () => validateConfig({
+      ...minimal,
+      models: { cheap: { ...minimal.models.cheap, capabilities: { inputModalities: [] } } },
+    }),
+    /must not be empty/,
+  )
+  assert.throws(
+    () => validateConfig({
+      ...minimal,
+      models: { cheap: { ...minimal.models.cheap, capabilities: { outputModalities: [] } } },
+    }),
+    /must not be empty/,
+  )
+})
+
+test('workspace secret search stops at the containing .git boundary', () => {
+  const { root, project } = workspace()
+  const repo = path.join(root, 'repo')
+  const sub = path.join(repo, 'nested', 'deep')
+  mkdirSync(sub, { recursive: true })
+  mkdirSync(path.join(repo, '.git'))
+  const outside = path.join(root, 'secrets', '.env')
+  mkdirSync(path.dirname(outside), { recursive: true })
+  writeFileSync(outside, 'OPENROUTER_API_KEY=outside\n')
+  const env: NodeJS.ProcessEnv = {}
+  const paths = secretSearchPaths({ cwd: sub, packageRoot: sub, env })
+  assert.ok(!paths.includes(outside), `search climbed above the repo root: ${paths.join(', ')}`)
+  const inside = path.join(repo, 'secrets', '.env')
+  mkdirSync(path.dirname(inside), { recursive: true })
+  writeFileSync(inside, 'OPENROUTER_API_KEY=inside\n')
+  const found = secretSearchPaths({ cwd: sub, packageRoot: sub, env })
+  assert.ok(found.includes(inside), `expected the repo-local secrets file: ${found.join(', ')}`)
+  assert.ok(!found.includes(outside))
+  assert.ok(project)
+})
+
+test('secret loading without install never touches the live process environment', () => {
+  const key = 'SABI_TEST_EPHEMERAL_KEY_65_75'
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-secrets-dry-'))
+  const file = path.join(dir, 'credentials.env')
+  writeFileSync(file, `${key}=file-value\n`)
+  const previousFile = process.env.SABI_SECRETS_FILE
+  const previousValue = process.env[key]
+  try {
+    process.env.SABI_SECRETS_FILE = file
+    delete process.env[key]
+    const config = validateConfig({
+      upstreams: { mock: { baseURL: 'http://127.0.0.1:1/v1', apiKey: `$${key}` } },
+      models: { cheap: { upstream: 'mock', model: 'm-cheap' } },
+      aliases: { 'sabi-code': 'auto' },
+      policy: { unclassified: 'cheap' },
+    })
+    const dry = loadConfiguredSecrets(config)
+    assert.deepEqual(dry.loaded, [key], 'dry run still reports the satisfiable key')
+    assert.equal(process.env[key], undefined, 'dry run must not install into process.env')
+    const installed = loadConfiguredSecrets(config, { install: true })
+    assert.deepEqual(installed.loaded, [key])
+    assert.equal(process.env[key], 'file-value', 'explicit install:true performs the documented side effect')
+    assert.ok(!String(installed.file).includes('file-value') && !installed.loaded.includes('file-value'))
+  } finally {
+    if (previousFile === undefined) delete process.env.SABI_SECRETS_FILE
+    else process.env.SABI_SECRETS_FILE = previousFile
+    if (previousValue === undefined) delete process.env[key]
+    else process.env[key] = previousValue
+  }
+})
+
+test('judge.includeSnippets is an optional boolean egress opt-in', () => {
+  const judge = { enabled: true, baseURL: 'http://127.0.0.1:3/v1' }
+  assert.equal(validateConfig({ ...minimal, judge: { ...judge, includeSnippets: true } }).judge!.includeSnippets, true)
+  assert.equal(validateConfig({ ...minimal, judge }).judge!.includeSnippets, undefined)
+  assert.throws(
+    () => validateConfig({ ...minimal, judge: { ...judge, includeSnippets: 'yes' } }),
+    /judge\.includeSnippets must be a boolean/,
+  )
+})

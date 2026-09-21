@@ -1086,5 +1086,132 @@ default hook command's own quoting), so applying them was mechanical, not a judg
 
 Decide the proxy-auth design before building anything that assumes the local proxy is a trust
 boundary. Also open: `SABI_DSH_BASE_URL` validation (blocked on a DSH-side plugin that doesn't
-exist yet — the YAML patch is evaluated by DSH's own loader, not Sabi-authored code), the unsalted
-tool-name hash, and `saveOpenRouterKey`'s narrow chmod-after-write TOCTOU window.
+exist yet — the YAML patch is evaluated by DSH's own loader, not Sabi-authored code), and
+`saveOpenRouterKey`'s narrow chmod-after-write TOCTOU window. The unsalted tool-name hash flagged
+in the same review was independently fixed on `main` while this branch was in flight — `log.ts`
+now HMAC-SHA256s with a per-install salt (`getIdentitySalt`) — so it's already resolved, not open.
+
+---
+
+## [2026-09-20] Surplus safety check gates council review before plan receipt
+
+### Decision
+
+In `runSurplusReview`, run `buildSafeReviewPacket` (surplus-level safety)
+before `councilPreGate` (council-level viability), then write the plan
+receipt via `createCouncilPlanReceipt` only when both pass.
+
+### Why
+
+`buildSafeReviewPacket` already refuses sensitive file paths and canary
+markers with `'secret-path'`/`'unsafe-path'` reasons. Running the council
+pre-gate after it preserves those exact error strings for existing surplus
+tests and callers. The pre-gate adds checks that surplus safety does not
+cover: zero-cost resource availability, per-mode call budget, and public-Scope
+signal. Running both before any provider call means no seat starts unless the
+review is both safe and viable.
+
+### Alternatives considered
+
+- Pre-gate first, then `buildSafeReviewPacket`: rejected — the pre-gate
+  returns `'sensitive-paths'` (different string) for files that the surplus
+  path expected to label `'secret-path'`, breaking `surplus.test.ts`.
+- Pre-gate only (skip `buildSafeReviewPacket`): rejected — surplus-level
+  file-safety checks (path-component validation, diff-size bounding) are
+  not duplicated by the council pre-gate.
+
+### Revisit later?
+
+When JEV's semantic judgment replaces the deterministic pre-gate, re-evaluate
+whether a single combined gate is cleaner.
+
+---
+
+## [2026-09-20] Plan independence: 'full' only with a separate synthesizer
+
+### Decision
+
+In `createCouncilPlanReceipt`, set `independence` to `'full'` when a
+separate synthesizer seat is declared OR `mode === 'none'`; otherwise
+`'reduced'`.
+
+### Why
+
+The spec says independence is reduced "if the same model and provider must
+both review and synthesize." A `probe` or `surgery` with no explicit
+synthesizer means one model does everything — that is `'reduced'`. `mode ===
+'none'` is `'full'` because no seat runs at all, so there is no independence
+constraint to violate. The previous draft included `mode === 'probe'` in the
+'full' condition, which silently marked single-model probe rounds as fully
+independent; the test caught it.
+
+### Revisit later?
+
+When multi-model synthesis becomes default, revisit whether `surgery`
+without an explicit synthesizer should still be `'reduced'`.
+
+---
+
+## [2026-09-20] Plan receipt stores opaque hashes, not raw plan data
+
+### Decision
+
+`createCouncilPlanReceipt` persists `planSha256` and `inventorySha256` as
+opaque hashes in the council ledger, not the full `CouncilPlan` object or the
+file inventory.
+
+### Why
+
+The spec's field list is "opaque input/output hashes." Raw plan data
+(seat objectives, provider routing) and raw file paths can change between
+runs; hashing them decouples the ledger from plan structure. The hashes let a
+later `record` receipt reference the exact plan+inventory that started the
+round (`/plan` endpoint can re-derive from the same source). `RECEIPT_KEYS`
+sanitizes any non-allowlisted field on write, enforcing the contract.
+
+### Alternatives considered
+
+- Store raw plan JSON: rejected — plan shape is not stable and includes
+  provider/model fields that belong to execution receipts, not plan receipts.
+- Store raw inventory paths: rejected — paths are environment-specific and
+  would make receipts non-portable across machines.
+
+---
+
+## [2026-09-20] Harness is required on sabi council record
+
+### Decision
+
+`sabi council record` requires `--harness=<name>`; the previous default of
+`'unknown'` is removed.
+---
+## [2026-09-21] Privacy/egress hardening for judge, proxy, trajectory and streams (#59 #60 #67 #68)
+
+### Decision
+
+- Judge egress is content-free by default: `buildJudgeState` sends hashed tool identity, evidence
+  codes and length/hash shape, never raw instruction or tool text. Raw excerpts require the explicit
+  `judge.includeSnippets` opt-in (or the shared `telemetry.captureSnippets`). Fail-open is unchanged.
+- The loopback proxy is fail-closed on origin: non-loopback `Host`, non-loopback `Origin`/`Referer`
+  and non-JSON chat bodies are rejected before any round executes, and `/healthz` no longer reports
+  the absolute log path. No CORS allow-origin is ever emitted.
+- The proxy derives `contextWindow` only when every reachable tier declares one, and detects `stuck`
+  from consecutive hard failures of the same identified session (memory cleared on compaction).
+  Unattributed requests get a window at most — no borrowed streak, no guessed generation.
+- A clean EOF after a terminal choice completes with usage intact; mid-stream failures end with an
+  explicit SSE error frame (deadline/abort still terminate); error bodies decode leniently so a
+  non-UTF-8 429 keeps its status and `transport` outcome, while success bodies stay strict.
+
+### Why
+
+Each shipped-config rule or surface implied a guarantee the code did not keep: the judge bypassed
+the telemetry policy it documented, the proxy executed cross-origin simple requests, two policy
+rules could never fire on the proxy path, and three stream cases reported the wrong outcome. The
+fixes keep legitimate local clients working (no `Origin` or loopback `Origin`, JSON bodies) and
+keep all unknowns unknown rather than guessing.
+
+### Revisit later?
+
+Per-install proxy tokens (the controller daemon already has them) if the loopback boundary needs
+authentication beyond origin; judge-signal quality measurement on redacted vs raw state before any
+context-selection work; whether the failure streak should ever count past the harness's depth flag.

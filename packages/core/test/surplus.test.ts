@@ -55,6 +55,34 @@ test('safe review packets bound diff and refuse secret paths or markers', () => 
   assert.deepEqual(buildSafeReviewPacket({ intent: 'bug-hunt', changedFiles: ['src/a.ts'], diff: 'Authorization: Bearer sk-live-ABCDEF1234567890abcdef' }), { ok: false, reason: 'secret-marker' })
 })
 
+test('prefixed secret names are refused while ordinary source names pass (#70)', () => {
+  for (const file of ['prod-secrets.yaml', 'app-secrets.json', 'legacy-credentials.txt', 'service-token-prod.yaml', 'config/prod-secrets.yaml']) {
+    assert.deepEqual(
+      buildSafeReviewPacket({ intent: 'bug-hunt', changedFiles: [file], diff: 'safe' }),
+      { ok: false, reason: 'secret-path' },
+      `${file} must be refused`,
+    )
+  }
+  for (const file of ['src/a.ts', 'src/tokens.ts', 'src/secret-sauce.ts', 'docs/password-policy.md', 'src/credential-store.test.ts']) {
+    const result = buildSafeReviewPacket({ intent: 'bug-hunt', changedFiles: [file], diff: 'safe diff' })
+    assert.equal(result.ok, true, `${file} must stay admissible`)
+  }
+})
+
+test('the egress canary refuses common credential tokens (#70)', () => {
+  for (const diff of [
+    'key = ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3',
+    'token github_pat_11ABCDEFG1234567890abcdef',
+    'postgres://usuario:senha@host:5432/db',
+    'DB_PASSWORD=hunter2segredo',
+  ]) {
+    assert.deepEqual(
+      buildSafeReviewPacket({ intent: 'bug-hunt', changedFiles: ['src/a.ts'], diff }),
+      { ok: false, reason: 'secret-marker' },
+      `diff must be refused: ${diff.slice(0, 24)}…`,
+    )
+  }
+})
 test('review claim parsing is structured, bounded and never verifies model claims', () => {
   const result = parseReviewClaims('prefix ```json\n{"claims":[{"category":"bug","severity":"high","claim":"null state","file":"src/a.ts","line":4,"confidence":0.8},{"claim":"sk-live-ABCDEF1234567890abcdef"}]}\n``` suffix')
   assert.equal(result.status, 'ok')

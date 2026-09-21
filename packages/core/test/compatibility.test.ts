@@ -418,3 +418,39 @@ test('an adaptive round whose policy tier sits behind a disabled upstream rerout
   // A fixed alias never upgrades — it names its backend explicitly and refuses instead.
   rejected(body({ model: 'sabi-fixed' }), settings, /upstream 'down' is disabled/)
 })
+
+test('the unavailable-upstream fallback is cheapest-first, independent of declaration order', () => {
+  const priced = (model: string, input: number, output: number, upstream = 'up') =>
+    catalog({ upstream, model, cost: { input, output } })
+  const base = {
+    upstreams: {
+      down: { baseURL: 'http://127.0.0.1:1/v1', apiKey: false, enabled: false },
+      up: { baseURL: 'http://127.0.0.1:2/v1', apiKey: false },
+    },
+    aliases: { 'sabi-code': 'auto' },
+    policy: { unclassified: 'cheap' },
+    compatibility: { mode: 'strict' },
+  }
+  const orderA = validateConfig({
+    ...base,
+    models: {
+      cheap: priced('blocked', 0.1, 0.1, 'down'),
+      strong: priced('synthetic-strong', 9, 9),
+      mid: priced('synthetic-mid', 1, 1),
+    },
+  })
+  const orderB = validateConfig({
+    ...base,
+    models: {
+      strong: priced('synthetic-strong', 9, 9),
+      mid: priced('synthetic-mid', 1, 1),
+      cheap: priced('blocked', 0.1, 0.1, 'down'),
+    },
+  })
+  const routedA = route(body(), orderA)
+  const routedB = route(body(), orderB)
+  assert.equal(routedA.tier, 'mid', 'cheapest enabled tier wins even when declared last')
+  assert.equal(routedB.tier, 'mid', 'same tier set in a different order resolves the same way')
+  assert.equal(routedA.rule, 'availability')
+  assert.equal(routedB.rule, 'availability')
+})

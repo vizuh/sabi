@@ -10,13 +10,20 @@ audit this document was written from, including what was fixed and what's deferr
 Sabi has two separate HTTP surfaces with two different authentication postures. They are easy to
 conflate; they are not the same.
 
-**The inference proxy (`packages/server`, default `127.0.0.1:8787`) has no authentication.**
-`/v1/chat/completions`, `/v1/models`, `/healthz`, and `/decisions` accept any request that reaches
-the socket — no token, no header check, nothing. On the default loopback bind this means any other
-local process or user on the same machine can spend your configured upstream's paid credits or read
-recent routing telemetry. If `SABI_HOST` or `config.server.host` is ever set off-loopback (common
-in containers, remote-dev boxes, or WSL), that surface becomes reachable to anyone who can route to
-the host, with the same lack of a gate. This is a known, currently-open gap — see the review's
+**The inference proxy (`packages/server`, default `127.0.0.1:8787`) has an origin check, not
+authentication.** Every request must pass `originViolation()`: the `Host` header must name a
+loopback address, and any `Origin`/`Referer` present must be loopback too (absent is allowed —
+non-browser clients don't send one). This closes a real attack — a malicious webpage's
+`fetch()`/XHR can't forge `Host`/`Origin` the way a script can, so DNS rebinding and browser-based
+CSRF against the proxy are blocked. **It is not a credential check.** Any local process, or any
+remote client that isn't a browser, can set `Host: 127.0.0.1:8787` itself — trivial outside a
+browser context — and the check passes. `/v1/chat/completions`, `/v1/models`, `/healthz`, and
+`/decisions` still accept any request that clears that origin check with no token, no per-caller
+identity, nothing. On the default loopback bind this means any other local process or user on the
+same machine can spend your configured upstream's paid credits or read recent routing telemetry.
+If `SABI_HOST` or `config.server.host` is ever set off-loopback (common in containers, remote-dev
+boxes, or WSL), a non-browser remote client can still pass the origin check by sending a
+loopback-looking `Host` header itself. This is a known, currently-open gap — see the review's
 "Documented, not fixed" section for why it wasn't patched silently as part of a hardening pass.
 
 **The controller daemon (`packages/controller/src/daemon.ts`, default `127.0.0.1:7433`) does
@@ -72,12 +79,14 @@ until that's addressed.
   control, not encryption. The decision log, council ledger, and surplus-review receipts are plain
   JSONL, now written `0600`/`0700` (fixed 2026-09-21) but not encrypted.
 - **Hashing, not encryption, for identifiers:** session/turn/tool identity in logs is
-  `SHA256(domain-tag, ...)` (`hashIdentity`) or `randomUUID()` — this is pseudonymization for log
-  hygiene, not a security boundary. It is domain-separated (a session hash and a tool hash of the
-  same input differ), but it is *not* salted or keyed, so a small, guessable value (like a tool
-  name drawn from a short known list) can be dictionary-matched back from its hash by anyone who
-  can read the log file. Don't rely on this for anything that needs to resist a motivated reader
-  with local file access — see the review's "Unsalted SHA-256" item.
+  `HMAC-SHA256(per-install salt, domain-tag, ...)` (`hashIdentity`) or `randomUUID()` — this is
+  pseudonymization for log hygiene, not a security boundary. It is domain-separated (a session
+  hash and a tool hash of the same input differ) and salted with a random per-install key
+  (`getIdentitySalt`, generated once at `~/.config/sabi/.identity-salt`, mode `0600`), so a small,
+  guessable value (like a tool name drawn from a short known list) can no longer be dictionary-
+  matched back from its hash without that install's salt. Still not a security boundary against
+  someone who can also read the salt file — it stops casual cross-install correlation and
+  dictionary attacks, not a fully-privileged local reader.
 
 ## Audit logging
 

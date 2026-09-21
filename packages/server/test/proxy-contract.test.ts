@@ -329,9 +329,15 @@ test('upstream disconnect and missing DONE never become successful streams', asy
     res.end('data: {"model":"mock-cheap","choices":[{"delta":{"content":"partial"}}]}\n\n')
   })
   const response = await post({ stream: true })
-  await assert.rejects(() => response.text())
+  // The status line was already committed as 200, so the failure arrives as an explicit SSE
+  // error frame — distinguishable from an early finish — rather than a silent truncation.
+  assert.equal(response.status, 200)
+  const text = await response.text()
+  assert.match(text, /"error"/)
+  assert.ok(!text.includes('[DONE]'))
   await until(() => sabi.recent.length === 1)
   assert.equal(sabi.recent[0].outcome, 'error')
+  assert.equal(sabi.recent[0].usage, undefined)
   assert.equal(seen.length, 1)
 })
 

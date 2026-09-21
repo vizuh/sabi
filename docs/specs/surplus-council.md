@@ -79,8 +79,12 @@ zero and the result is advisory.
   source;
 - status and evidence level (`none`, `transport`, `execution`, `completion`,
   or `verification`);
-- opaque input/output hashes, bounded counts, latency, token counts when
-  measured, HTTP status, and a short error code.
+- independence (`full` or `reduced` — records whether the same model/provider
+  must synthesize);
+- opaque hashes: plan snapshot (`planSha256`), inventory snapshot
+  (`inventorySha256`), and input/output (`inputSha256`/`outputSha256`);
+- bounded counts, latency, token counts when measured, HTTP status, and a
+  short error code.
 
 It never stores prompts, diffs, claims, provider responses, secrets, or raw
 transcripts. The default path is the user's Sabi config directory and can be
@@ -88,6 +92,8 @@ overridden with `SABI_COUNCIL_LOG`.
 
 ```bash
 sabi council history --last=20
+sabi council pregate --mode=probe --intent=api-contract --max-calls=1
+sabi council plan --mode=probe --intent=api-contract --max-calls=1 --harness=sabi-quality
 sabi council record --harness=opencode --runtime-version=1.18.31 \
   --provider=openrouter \
   --model=provider/model:free --stage=review --mode=probe \
@@ -103,7 +109,10 @@ execution, completion, and verification separately.
 
 The following are deliberately not part of this slice:
 
-1. a Jev-backed plan selector;
+1. a Jev-backed plan selector (the deterministic `councilPreGate` and
+   `createCouncilPlanReceipt` are in scope for Phase 1, but JEV's semantic
+   judgment from `judge.ts` is not yet wired into the council flow — it
+   remains proxy-only per the current routing path);
 2. OpenCode and Hermes council adapters with completion receipts;
 3. deterministic claim verifiers and a privacy-approved task corpus;
 4. conflict-driven debate and a separate synthesizer;

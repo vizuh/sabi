@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
@@ -14,7 +14,7 @@ interface Harness {
   ctx: ModContext
 }
 
-function loadMod(cwd = process.cwd()): Harness {
+function loadMod(cwd: string): Harness {
   const harness: Partial<Harness> = { notices: [], decisions: [], events: new Map() }
   harness.ctx = {
     cwd,
@@ -41,6 +41,19 @@ function loadMod(cwd = process.cwd()): Harness {
   return harness as Harness
 }
 
+const workspaces: string[] = []
+
+/** Isolated harness cwd per test: the mod persists beside `ctx.cwd`, never the repo root. */
+function workspace(): string {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-command-code-'))
+  workspaces.push(dir)
+  return dir
+}
+
+after(() => {
+  for (const dir of workspaces) rmSync(dir, { recursive: true, force: true })
+})
+
 function round(h: Harness, turn: number, state: AgentState): Promise<AgentState> {
   return Promise.resolve(h.hooks.onTurnStart!({ state, turnNumber: turn }, h.ctx))
 }
@@ -56,7 +69,7 @@ function readDecisionLog(cwd: string): Array<Record<string, unknown>> {
 }
 
 test('the mod registers the routing seam and a model observer', () => {
-  const h = loadMod()
+  const h = loadMod(workspace())
   assert.deepEqual(h.notices, [])
   assert.equal(typeof h.hooks.prepareNextTurn, 'function')
   assert.equal(typeof h.hooks.afterToolCall, 'function')
@@ -64,7 +77,7 @@ test('the mod registers the routing seam and a model observer', () => {
 })
 
 test('a tool that reported failure escalates the next round and is logged', async () => {
-  const h = loadMod()
+  const h = loadMod(workspace())
   let state: AgentState = { modState: {} }
 
   state = await round(h, 1, state)
@@ -107,7 +120,7 @@ test('a tool that reported failure escalates the next round and is logged', asyn
 })
 
 test('a read round plans the cheap tier and never rewrites the tool result', async () => {
-  const h = loadMod()
+  const h = loadMod(workspace())
   const state = await round(h, 1, { modState: {} })
   const untouched = await h.hooks.afterToolCall!(
     {
@@ -126,7 +139,7 @@ test('a read round plans the cheap tier and never rewrites the tool result', asy
 })
 
 test('the decision record stays content-free by default (no raw tool output)', async () => {
-  const h = loadMod()
+  const h = loadMod(workspace())
   let state: AgentState = { modState: {} }
   state = await round(h, 1, state)
   await h.hooks.afterToolCall!(
@@ -151,7 +164,7 @@ test('the decision record stays content-free by default (no raw tool output)', a
 })
 
 test('a missing usage event does not carry a stale previous usage into the next round', async () => {
-  const h = loadMod()
+  const h = loadMod(workspace())
   let state: AgentState = { modState: {} }
   state = await round(h, 1, state)
   await h.hooks.afterToolCall!(
@@ -181,7 +194,7 @@ test('a missing usage event does not carry a stale previous usage into the next 
 })
 
 test('an unavailable tier plans nothing rather than guessing or downgrading silently', async () => {
-  const h = loadMod()
+  const h = loadMod(workspace())
   // Force the strong tier to be absent: simulate a config where `strong` is not in tiers.
   // The mod disables itself if no tiers are declared, but a missing *rule* tier still means
   // no plan for that rule.
@@ -199,7 +212,7 @@ test('an unavailable tier plans nothing rather than guessing or downgrading sile
 })
 
 test('a repeated identical failure routes to the stuck tier through the full lifecycle', async () => {
-  const h = loadMod()
+  const h = loadMod(workspace())
   let state: AgentState = { modState: {} }
 
   // Round 1: shell_command fails hard.
@@ -274,7 +287,7 @@ test('a repeated identical failure routes to the stuck tier through the full lif
 })
 
 test('an edit round plans the mid tier', async () => {
-  const h = loadMod()
+  const h = loadMod(workspace())
   const state = await round(h, 1, { modState: {} })
   await h.hooks.afterToolCall!(
     {
@@ -292,7 +305,7 @@ test('an edit round plans the mid tier', async () => {
 })
 
 test('a rate-limited tool result routes to the transport tier, not strong', async () => {
-  const h = loadMod()
+  const h = loadMod(workspace())
   const state = await round(h, 1, { modState: {} })
   await h.hooks.afterToolCall!(
     {
@@ -310,7 +323,7 @@ test('a rate-limited tool result routes to the transport tier, not strong', asyn
 })
 
 test('a conversation carrying an image plans a tier that can read it', async () => {
-  const h = loadMod()
+  const h = loadMod(workspace())
   let state = await round(h, 1, {
     modState: {},
     messages: [
@@ -347,7 +360,7 @@ test('a conversation carrying an image plans a tier that can read it', async () 
 })
 
 test('a transcript with no readable media plans no modality constraint', async () => {
-  const h = loadMod()
+  const h = loadMod(workspace())
   const state = await round(h, 1, { modState: {}, messages: [{ role: 'user', content: 'plain question' }] })
   await h.hooks.afterToolCall!(
     {
@@ -365,7 +378,7 @@ test('a transcript with no readable media plans no modality constraint', async (
 })
 
 test('the next round starts from the previous round\'s billed total, not from tool-output length', async () => {
-  const h = loadMod()
+  const h = loadMod(workspace())
   let state: AgentState = { modState: {}, messages: [{ role: 'user', content: 'read the file' }] }
   state = await round(h, 1, state)
   await h.hooks.afterToolCall!(
@@ -400,7 +413,7 @@ test('the next round starts from the previous round\'s billed total, not from to
 })
 
 test('a host compaction resets the repeated-failure streak and records its generation', async () => {
-  const h = loadMod()
+  const h = loadMod(workspace())
   const before = Array.from({ length: 10 }, (_, i) => ({ role: i === 0 ? 'user' : 'assistant', content: `m${i}` }))
   let state: AgentState = { modState: {}, messages: before }
   state = await round(h, 1, state)
@@ -550,4 +563,39 @@ test('invalid measured usage is omitted instead of becoming a cost-like zero', a
   } finally {
     rmSync(cwd, { recursive: true, force: true })
   }
+})
+
+test('a planned round logs beside the harness cwd and leaves the repository root untouched', async () => {
+  // The cwd parameter is required: restoring a process.cwd() default reintroduces the #72 leak.
+  assert.equal(loadMod.length, 1)
+  const cwd = workspace()
+  const rootLog = path.join(process.cwd(), '.sabi', 'decisions.jsonl')
+  const before = existsSync(rootLog) ? readFileSync(rootLog, 'utf8') : null
+  const h = loadMod(cwd)
+  let state: AgentState = await round(h, 1, { modState: {} })
+  await h.hooks.afterToolCall!({
+    toolCallId: 't1',
+    toolName: 'read_file',
+    input: {},
+    result: 'body',
+    isError: false,
+    state,
+  }, h.ctx)
+  await h.hooks.prepareNextTurn!({ state, turnNumber: 1 }, h.ctx)
+  state = await h.hooks.onTurnEnd!({
+    state,
+    turnNumber: 1,
+    hadToolCalls: true,
+    usage: { inputTokens: 100, outputTokens: 20 },
+  }, h.ctx)
+  state = await round(h, 2, state)
+  await h.hooks.onTurnEnd!({
+    state,
+    turnNumber: 2,
+    hadToolCalls: false,
+    usage: { inputTokens: 200, outputTokens: 40 },
+  }, h.ctx)
+  assert.equal(readDecisionLog(cwd).length, 1)
+  const afterContent = existsSync(rootLog) ? readFileSync(rootLog, 'utf8') : null
+  assert.equal(afterContent, before)
 })

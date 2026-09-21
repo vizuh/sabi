@@ -74,20 +74,46 @@ export function sanitizeReason(reason: string, policy: TelemetryPolicy): string 
 /**
  * Sanitize an upstream/provider error string before it lands in a decision record. Keeps an
  * error kind and a redacted status, never the raw provider body.
+ *
+ * Two layers: a quote-tolerant keyword redaction (`"api_key": "sk-…"`, `token ghp_…`) and a
+ * bare-token redaction for known secret shapes (`sk-…`, `AKIA…`, `ghp_…`, credential URLs).
+ * Anything still matching `looksLikeCanary` afterwards (e.g. a private-key block) is dropped
+ * to a generic placeholder — a persisted error must never carry a secret.
  */
+const KEYWORD_REDACT = /\b(bearer|authorization|api[-_]?\s*key|token|secret|password|passwd)\b["']?\s*[:=\s]\s*["']?[^\s"'{},\]]+/gi
+const BARE_TOKEN_REDACT: Array<[RegExp, string]> = [
+  [/\bsk-[A-Za-z0-9_-]{8,}\b/g, 'sk-[REDACTED]'],
+  [/\bAKIA[0-9A-Z]{16}\b/g, 'AKIA[REDACTED]'],
+  [/\bAIza[0-9A-Za-z_-]{30,}\b/g, 'AIza[REDACTED]'],
+  [/\bghp_[A-Za-z0-9]{8,}\b/g, 'ghp_[REDACTED]'],
+  [/\bghu_[A-Za-z0-9]{8,}\b/g, 'ghu_[REDACTED]'],
+  [/\bghs_[A-Za-z0-9]{8,}\b/g, 'ghs_[REDACTED]'],
+  [/\bgithub_pat_[A-Za-z0-9_]{8,}\b/g, 'github_pat_[REDACTED]'],
+]
+const CREDENTIAL_URL_REDACT = /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^:@\s/]+:[^@\s/]+@/g
+
 export function sanitizeError(error: string): string {
-  return String(error ?? '')
-    .split('\n')[0]
-    ?.slice(0, 200)
-    .replace(/\b(bearer|authorization|api[-_]?key|token)\b[=:\s][^\s]+/gi, '$1=REDACTED') ?? 'unknown error'
+  const first = String(error ?? '').split('\n')[0]?.slice(0, 200) ?? ''
+  if (!first.trim()) return 'unknown error'
+  let redacted = first.replace(KEYWORD_REDACT, '$1=REDACTED')
+  for (const [pattern, replacement] of BARE_TOKEN_REDACT) redacted = redacted.replace(pattern, replacement)
+  redacted = redacted.replace(CREDENTIAL_URL_REDACT, '$1REDACTED@')
+  if (looksLikeCanary(redacted)) return 'upstream error redacted (possible secret)'
+  return redacted || 'unknown error'
 }
 
 /** Best-effort canary: secret-like markers must never reach persisted decision bodies. */
 const CANARY_PATTERNS = [
   /\b(BEGIN|END)\s+(RSA|OPENSSH|EC|DSA)\s+PRIVATE\s+KEY/i,
-  /\bsk-[A-Za-z0-9_-]{16,}\b/,
+  /\bsk-[A-Za-z0-9_-]{8,}\b/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bAIza[0-9A-Za-z_-]{30,}\b/,
+  /\bghp_[A-Za-z0-9]{8,}\b/,
+  /\bghu_[A-Za-z0-9]{8,}\b/,
+  /\bghs_[A-Za-z0-9]{8,}\b/,
+  /\bgithub_pat_[A-Za-z0-9_]{8,}\b/,
+  /[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^:@\s/]+:[^@\s/]+@/,
+  /(?:password|passwd|pwd|secret)\s*[:=]\s*\S+/i,
 ]
 
 export function looksLikeCanary(text: string): boolean {

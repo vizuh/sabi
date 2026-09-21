@@ -22,7 +22,7 @@ import { defaultControllerLogPath, readControllerDecisions, summarizeControllerR
 import { dispatchControllerRequest, inventorySnapshot } from './runtime.ts'
 import { installUserService, restartUserService, type UserServiceResult } from './service.ts'
 import { uninstallController, upgradeController } from './lifecycle.ts'
-import { installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
+import { checkHookHealth, installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
 import { runSurplusReview } from './surplus.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
@@ -76,7 +76,7 @@ function printHelp(): void {
   sabi config [--cwd=<path>] [--json]
   sabi logs [--cwd=<path>] [--tail=<n>] [--json]
   sabi replay [--cwd=<path>] [--last=<n>] [--json]
-  sabi setup [--no-start] [--no-hooks] [--free-quality] [--json]
+  sabi setup [--no-start] [--hooks] [--no-hooks] [--free-quality] [--json]
   sabi surplus [inventory|review|history] [--cwd=<path>] [--intent=bug-hunt|test-gap|api-contract] [--alias=<alias>] [--json]
   sabi council [history|record|pregate|plan] [--harness=<id>] [--runtime-version=<version>] [--provider=<id>] [--model=<id>] [--seat=<id>] [--task-key=<key>] [--stage=<stage>] [--mode=<mode>] [--intent=<intent>] [--status=<status>] [--evidence=<level>] [--source=<source>] [--independence=<full|reduced>] [--plan-reason=<reason>] [--claims=<n>] [--verified-claims=<n>] [--input-tokens=<n>] [--output-tokens=<n>] [--latency-ms=<n>] [--http-status=<n>] [--input-sha256=<sha>] [--output-sha256=<sha>] [--error-code=<code>] [--max-calls=<n>] [--cwd=<path>] [--json]
   sabi integrations [list|repair] [--json]
@@ -172,11 +172,23 @@ async function runDoctor(argv: string[]): Promise<void> {
   const nodeMajor = Number(process.versions.node.split('.')[0])
   const orca = snapshot.orca as { available: boolean; errorCode?: string }
   const candidates = snapshot.spawnCandidates as unknown[]
+  const hookHealth = checkHookHealth({ env: process.env })
+  const installedHooks = hookHealth.filter(({ installed }) => installed)
+  const staleHooks = hookHealth.filter(({ stale }) => stale)
   const checks = [
     { name: 'node', ok: nodeMajor >= 22, detail: `${process.versions.node} (requires >=22)` },
     { name: 'daemon', ok: daemon.state === 'running', detail: daemon.state },
     { name: 'orca', ok: orca.available, detail: orca.available ? 'live inventory available' : orca.errorCode ?? 'unavailable' },
     { name: 'harness inventory', ok: candidates.length > 0, detail: candidates.length ? `${candidates.length} spawn candidate(s)` : 'requires a healthy Orca inventory' },
+    {
+      name: 'hooks',
+      ok: staleHooks.length === 0,
+      detail: !installedHooks.length
+        ? 'no supported hooks installed'
+        : staleHooks.length
+          ? `stale: ${staleHooks.map(({ harness, detail }) => `${harness} (${detail})`).join('; ')}`
+          : `${installedHooks.map(({ harness }) => harness).join(', ')} resolve`,
+    },
   ]
   const result = { cwd, runtime: snapshot.runtime, checks }
   if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
@@ -197,6 +209,8 @@ async function runSetup(argv: string[]): Promise<void> {
   const hookTargets = detected
     .map(({ agent }) => agent)
     .filter((agent): agent is InstalledHook => agent === 'claude' || agent === 'codex' || agent === 'opencode')
+  // `--hooks` is an explicit alias for the default (install hooks for detected
+  // supported harnesses); `--no-hooks` disables them and wins when both are passed.
   const hooks = argv.includes('--no-hooks') || !hookTargets.length
     ? []
     : installHooks({ stateDir, harnesses: hookTargets })
