@@ -1245,3 +1245,14 @@ its merge-conflict wreckage stay on the old branch for their owner; note its `sa
 suggest` recommended `:batch` models that 404 on `chat/completions` (verified live) and
 an unverified `$0` claim on `openrouter/auto` — both need fixing before that line can
 merge. No secret, key, or host state changed by this PR.
+
+## [2026-09-21] spec | Decision signals Phase 0 (types + store, no behavior)
+
+Adds `docs/specs/decision-signals.md`, `packages/core/src/signals.ts` and
+`packages/core/test/signals.test.ts`: the `DecisionSignal` primitive (closed kind set,
+confidence, lineage via `dependsOn`/`supersedes`, `{kind,id}` evidence refs only),
+a bounded per-scope store (64 signals, 5-minute age, prune on insert, supersede flags
+instead of deletes), fail-closed validation, and the `explainSignal` lineage formatter.
+Nothing routes on signals yet; modes are stored, never enforced. Joins, thresholds, hop
+limits, batched Jev splitting and micro-judges are specified as measured-later work in
+Phases 2–6, not implemented. No secret, key, host state, or live behavior changed.
