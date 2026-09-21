@@ -74,6 +74,43 @@ context and Hermes 0.21.3 requires at least 64000 for a custom model. Use Nous o
 with a verified context of at least 64000 for the Hermes path; Qwen remains available through a
 direct Sabi/Ollama path.
 
+## Recommended: native default, Sabi per run
+
+Keep the Hermes default on a native Nous model and reach for Sabi explicitly per run:
+
+~~~bash
+# Everyday use: native Nous free lane, no proxy, no key.
+hermes -z "your task"
+
+# Opt-in routing (needs the Sabi proxy up and a funded upstream):
+hermes --provider custom:sabi -m sabi-code -z "your task"
+~~~
+
+This is the fail-open posture: when the OpenRouter balance behind the proxy is exhausted,
+native sessions keep working and only `sabi-code` rounds fail. Verified 2026-09-21 against
+Hermes 0.21.3: the default `sabi-code` leaked to Nous Portal (`HTTP 404: Model 'sabi-code'
+not found`); after switching the default to `poolside/laguna-s-2.1:free` a trivial prompt
+answered with no Sabi decision row (direct native).
+
+Two Hermes-specific gotchas, both verified the same day:
+
+- The custom lane needs the full provider block (`providers.sabi`, `model_overrides`,
+  as in `config.sabi.yaml.example`). A bare `model.base_url` with `provider: nous`
+  does not route — the model name leaks to Nous and 404s. That degraded shape was
+  the live breakage; repairing the block is what lets `custom:sabi` reach the proxy.
+- `-m sabi-code` alone still resolves through the default provider. The per-run
+  opt-in must name both: `--provider custom:sabi -m sabi-code`.
+
+The Nous inference catalog (`/v1/models`, read live 2026-09-21, 402 entries) carries
+seven `:free` lanes: `inclusionai/ling-3.0-flash-fin:free`,
+`inclusionai/ling-3.0-flash-sante:free`, `meituan/longcat-2.0:free` (1M context),
+`poolside/laguna-s-2.1:free` and `poolside/laguna-xs-2.1:free` (262k, coding),
+`stepfun/step-3.7-flash:free` (262k), `upstage/solar-pro4:free` (524k).
+`laguna-s-2.1:free` is the verified coding default above; re-verify before
+depending on the others. Tenant note: this host also holds a Copilot credential
+pool (`hermes auth list`: nous OAuth + Copilot) — per-tenant fallbacks stay a
+`hermes fallback` / `hermes model` terminal decision, not a committed config.
+
 OpenCode Go and ChatGPT Plus remain native Hermes providers. Select them with Hermes' own
 `hermes model` flow; their subscription entitlements are not silently transferred into Sabi.
 

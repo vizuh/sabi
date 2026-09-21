@@ -1199,3 +1199,19 @@ session also found that registering the state-home file path in `plugin` breaks
 OpenCode bridge stays opt-in until file-path plugin loading is verified. Host config rewired
 accordingly (native default, `sabi` provider kept, no plugin entry); no secret, key, or WIP
 branch touched.
+
+## [2026-09-21] docs | Hermes native-first default
+
+`docs/adapters/hermes.md` now recommends keeping the Hermes default on a native Nous free
+model (`poolside/laguna-s-2.1:free`, verified live answering with no Sabi row) and using
+`sabi-code` per run via `hermes --provider custom:sabi -m sabi-code`. Root cause of the live
+breakage: the effective profile carried `model.provider: nous` with a bare `base_url` and no
+`providers.sabi` block, so `sabi-code` leaked to Nous Portal (`HTTP 404: Model 'sabi-code'
+not found`); repaired per `config.sabi.yaml.example` and verified reaching the proxy (three
+`mid first-turn` error rows — the remaining failure is upstream-only: exhausted OpenRouter
+balance plus the WIP branch's `:batch` model rejecting `chat/completions`). Also verified:
+`-m` alone does not select the custom provider, and the Nous catalog holds seven `:free`
+lanes (402 models listed live). Host profile rewired accordingly (native default, custom
+lane kept, no plugin installed); the real `~/.hermes` profile was already native and
+untouched. No secret, key, or WIP branch touched. PR #92 (`fix/opencode-plugin-sandbox-
+and-pollution`) deliberately left alone: CONFLICTING, unvalidated Jev WIP, not this change.
