@@ -1058,3 +1058,97 @@ default; AI explanation is explicit, bounded and allowed to fall back locally.
 Move the flow behind the released `@vizuh/sabi-controller` package only after its controller-v*
 tag, clean-machine package proof and host-specific live receipts exist. Do not describe Claude/Codex
 hooks as native per-round model switching, or OpenRouter BYOK configuration as verified entitlement.
+
+---
+
+## [2026-09-20] Surplus safety check gates council review before plan receipt
+
+### Decision
+
+In `runSurplusReview`, run `buildSafeReviewPacket` (surplus-level safety)
+before `councilPreGate` (council-level viability), then write the plan
+receipt via `createCouncilPlanReceipt` only when both pass.
+
+### Why
+
+`buildSafeReviewPacket` already refuses sensitive file paths and canary
+markers with `'secret-path'`/`'unsafe-path'` reasons. Running the council
+pre-gate after it preserves those exact error strings for existing surplus
+tests and callers. The pre-gate adds checks that surplus safety does not
+cover: zero-cost resource availability, per-mode call budget, and public-Scope
+signal. Running both before any provider call means no seat starts unless the
+review is both safe and viable.
+
+### Alternatives considered
+
+- Pre-gate first, then `buildSafeReviewPacket`: rejected — the pre-gate
+  returns `'sensitive-paths'` (different string) for files that the surplus
+  path expected to label `'secret-path'`, breaking `surplus.test.ts`.
+- Pre-gate only (skip `buildSafeReviewPacket`): rejected — surplus-level
+  file-safety checks (path-component validation, diff-size bounding) are
+  not duplicated by the council pre-gate.
+
+### Revisit later?
+
+When JEV's semantic judgment replaces the deterministic pre-gate, re-evaluate
+whether a single combined gate is cleaner.
+
+---
+
+## [2026-09-20] Plan independence: 'full' only with a separate synthesizer
+
+### Decision
+
+In `createCouncilPlanReceipt`, set `independence` to `'full'` when a
+separate synthesizer seat is declared OR `mode === 'none'`; otherwise
+`'reduced'`.
+
+### Why
+
+The spec says independence is reduced "if the same model and provider must
+both review and synthesize." A `probe` or `surgery` with no explicit
+synthesizer means one model does everything — that is `'reduced'`. `mode ===
+'none'` is `'full'` because no seat runs at all, so there is no independence
+constraint to violate. The previous draft included `mode === 'probe'` in the
+'full' condition, which silently marked single-model probe rounds as fully
+independent; the test caught it.
+
+### Revisit later?
+
+When multi-model synthesis becomes default, revisit whether `surgery`
+without an explicit synthesizer should still be `'reduced'`.
+
+---
+
+## [2026-09-20] Plan receipt stores opaque hashes, not raw plan data
+
+### Decision
+
+`createCouncilPlanReceipt` persists `planSha256` and `inventorySha256` as
+opaque hashes in the council ledger, not the full `CouncilPlan` object or the
+file inventory.
+
+### Why
+
+The spec's field list is "opaque input/output hashes." Raw plan data
+(seat objectives, provider routing) and raw file paths can change between
+runs; hashing them decouples the ledger from plan structure. The hashes let a
+later `record` receipt reference the exact plan+inventory that started the
+round (`/plan` endpoint can re-derive from the same source). `RECEIPT_KEYS`
+sanitizes any non-allowlisted field on write, enforcing the contract.
+
+### Alternatives considered
+
+- Store raw plan JSON: rejected — plan shape is not stable and includes
+  provider/model fields that belong to execution receipts, not plan receipts.
+- Store raw inventory paths: rejected — paths are environment-specific and
+  would make receipts non-portable across machines.
+
+---
+
+## [2026-09-20] Harness is required on sabi council record
+
+### Decision
+
+`sabi council record` requires `--harness=<name>`; the previous default of
+`'unknown'` is removed.
