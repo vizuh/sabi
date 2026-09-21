@@ -1215,3 +1215,16 @@ lanes (402 models listed live). Host profile rewired accordingly (native default
 lane kept, no plugin installed); the real `~/.hermes` profile was already native and
 untouched. No secret, key, or WIP branch touched. PR #92 (`fix/opencode-plugin-sandbox-
 and-pollution`) deliberately left alone: CONFLICTING, unvalidated Jev WIP, not this change.
+
+## [2026-09-21] release | Hermes Nous-first profile + @vizuh/sabi 0.1.5
+
+Ships the live-verified free-first Hermes composition as
+`packages/adapters/hermes/sabi.config.nous-free.json.example` (Nous-managed proxy on
+:8645 as `nous-local`, cheap = `laguna-s-2.1:free` at $0, `transportFallback` on so
+429/402/403 adaptive rounds retry cost-ordered) plus the `docs/adapters/hermes.md`
+recipe. Verified on the host before shipping: fixed-alias, adaptive first-turn with
+transport fallback, streamed, and Hermes `--provider custom:sabi -m sabi-code` rounds
+all `ok` via Nous with $0 cost while OpenRouter 402s. Bumped the Command Code adapter
+`0.1.4` → `0.1.5`; the published tarball is code-identical to 0.1.4 (mod, default
+config, adapter README, LICENSE) and the release carries docs/recipe only. No secret,
+key, host state, or WIP branch changed by this release.

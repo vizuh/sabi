@@ -63,6 +63,27 @@ SABI_CONFIG="$HOME/.config/sabi/hermes/sabi.config.json" npm start
 HERMES_HOME="$HOME/.config/sabi/hermes" hermes chat
 ~~~
 
+## Nous-first profile (free lane + paid fallback)
+
+When the OpenRouter balance is dry, run Sabi on the Nous free lane first and keep
+paid tiers as fallback. Copy
+[`sabi.config.nous-free.json.example`](../../packages/adapters/hermes/sabi.config.nous-free.json.example)
+to `$SABI_CONFIG`, then:
+
+~~~bash
+# Terminal 1 — Hermes holds its own Nous OAuth; Sabi never sees it.
+hermes proxy start --provider nous --host 127.0.0.1 --port 8645
+
+# Terminal 2
+SABI_CONFIG="$SABI_CONFIG" npm start
+~~~
+
+`cheap` becomes `poolside/laguna-s-2.1:free` ($0, verified live 2026-09-21) and
+`transportFallback` retries 429/402/403 adaptive rounds cost-ordered, so `sabi-code`
+answers free instead of dying on an exhausted key. Mid/strong stay OpenRouter and
+resume automatically once funded. Verified the same day: fixed-alias, adaptive,
+streamed and Hermes `--provider custom:sabi -m sabi-code` rounds all `ok` via Nous.
+
 The wizard creates an isolated `HERMES_HOME`, copies the plugin, and writes a
 Nous-backed or OpenRouter-backed Sabi config according to `--upstream`. Read the detailed [Hermes adapter README](../../packages/adapters/hermes/README.md)
 before changing the profile. The target directory must be new or empty; keep an existing
