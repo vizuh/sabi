@@ -315,6 +315,16 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
     }
   }
 
+  const transportFallback = config.transportFallback
+  if (transportFallback !== undefined) {
+    if (!isObject(transportFallback)) {
+      throw new Error(`Sabi config ${source}: transportFallback must be an object`)
+    }
+    if (transportFallback.enabled !== undefined && typeof transportFallback.enabled !== 'boolean') {
+      throw new Error(`Sabi config ${source}: transportFallback.enabled must be a boolean`)
+    }
+  }
+
   const judge = config.judge
   if (judge !== undefined) {
     if (typeof judge !== 'object' || judge === null || typeof judge.enabled !== 'boolean') {

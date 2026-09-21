@@ -68,6 +68,9 @@
     "exploration": "cheap",
     "unclassified": "cheap"
   },
+  "transportFallback": {
+    "enabled": false
+  },
   "telemetry": {
     "allowlistOnly": true,
     "captureSnippets": false,

@@ -225,6 +225,13 @@ export interface SabiConfig {
     tiers: Record<string, CatalogTier>
     contextWindow?: number
   }
+  /**
+   * Opt-in retry of transport failures (429/402/403) on the next serving tier.
+   * Omitted or false: the first upstream error is served as-is (current behavior).
+   */
+  transportFallback?: {
+    enabled?: boolean
+  }
 }
 
 export interface UsageTotals {
@@ -300,4 +307,6 @@ export interface DecisionRecord {
   error?: string
   /** HTTP status of a transport/rate-limit failure from the upstream, when it was recorded that way. */
   transport?: number
+  /** Tier that served the round after a transport-fallback retry, when the planned tier failed first. */
+  fallback?: string
 }

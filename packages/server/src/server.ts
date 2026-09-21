@@ -8,6 +8,7 @@ import {
   defaultLogPath,
   estimateCost,
   ensureRouteCompatible,
+  getFallbackChain,
   hashIdentity,
   JUDGE_QUESTIONS,
   judgeTriggers,
@@ -591,8 +592,44 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     ensureRouteCompatible(body, config, decision)
     signal.throwIfAborted()
     stage = 'upstream'
-    const upstreamBody = buildUpstreamBody(config, decision, body)
-    const { response: upstreamResponse } = await callUpstream(config, decision, upstreamBody, signal)
+    // Transport failures (429 rate limit, 402 quota, 403 model/plan wall) on an adaptive
+    // round may retry on the next serving tier when the operator opts in with
+    // `transportFallback.enabled` (default off). Fixed aliases never fall back: an explicit
+    // choice that fails is served as-is. A fallback that also fails is consumed quietly and
+    // the planned tier's original error is served, so the client never sees a confusing mix.
+    let upstreamResponse = (await callUpstream(config, decision, buildUpstreamBody(config, decision, body), signal)).response
+    let fallbackTier: string | undefined
+    if (!upstreamResponse.ok &&
+      (upstreamResponse.status === 429 || upstreamResponse.status === 402 || upstreamResponse.status === 403) &&
+      decision.mode === 'auto' && config.transportFallback?.enabled === true) {
+      const required = decision.state.inputModalities ?? []
+      for (const fallback of getFallbackChain(config, decision.tier, required)) {
+        const attempt: RouteDecision = {
+          ...decision,
+          tier: fallback.tier,
+          rule: 'transport-fallback',
+          reason: fallback.reason,
+          model: fallback.tier,
+          upstream: fallback.upstream,
+          upstreamModel: fallback.upstreamModel,
+        }
+        try {
+          ensureRouteCompatible(body, config, attempt)
+        } catch {
+          continue
+        }
+        const { response: retry } = await callUpstream(config, attempt, buildUpstreamBody(config, attempt, body), signal)
+        if (retry.ok) {
+          decision = attempt
+          fallbackTier = attempt.tier
+          saveDecision(decision)
+          upstreamResponse = retry
+          break
+        }
+        await retry.body?.cancel().catch(() => {})
+        if (retry.status !== 429 && retry.status !== 402 && retry.status !== 403) break
+      }
+    }
 
     if (!upstreamResponse.ok) {
       const text = await readErrorText(upstreamResponse)
@@ -622,7 +659,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       object.model = decision.alias
       sendJson(res, 200, object)
       await responseFinished()
-      finish({ usage: usageFromJson(object), servedModel })
+      finish({ usage: usageFromJson(object), servedModel, ...(fallbackTier ? { fallback: fallbackTier } : {}) })
       return
     }
 
@@ -655,9 +692,9 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       await reader.cancel().catch(() => {})
       reader.releaseLock()
     }
-    res.end()
-    await responseFinished()
-    finish({ usage: streamResult?.usage, servedModel: observeModel(streamResult?.model), ttftMs })
+      res.end()
+      await responseFinished()
+      finish({ usage: streamResult?.usage, servedModel: observeModel(streamResult?.model), ttftMs, ...(fallbackTier ? { fallback: fallbackTier } : {}) })
   } catch (error) {
     const deadline = signal.aborted && (signal.reason as Error)?.name === 'TimeoutError'
     const aborted = signal.aborted && !deadline
