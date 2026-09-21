@@ -895,7 +895,31 @@ The host currently exposes no real session ID, model-request latency, task-level
 provider cost. The first host-served round has no Sabi plan and is therefore not recorded as one.
 Jev, catalog fallback and learned policy remain separate follow-up slices.
 
-## 2026-09-20 — DeepSeek Harness uses a published bundle over the native provider seam
+## [2026-09-20] OpenCode Muse is a deferred native lane, not a proxy model ID
+
+### Decision
+
+Raise the OpenCode adapter's advertised output ceiling from its unknown-metadata fallback by
+declaring the verified minimum across the current OpenRouter tiers (`128000`). Keep the current
+Sabi proxy as the adaptive action path. Do not add `opencode/muse-spark-1.3-contributor-free` to
+`sabi.config.json`: the installed OpenCode catalog exposes it through a native Responses provider,
+while Sabi's proxy forwards Chat Completions to configured OpenRouter/Ollama upstreams.
+
+### Why
+
+The observed short value was `limit.output: 4096`, not the adaptive context window (`1000000`).
+Muse's larger output metadata does not make its native provider reachable from the current proxy, and
+the free offer is temporary. `small_model` can be an explicit OpenCode utility choice, but it is not
+a Sabi per-round model-selection hook. The connector accepts an explicit
+`--small-model=provider/model` override for that utility lane and leaves the adaptive main model
+unchanged.
+
+### Revisit later?
+
+Only add Muse as an action tier after a Responses upstream, explicit credential boundary, tool and
+stream translation, context-fit checks and safe cross-model reasoning behavior have focused tests
+and a bounded free-only smoke. The issue and task list are in
+`docs/specs/opencode-muse-cheap-lane.md` and `docs/tasks/opencode-muse-cheap-lane.md`.## 2026-09-20 — DeepSeek Harness uses a published bundle over the native provider seam
 
 ### Decision
 
@@ -968,6 +992,7 @@ Rate limits and proxy failures are recorded and fail open for the primary task.
 
 Add verifiers, approved completed-task/held-out data, independent receipts per free resource and
 Jev intent selection before fan-out, advisory handoff or learned model-by-intent promotion.
+
 ## [2026-09-20] Surplus review uses a bounded council protocol
 
 ### Decision

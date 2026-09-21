@@ -690,6 +690,16 @@ Validation: focused Command Code tests passed 15/15, full `npm test` passed 384/
 typecheck` passed, and `git diff --check` passed. No live provider request, secret, user configuration,
 deployment or publication was performed.
 
+## [2026-09-20] spec | OpenCode Muse cheap lane and output metadata
+
+Confirmed with OpenCode 1.18.31 and the local catalog that `sabi-code` was context-safe at
+1,000,000 tokens but advertised only the connector fallback output cap of 4,096. Declared the
+verified 128,000-token minimum output ceiling across the current OpenRouter adaptive tiers.
+
+The Sabi/Orca read-only review (`ctx_193cf942ae7d`) confirmed that native Muse is not reachable by
+the current Chat Completions proxy. Added the spec/task contract and deferred a Responses bridge;
+no native model ID, credential, user config, paid request or deployment was changed.
+
 ## [2026-09-20] feat | Add the DeepSeek Harness Sabi bundle adapter
 
 Added the public `@vizuh/sabi-deepseek-harness` configuration bundle. It reuses DSH's native

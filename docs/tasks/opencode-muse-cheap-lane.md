@@ -12,8 +12,8 @@
 - [ ] Define and implement a Responses upstream contract if Muse must serve coding/tool rounds.
 - [ ] Prove auth, streaming, tool calls, usage, context fit and safe model switching with a bounded
       free-only smoke before enabling Muse as a Sabi action tier.
-- [ ] Add held-out comparison against `sabi-cheap`/`sabi-code`; catalog presence and zero price do
-      not establish task quality or savings.
+- [ ] Add held-out comparison against `sabi-cheap`/`sabi-code`; catalog presence and zero price
+      do not establish task quality or savings.
 
 ## Deferred by design
 

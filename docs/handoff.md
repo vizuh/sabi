@@ -675,7 +675,18 @@ Validation in this worktree: focused Command Code tests passed 15/15, full `npm 
 and `npm run typecheck` passed. No provider request, secret, user configuration, deployment or
 publication was performed.
 
-## DeepSeek Harness bundle adapter — 2026-09-20
+## OpenCode Muse cheap-lane issue — 2026-09-20
+
+The installed OpenCode 1.18.31 catalog exposes `opencode/muse-spark-1.3-contributor-free` with a
+large context/output limit and a temporary free label. The current Sabi adaptive profile was not
+actually context-short: it advertised 1,000,000 context tokens but fell back to 4,096 output tokens
+because the proxy tiers had no declared output ceiling. The shipped config now declares the verified
+OpenRouter minimum output ceiling (128,000), which the connector advertises for `sabi-code`.
+
+Muse remains a deferred native lane. OpenCode's Muse endpoint is Responses-native; Sabi's proxy is
+Chat Completions-only and cannot consume OpenCode's subscription credential. No Muse ID was added to
+the proxy config, no user config or credential store was changed, and no paid inference ran. See
+`docs/specs/opencode-muse-cheap-lane.md` and `docs/tasks/opencode-muse-cheap-lane.md`.## DeepSeek Harness bundle adapter — 2026-09-20
 
 Added the public `@vizuh/sabi-deepseek-harness` DSH bundle. It adds a `sabi/sabi-code` route through
 DSH's native `@deepseek-ai/dsh-llm-pi-ai` provider and attributes requests as `deepseek-harness`.
@@ -756,6 +767,7 @@ the legacy compatibility path.
 
 Validation in the follow-up worktree: focused free-quality tests pass; the full suite and remote CI
 remain the delivery gates for the new PR. No provider request or live quality claim was used.
+
 ## Surplus council protocol and ledger — 2026-09-20
 
 Added `docs/specs/surplus-council.md` and `docs/tasks/surplus-council.md`. The protocol defines
