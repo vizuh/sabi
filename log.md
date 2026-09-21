@@ -1150,3 +1150,16 @@ opencode-muse-cheap-lane, surplus-review-hardening, sabi-agent-controller).
 pre-existing failure in compatibility.test.ts due to worktree module
 resolution, unrelated to this change); typecheck clean (1 pre-existing error
 in evals/client-smoke.ts).
+
+## [2026-09-21] change | Opt-in transport fallback + intent-gated surplus spec
+
+Adopted the uncommitted transport-fallback work (no branch carried it) ported to `main`
+conventions: cost-ordered `getFallbackChain()`, proxy retry of 429/402/403 on adaptive rounds
+only when `transportFallback.enabled` is true (shipped `false`), original error served when the
+chain exhausts, `rule: transport-fallback` + `DecisionRecord.fallback` recorded, fixed aliases
+never fall back. New tests: 5 core (chain ordering/exclusions/config validation) + 2 server
+(retry-then-serve, default-off passthrough). Deferred the `sabi-free` lane: no OpenRouter key to
+verify a free id, and the drafted `openrouter/auto` cost-zero claim would be false and would
+auto-enlist via `surplusResources()`. Spec: multi-alias intent-gated council section in
+`docs/specs/surplus-inference.md` with the verified Hermes manifest backdrop; decision recorded
+in `docs/decisions.md`.

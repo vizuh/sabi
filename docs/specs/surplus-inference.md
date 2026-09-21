@@ -53,3 +53,23 @@ The command is explicit and shadow-only in this slice. It uses the local Sabi pr
 The next layer needs deterministic claim verifiers and a privacy-approved completed-task corpus.
 Only after replay and held-out checks may Sabi use reviewer history for advisory ranking, and only
 after independently verified findings may a review influence the primary agent automatically.
+
+## Multi-alias intent-gated council (spec only, not implemented)
+
+Status: spec. The implemented slice discovers every qualifying fixed zero-cost alias via
+`surplusResources()` (local trust first) and serves three intents (`bug-hunt`, `test-gap`,
+`api-contract`); no fan-out, debate, ranking, or automatic primary-task influence exists.
+
+Evidence backdrop (verified 2026-09-21 vs unverified): the Hermes curated manifest
+(`updated_at: 2026-09-20T18:57:41Z`) free-badges only `laguna-s-2.1:free` and
+`laguna-xs-2.1:free` from the candidate set; the 324-model Nous Portal page and its wider free
+set, all vendor benchmark tables, and all displayed prices are unverified by Sabi. Catalog
+presence is evidence only, never entitlement, quota, or quality proof — and no alias ships
+without a live-verified zero price (`sabi-free` deferred for exactly this reason, 2026-09-21).
+
+Extension, when resources exist: one intent per invocation, never a voting council —
+`visual-qa` (image-capable tier only), `requirements` (docs-heavy trajectories), `finance` /
+`health` (firing only on detected domain work). Jev may select the intent; it does not fan out.
+Promotion follows the gate order above: per-resource runtime catalog evidence → independent
+receipts → deterministic verifiers → approved corpus with replay/held-out → advisory ranking →
+automatic influence only after independently verified findings.

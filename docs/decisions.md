@@ -1215,3 +1215,39 @@ keep all unknowns unknown rather than guessing.
 Per-install proxy tokens (the controller daemon already has them) if the loopback boundary needs
 authentication beyond origin; judge-signal quality measurement on redacted vs raw state before any
 context-selection work; whether the failure streak should ever count past the harness's depth flag.
+## [2026-09-21] Opt-in transport fallback retries the next serving tier; sabi-free lane deferred
+
+### Decision
+
+Adopt the uncommitted transport-fallback work found in the shared checkout (no commit on any
+branch carried it) and port it to `main` conventions: `getFallbackChain()` in
+`packages/core/src/router.ts` orders candidates cheapest-first by declared cost (ties by tier
+name) instead of declaration order, skips the failed tier, disabled upstreams and
+modality-mismatched tiers; the proxy retries 429/402/403 on adaptive rounds only when
+`transportFallback.enabled` is `true` (shipped `false`), serves the planned tier's original error
+when the chain exhausts, records `rule: transport-fallback` plus `DecisionRecord.fallback`, and
+never touches fixed aliases. The `sabi-free` lane (`openrouter/auto` at declared cost zero) is
+**not** adopted: no `OPENROUTER_API_KEY` is available to verify a genuinely free id, the cost-zero
+claim for an auto-router would be false, and `surplusResources()` would auto-enlist the alias as an
+`external-free` review resource on that false claim.
+
+### Why
+
+A rate-limited round should retry cheaper capacity, not escalate to strong or fail the turn — but
+only as an explicit operator opt-in, since each retry is another upstream call that can spend. The
+port drops the original draft's duplicated streaming block by reusing the single success path, so
+the fallback cannot drift from normal serving behavior.
+
+### Tradeoffs
+
+- 5xx is not retried (only 429/402/403); a fallback that fails non-transport stops the chain.
+- The chain can include a more expensive tier when it is the only serving one — opt-in means the
+  operator accepts that; the record names the tier that served.
+- Free-lane review capacity stays limited to whatever `--free-quality` verified live; the
+  multi-alias surplus council (intent-gated specialists, no voting) remains spec, recorded in
+  `docs/specs/surplus-inference.md`.
+
+### Revisit later?
+
+Verify a real free id via a live catalog refresh before shipping any `sabi-free` alias; consider
+5xx retry and per-status retry budgets only after measured transport traffic justifies them.

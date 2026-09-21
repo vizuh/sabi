@@ -1,10 +1,50 @@
-import { cheapestServingTier, ensureRouteCompatible, isEnabledUpstream, SabiRouteError, servesInputModalities } from './compatibility.ts'
+import { cheapestServingTier, ensureRouteCompatible, isEnabledUpstream, modelRouteCost, SabiRouteError, servesInputModalities } from './compatibility.ts'
 import { tiersFor } from './config.ts'
 import { decideTier } from './policy.ts'
 import { applyMeasuredContext, extractTrajectoryState } from './state.ts'
-import type { ChatRequestBody, FailureLevel, RouteDecision, SabiConfig } from './types.ts'
+import type { ChatRequestBody, FailureLevel, ModelModality, RouteDecision, SabiConfig } from './types.ts'
 
 export { ensureRouteCompatible, isEnabledUpstream, SabiRouteError } from './compatibility.ts'
+
+/**
+ * One transport-fallback candidate: the next serving tier after the planned tier
+ * failed with a retryable upstream status. Cost-ordered (ties by tier name), matching
+ * the router's availability/capability fallback — independent of declaration order.
+ */
+export interface FallbackTier {
+  tier: string
+  reason: string
+  upstream: string
+  upstreamModel: string
+}
+
+export function getFallbackChain(config: SabiConfig, failedTier: string, required: readonly ModelModality[] = []): FallbackTier[] {
+  const failedModel = config.models[failedTier]
+  if (!failedModel) return []
+  return Object.keys(config.models)
+    .filter((name) => {
+      if (name === failedTier) return false
+      const entry = config.models[name]
+      return entry !== undefined &&
+        isEnabledUpstream(config.upstreams[entry.upstream]) &&
+        servesInputModalities(entry.capabilities?.inputModalities, required)
+    })
+    .sort((a, b) => {
+      const costA = modelRouteCost(config.models[a])
+      const costB = modelRouteCost(config.models[b])
+      if (costA !== costB) return costA - costB
+      return a < b ? -1 : a > b ? 1 : 0
+    })
+    .map((tier) => {
+      const entry = config.models[tier]
+      return {
+        tier,
+        reason: `fallback from ${failedTier} (${failedModel.model}) after transport failure`,
+        upstream: entry.upstream,
+        upstreamModel: entry.model,
+      }
+    })
+}
 
 export function normalizeAlias(model: unknown): string {
   const raw = String(model ?? '').trim()
