@@ -150,8 +150,10 @@ eles não trocam silenciosamente a assinatura paga nem o modelo selecionado dent
 
 Para instalar ou reparar os hooks separadamente, rode `sabi hooks install` (ou selecione `--claude`,
 `--codex` ou `--opencode`). No Linux, `sabi setup` também tenta instalar um serviço `systemd --user`
-e reporta um fallback lazy detached quando o bus do usuário não está disponível. Instaladores de
-serviço para macOS e Windows continuam sem suporte até serem validados. Use `sabi integrations list`
+e reporta um fallback lazy detached quando o bus do usuário não está disponível. Os instaladores de
+serviço para macOS (LaunchAgent) e Windows (Task Scheduler) já existem no CLI, mas só o caminho
+Linux foi validado em máquina real; macOS e Windows aguardam validação antes de serem considerados
+verificados para release. Use `sabi integrations list`
 para distinguir um executável de um harness realmente integrado ao controller. O daemon fica apenas
 em loopback e reutiliza o inventário real do Orca quando disponível; a ativação universal live do
 OpenCode/Orca continua sendo um gate separado.
@@ -233,7 +235,7 @@ Uma única requisição em lote para a TypeSafe cobre as três perguntas usando 
 ## Verificar
 
 ```bash
-npm test        # estado, política, juiz, cliente TypeSafe, descoberta de config, e2e do proxy (59 testes)
+npm test        # estado, política, juiz, cliente TypeSafe, descoberta de config, e2e do proxy
 npm run typecheck
 npm run report  # decisões, tokens, custo, economia vs. contrafactual all-strong, estatísticas do juiz
 ```
@@ -251,7 +253,7 @@ packages/adapters/prime-agent   sonda privada e isolada de proxy/timing; sem ada
 
 `npm run mod` carrega o mod a partir de um checkout. O proxy usa uma verificação única de envelope efetivo antes de adicionar `stream_options.include_usage` para upstreams elegíveis, reescreve o campo `model` da resposta de volta para o alias sintético, captura o uso no stream SSE e grava registros de decisão com os limites de privacidade descritos acima. As chamadas ao Jev acontecem antes do encaminhamento e ficam registradas na decisão (`judge.status`, probabilidades, direção do override, latência, custo em tokens).
 
-Planejado: `evals`, adaptadores `prime-agent` e `opencode`, perfis de modelo aprendidos, consciência de cota.
+Planejado: perfis de modelo aprendidos, consciência de cota.
 
 ## Trabalhos relacionados
 

@@ -910,3 +910,18 @@ bodies keep their 429/`transport` classification.
 Validation: `npm test` 445/445, `npm run typecheck` clean, `git diff --check` clean. No paid
 request, secret, user config, publication or deployment. See `log.md` and `docs/decisions.md`
 for the dated entries.
+
+## CI gate and pt-BR doc drift (#63, #64) — 2026-09-21
+
+Closed issues #63 (CI `paths` filter skipped `packages/server`, remaining adapters, `evals`,
+`scripts`) and #64 (pt-BR README/install drift) in this worktree. `controller-ci.yml` no longer
+filters by path, so every PR and main push runs the full gate. `sabi setup --hooks` is a
+recognized explicit setup alias again (`--no-hooks` wins on conflict); the pt-BR verify block
+drops the stale test count, the service sentence separates code-exists from real-machine
+validation, the `Planejado:` line no longer contradicts the structure list, and the pt-BR
+OpenCode modalities paragraph describes the code derivation like the EN guide. Full details in
+`log.md`.
+
+Validation: focused `cli.test.ts` 17/17, `npm test` 476/476, `npm run typecheck` clean,
+`git diff --check` clean, workflow YAML parses. No paid request, secret, user configuration,
+deployment or publication. Not pushed.

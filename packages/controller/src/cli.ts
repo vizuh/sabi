@@ -75,7 +75,7 @@ function printHelp(): void {
   sabi config [--cwd=<path>] [--json]
   sabi logs [--cwd=<path>] [--tail=<n>] [--json]
   sabi replay [--cwd=<path>] [--last=<n>] [--json]
-  sabi setup [--no-start] [--no-hooks] [--free-quality] [--json]
+  sabi setup [--no-start] [--hooks] [--no-hooks] [--free-quality] [--json]
   sabi surplus [inventory|review|history] [--cwd=<path>] [--intent=bug-hunt|test-gap|api-contract] [--alias=<alias>] [--json]
   sabi council [history|record|pregate|plan] [--harness=<id>] [--runtime-version=<version>] [--provider=<id>] [--model=<id>] [--seat=<id>] [--task-key=<key>] [--stage=<stage>] [--mode=<mode>] [--intent=<intent>] [--status=<status>] [--evidence=<level>] [--source=<source>] [--independence=<full|reduced>] [--plan-reason=<reason>] [--claims=<n>] [--verified-claims=<n>] [--input-tokens=<n>] [--output-tokens=<n>] [--latency-ms=<n>] [--http-status=<n>] [--input-sha256=<sha>] [--output-sha256=<sha>] [--error-code=<code>] [--max-calls=<n>] [--cwd=<path>] [--json]
   sabi integrations [list|repair] [--json]
@@ -208,6 +208,8 @@ async function runSetup(argv: string[]): Promise<void> {
   const hookTargets = detected
     .map(({ agent }) => agent)
     .filter((agent): agent is InstalledHook => agent === 'claude' || agent === 'codex' || agent === 'opencode')
+  // `--hooks` is an explicit alias for the default (install hooks for detected
+  // supported harnesses); `--no-hooks` disables them and wins when both are passed.
   const hooks = argv.includes('--no-hooks') || !hookTargets.length
     ? []
     : installHooks({ stateDir, harnesses: hookTargets })

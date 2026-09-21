@@ -1000,3 +1000,47 @@ providers, secrets, external worktrees, or unrelated files.
 - `npm test` — 435/435 pass
 - `npm run typecheck` — clean
 - `git diff --check` — clean
+
+## [2026-09-21] fix | CI gate covers the whole tree; pt-BR doc drift closed (#63, #64)
+
+- **#63** — dropped the `paths` filter from `.github/workflows/controller-ci.yml`
+  (both `pull_request` and `push` to `main`). The gate now runs `npm ci`,
+  `npm run typecheck`, `npm test` and the clean-prefix controller package test
+  on every PR and every main push, so `packages/server`, the remaining
+  `packages/adapters/*`, `packages/evals` and `scripts/**` can no longer merge
+  without checks. The suite is cheap (`npm ci` pulls 14 packages); no filter
+  list to hand-maintain when a package is added.
+- **#64.1** — `README.pt-BR.md` no longer states a test count in the verify
+  block, matching the EN and zh-CN READMEs. Counts drifted across docs
+  (59 vs 184 vs 385 vs 407); the suite reports its own size at run time
+  (476/476 on this checkout).
+- **#64.2** — the pt-BR service sentence now says the macOS (LaunchAgent) and
+  Windows (Task Scheduler) installers exist in the CLI and only the real-machine
+  validation is outstanding, instead of reading as "unsupported".
+- **#64.3** — `sabi setup --hooks` is a recognized explicit alias again
+  (symmetry with `--no-hooks`): listed in setup help, documented as the
+  default, with `--no-hooks` winning when both are passed. No behavior change
+  beyond the help text; `README.pt-BR.md`, `docs/install.md` and
+  `docs/install.pt-BR.md` already documented this form and are true again.
+  New focused test: `--hooks` + `--no-hooks` together installs nothing.
+- **#64.4** — the pt-BR `Planejado:` line no longer lists `evals` and the
+  `opencode` adapter as planned; both exist in-tree (`packages/evals/src/run.ts`,
+  `packages/adapters/opencode/src/connect.ts`) and the same file's structure
+  list already says so. Remaining planned items: learned model profiles,
+  quota awareness. `prime-agent` stays described as partial in the structure list.
+- **#64.5** — `docs/install.pt-BR.md` OpenCode paragraph now describes the
+  derived modalities (`sabiModels` advertises `text`+`image` per alias from the
+  tiers it can serve), matching `docs/install.md` and
+  `packages/adapters/opencode/src/connect.ts:60-66`, instead of asking the user
+  to hand-edit `modalities.input`.
+
+**Verified**:
+- focused: `packages/controller/test/cli.test.ts` — 17/17 pass
+- `npm test` — 476/476 pass
+- `npm run typecheck` — clean
+- `git diff --check` — clean
+- `.github/workflows/controller-ci.yml` parses as valid YAML
+- No paid request, secret, user configuration, deployment or publication.
+  Not pushed; no PR opened. `docs/visual-story.md:70` keeps its illustrative
+  `184 / 184 passed` diagram label (explicitly illustrative per
+  `docs/visual-story.md`, not a prose suite claim) — left untouched.
