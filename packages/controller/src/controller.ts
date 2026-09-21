@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import type { ControllerConfig } from '@sabi/core'
+import { looksLikeCanary } from '@sabi/core'
+import type { ControllerConfig, EvidenceSource, EvidenceStatus, RecoveryAction } from '@sabi/core'
 import { planAgentRoute } from './agents.ts'
 import { chooseActionWithJev } from './jev.ts'
 import {
@@ -36,12 +37,117 @@ import type {
   ControllerRoutingTelemetry,
   HandoffSnapshot,
   JevDecisionTelemetry,
+  RecoveryCapsule,
+  RecoveryCapsuleItem,
 } from './types.ts'
 import type { ControllerSignals } from './types.ts'
 
 const DEFAULT_WAIT_MS = 5000
 // ponytail: cap recovery at three replacement attempts; raise only with receipt-aware deduplication.
 const MAX_REROUTES = 3
+
+const MAX_CAPSULE_LIST_ITEMS = 8
+const MAX_CAPSULE_LABEL_CHARS = 160
+const MAX_CAPSULE_SERIALIZED_CHARS = 2_000
+const RECOVERY_ACTIONS: ReadonlySet<string> = new Set([
+  'continue', 'retry-same', 'retry-with-feedback', 'gather-evidence', 'escalate-model',
+  'fresh-context', 'rollback-with-reflection', 'ask-user',
+])
+const EVIDENCE_SOURCES: ReadonlySet<string> = new Set(['tool', 'user', 'harness', 'judge', 'summary'])
+
+export interface RecoveryCapsuleItemInput {
+  label: string
+  status?: EvidenceStatus
+  source?: EvidenceSource
+  receiptBacked?: boolean
+}
+
+export interface RecoveryCapsuleInput {
+  failureSignature: string
+  verifiedFacts?: RecoveryCapsuleItemInput[]
+  attemptedApproaches?: string[]
+  verifiedNonSolutions?: RecoveryCapsuleItemInput[]
+  lastKnownCleanPoint?: string
+  recommendedNextAction?: RecoveryAction
+  sourceGeneration?: number
+  currentGeneration?: number
+}
+
+function capsuleLabel(value: unknown, maxChars = MAX_CAPSULE_LABEL_CHARS): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const text = value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim()
+  if (!text || looksLikeCanary(text)) return undefined
+  return text.slice(0, maxChars)
+}
+
+function capsuleLabels(values: readonly unknown[] | undefined, maxItems = MAX_CAPSULE_LIST_ITEMS): string[] {
+  const result: string[] = []
+  const seen = new Set<string>()
+  for (const value of values ?? []) {
+    const label = capsuleLabel(value)
+    if (!label || seen.has(label)) continue
+    seen.add(label)
+    result.push(label)
+    if (result.length >= maxItems) break
+  }
+  return result
+}
+
+function capsuleItems(values: readonly RecoveryCapsuleItemInput[] | undefined, maxItems = MAX_CAPSULE_LIST_ITEMS): RecoveryCapsuleItem[] {
+  const result: RecoveryCapsuleItem[] = []
+  const seen = new Set<string>()
+  for (const value of values ?? []) {
+    const label = capsuleLabel(value?.label)
+    if (!label) continue
+    const source: EvidenceSource = value.source && EVIDENCE_SOURCES.has(value.source) ? value.source : 'summary'
+    const status: EvidenceStatus = value.status === 'verified' && value.receiptBacked === true
+      ? 'verified'
+      : value.status === 'contradicted' || value.status === 'observed'
+        ? value.status
+        : 'unverified'
+    const key = `${label}\u0000${status}\u0000${source}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push({ label, status, source })
+    if (result.length >= maxItems) break
+  }
+  return result
+}
+
+function safeGeneration(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
+}
+
+export function buildRecoveryCapsule(input: RecoveryCapsuleInput | undefined): RecoveryCapsule | undefined {
+  if (!input) return undefined
+  const failureSignature = capsuleLabel(input.failureSignature)
+  if (!failureSignature) return undefined
+  const sourceGeneration = safeGeneration(input.sourceGeneration)
+  const currentGeneration = safeGeneration(input.currentGeneration) ?? sourceGeneration
+  const stale = sourceGeneration !== undefined && currentGeneration !== undefined && sourceGeneration < currentGeneration
+  const downgrade = (items: RecoveryCapsuleItem[]): RecoveryCapsuleItem[] =>
+    stale ? items.map((item) => item.status === 'verified' ? { ...item, status: 'unverified' as const } : item) : items
+  const lastKnownCleanPoint = capsuleLabel(input.lastKnownCleanPoint)
+  const recommendedNextAction = !stale && input.recommendedNextAction && RECOVERY_ACTIONS.has(input.recommendedNextAction)
+    ? input.recommendedNextAction
+    : undefined
+  let capsule: RecoveryCapsule = {
+    failureSignature,
+    verifiedFacts: downgrade(capsuleItems(input.verifiedFacts)),
+    attemptedApproaches: capsuleLabels(input.attemptedApproaches),
+    verifiedNonSolutions: downgrade(capsuleItems(input.verifiedNonSolutions)),
+    ...(lastKnownCleanPoint ? { lastKnownCleanPoint } : {}),
+    ...(recommendedNextAction ? { recommendedNextAction } : {}),
+    ...(sourceGeneration !== undefined ? { sourceGeneration } : {}),
+  }
+  while (JSON.stringify(capsule).length > MAX_CAPSULE_SERIALIZED_CHARS) {
+    if (capsule.attemptedApproaches.length > 0) capsule = { ...capsule, attemptedApproaches: capsule.attemptedApproaches.slice(0, -1) }
+    else if (capsule.verifiedNonSolutions.length > 0) capsule = { ...capsule, verifiedNonSolutions: capsule.verifiedNonSolutions.slice(0, -1) }
+    else if (capsule.verifiedFacts.length > 0) capsule = { ...capsule, verifiedFacts: capsule.verifiedFacts.slice(0, -1) }
+    else break
+  }
+  return capsule
+}
 
 interface RouteSelection {
   action: ControllerAction
@@ -68,11 +174,12 @@ function changedFiles(cwd: string): string[] {
   return output.split('\n').map((line) => line.slice(3).trim()).filter(Boolean)
 }
 
-function buildHandoff(cwd: string, request: string, active: AgentSession, stuck: boolean): HandoffSnapshot {
+function buildHandoff(cwd: string, request: string, active: AgentSession, stuck: boolean, recoveryCapsuleInput?: RecoveryCapsuleInput): HandoffSnapshot {
   const repoRoot = gitOutput(cwd, ['rev-parse', '--show-toplevel']) ?? cwd
   const branch = gitOutput(cwd, ['branch', '--show-current']) || active.branch || 'unknown'
   const files = changedFiles(cwd)
   const diff = gitOutput(cwd, ['diff', '--stat']) ?? ''
+  const recoveryCapsule = buildRecoveryCapsule(recoveryCapsuleInput)
   return {
     objective: request,
     originalRequest: request,
@@ -89,6 +196,7 @@ function buildHandoff(cwd: string, request: string, active: AgentSession, stuck:
     latestFailure: stuck ? 'recent Sabi session failure is still unresolved' : undefined,
     relevantDiff: diff,
     nextAction: request,
+    ...(recoveryCapsule ? { recoveryCapsule } : {}),
   }
 }
 
@@ -326,6 +434,7 @@ export function structuredHandoff(request: string, handoff: HandoffSnapshot): st
     unresolvedWork: handoff.unresolvedWork,
     diff: handoff.relevantDiff,
     nextSuggestedStep: handoff.nextAction,
+    ...(handoff.recoveryCapsule ? { recoveryCapsule: handoff.recoveryCapsule } : {}),
   }
   return `[SABI HANDOFF]\n${JSON.stringify(payload)}\n[REQUEST]\n${request}\n[/SABI HANDOFF]`
 }
@@ -407,7 +516,7 @@ function sessionExecution(
   }
 }
 
-function executeSpawn(target: AgentHarness, cwd: string, request: string, waitMs: number, idempotencyKey?: string): ControllerExecution {
+function executeSpawn(target: AgentHarness, cwd: string, request: string, waitMs: number, handoff?: HandoffSnapshot, idempotencyKey?: string): ControllerExecution {
   const created = createOrcaTerminal(cwd, target.launchCommand ?? target.command, `sabi-controller:${target.agent}`)
   if (!created.ok) return { status: 'failed', targetId: target.id, operation: 'terminal-spawn', ...(idempotencyKey ? { idempotencyKey } : {}), receipt: receipt('failed'), retryable: true, error: created.detail ?? created.errorCode }
   const handle = parseCreatedTerminalResult(created.result)?.handle
@@ -422,7 +531,7 @@ function executeSpawn(target: AgentHarness, cwd: string, request: string, waitMs
     closeOrcaTerminal(handle)
     return { status: 'unverifiable', targetId: target.id, terminalHandle: handle, operation: 'terminal-spawn', ...(idempotencyKey ? { idempotencyKey } : {}), receipt: receipt('unknown'), error: 'unrecognized-terminal-wait-receipt' }
   }
-  const execution = sessionExecution(handle, target.id, request, 'terminal-spawn', waitMs, undefined, undefined, idempotencyKey)
+  const execution = sessionExecution(handle, target.id, request, 'terminal-spawn', waitMs, handoff, undefined, idempotencyKey)
   if (execution.status === 'failed' && execution.retryable === true) closeOrcaTerminal(handle)
   return execution
 }
@@ -467,7 +576,7 @@ function executeOrchestration(target: AgentSession | AgentHarness | undefined, c
 function executeSelection(selection: RouteSelection, inventory: AgentInventory, cwd: string, request: string, handoff: HandoffSnapshot, waitMs: number, idempotencyKey: string): ControllerExecution {
   if (selection.action === 'ASK') return { status: 'awaiting-user', targetId: selection.target?.id, operation: undefined, idempotencyKey, error: selection.reason }
   if (selection.action === 'ORCHESTRATE') return executeOrchestration(selection.target, cwd, request, handoff, idempotencyKey)
-  if (selection.action === 'SPAWN' && selection.target?.kind === 'harness') return executeSpawn(selection.target, cwd, request, waitMs, idempotencyKey)
+  if (selection.action === 'SPAWN' && selection.target?.kind === 'harness') return executeSpawn(selection.target, cwd, request, waitMs, handoff, idempotencyKey)
   const target = selection.target?.kind === 'session' ? selection.target : inventory.active
   if (!target.handle) {
     if (selection.action === 'CONTINUE' && target.dispatchable === false) {
@@ -534,11 +643,12 @@ export async function runController(
   currentHarness?: string,
   inventoryOverride?: AgentInventory,
   requestedIdempotencyKey?: string,
+  recoveryCapsuleInput?: RecoveryCapsuleInput,
 ): Promise<ControllerRunResult> {
   const candidateKey = requestedIdempotencyKey?.trim()
   const idempotencyKey = candidateKey && /^[A-Za-z0-9._:-]{1,128}$/.test(candidateKey) ? candidateKey : randomUUID()
   let inventory = inventoryOverride ?? discoverAgents(cwd, { stuckSession: signals.stuckSession, controller, currentSession, currentHarness })
-  const handoff = buildHandoff(cwd, request, inventory.active, signals.stuckSession)
+  const handoff = buildHandoff(cwd, request, inventory.active, signals.stuckSession, recoveryCapsuleInput)
   const selection = await selectRoute(request, cwd, signals, inventory, handoff, override, controller)
   const initialExecutionStartedAt = Date.now()
   let execution: ControllerExecution = execute
@@ -561,7 +671,7 @@ export async function runController(
         ? fallback.handle
           ? sessionExecution(fallback.handle, fallback.id, request, 'terminal-send', waitMs, handoff, fallback.worktree, idempotencyKey)
           : { status: 'failed' as const, targetId: fallback.id, operation: 'terminal-send' as const, retryable: true, idempotencyKey, receipt: receipt('failed'), error: 'target-session-handle-missing' }
-        : executeSpawn(fallback, cwd, request, waitMs, idempotencyKey)
+        : executeSpawn(fallback, cwd, request, waitMs, handoff, idempotencyKey)
       const observedRetry = recordModelExecution(fallback, retry, retryStartedAt)
       rerouteCount += 1
       execution = {

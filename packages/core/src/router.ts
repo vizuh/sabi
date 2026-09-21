@@ -1,6 +1,7 @@
 import { cheapestServingTier, ensureRouteCompatible, isEnabledUpstream, modelRouteCost, SabiRouteError, servesInputModalities } from './compatibility.ts'
 import { tiersFor } from './config.ts'
 import { decideTier } from './policy.ts'
+import { planRecovery } from './recovery-actions.ts'
 import { applyMeasuredContext, extractTrajectoryState } from './state.ts'
 import type { ChatRequestBody, FailureLevel, ModelModality, RouteDecision, SabiConfig } from './types.ts'
 
@@ -106,6 +107,9 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
   } else if (state.failure === 'hard' && (state.failureStreak ?? 0) === 0) {
     state.failureStreak = 1
   }
+  // Intervention is classified before the route tier; the tier remains subject to the native
+  // policy and capability checks, while the bounded action is carried for the host/controller.
+  const recovery = planRecovery({ state })
   if (target !== 'auto') {
     const model = Object.hasOwn(config.models, target) ? config.models[target] : undefined
     if (!model) throw new SabiRouteError(`alias '${alias}' targets unknown tier '${target}'`, 500)
@@ -119,6 +123,7 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
       upstream: model.upstream,
       upstreamModel: model.model,
       state,
+      recovery,
     }
     ensureRouteCompatible(body, config, decision)
     return decision
@@ -157,6 +162,7 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
     upstream: model.upstream,
     upstreamModel: model.model,
     state,
+    recovery,
   }
   ensureRouteCompatible(body, config, decision)
   return decision

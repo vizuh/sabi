@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs'
-import { defaultLogPath, estimateCost, loadConfig, readDecisions, readLogWriteFailures } from '@sabi/core'
+import { aggregateSemanticProfiles, defaultLogPath, estimateCost, loadConfig, readDecisions, readLogWriteFailures, semanticEpisodeFromDecision } from '@sabi/core'
 
 const config = loadConfig()
 const logFile = defaultLogPath()
@@ -13,6 +13,7 @@ if (!existsSync(logFile)) {
 }
 
 const rows = readDecisions(logFile)
+const semanticProfiles = aggregateSemanticProfiles(rows.map(semanticEpisodeFromDecision))
 
 const strong = config.models.strong ?? Object.values(config.models)[0]
 // Shadow reporting only: how often the judge called the last tool result redundant. Nothing is
@@ -43,6 +44,7 @@ let shadowRedundant = 0
 let unknownCostRows = 0
 let unknownCounterfactualRows = 0
 let unknownJudgeUsageCalls = 0
+const recoveryEvidenceGrades = { observed: 0, matched: 0, replayed: 0 }
 // What the policy could not see: proof of over-escalation, blind spots, and config that never fires.
 let vetoedRounds = 0
 let vetoAvoidedCost = 0
@@ -52,6 +54,9 @@ let unclassifiedRounds = 0
 const firedRules = new Set<string>()
 
 for (const row of rows) {
+  if (row.recovery?.evidenceGrade === 'observed') recoveryEvidenceGrades.observed += 1
+  if (row.recovery?.evidenceGrade === 'matched') recoveryEvidenceGrades.matched += 1
+  if (row.recovery?.evidenceGrade === 'replayed') recoveryEvidenceGrades.replayed += 1
   byTier.set(row.tier, (byTier.get(row.tier) ?? 0) + 1)
   byRule.set(row.rule, (byRule.get(row.rule) ?? 0) + 1)
   byModel.set(row.upstreamModel, (byModel.get(row.upstreamModel) ?? 0) + 1)
@@ -175,6 +180,8 @@ if (asJson) {
         savingsPct: savings,
         counterfactualType: 'estimate',
         discover,
+        recoveryEvidenceGrades,
+        semanticProfiles,
         judge: {
           calls: judgeCalls,
           errors: judgeErrors,
@@ -224,6 +231,10 @@ if (asJson) {
   )
   console.log(`  never fired     ${rulesNeverFired.join(', ') || '—'}`)
   console.log(`  idle tiers      ${idleTiers.join(', ') || '—'}`)
+  console.log(`  local profiles   ${semanticProfiles.length} semantic buckets (shadow/report only)`)
+  console.log(
+    `  recovery evidence observed ${recoveryEvidenceGrades.observed} · matched ${recoveryEvidenceGrades.matched} · replayed ${recoveryEvidenceGrades.replayed}`,
+  )
   console.log('')
   console.log(
     `tokens    in ${promptTokens.toLocaleString()} (cached ${cachedTokens.toLocaleString()}) · out ${completionTokens.toLocaleString()}`,

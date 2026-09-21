@@ -2,7 +2,10 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, writeFi
 import { createHmac, randomBytes, randomUUID } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
-import type { CostBreakdown, CostRates, DecisionRecord, UsageTotals } from './types.ts'
+import { boundTrajectoryEvidence } from './evidence.ts'
+import { normalizeRecoveryAction } from './recovery-actions.ts'
+import { sanitizeError, sanitizeReason, telemetryPolicy } from './telemetry.ts'
+import type { CostBreakdown, CostRates, DecisionRecord, TelemetryConfig, TrajectoryState, UsageTotals } from './types.ts'
 
 /** Decisions land beside the work, not beside the installation: `./.sabi/decisions.jsonl`. */
 export function defaultLogPath(): string {
@@ -150,12 +153,127 @@ export function readLogWriteFailures(logFile = defaultLogPath()): LogWriteFailur
 
 export function appendDecision(record: DecisionRecord, logFile = defaultLogPath()): void {
   try {
-    appendPrivateLine(logFile, `${JSON.stringify(record)}\n`)
+    appendPrivateLine(logFile, `${serializeDecisionRecord(record)}\n`)
   } catch (error) {
     // Telemetry is evidence, never a reason to break the serving path: surface the failure
     // on stderr (once per file) and in the persistent sidecar, then keep serving.
     recordLogWriteFailure(logFile, error)
   }
+}
+
+function boundedStringList(values: unknown, maxItems: number, maxChars: number): string[] {
+  if (!Array.isArray(values)) return []
+  return values
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => value.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, maxChars))
+    .slice(0, maxItems)
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function sanitizeState(state: TrajectoryState, config?: TelemetryConfig): TrajectoryState {
+  const policy = telemetryPolicy(config)
+  const failureEvidence = boundedStringList(state.failureEvidence, 8, 64).filter((value) => policy.allowlisted(value))
+  const evidence = boundTrajectoryEvidence(state.evidence)
+  const clean: TrajectoryState = {
+    messageCount: state.messageCount,
+    assistantTurns: state.assistantTurns,
+    toolMessages: state.toolMessages,
+    lastRole: String(state.lastRole ?? '').slice(0, 32),
+    contextChars: state.contextChars,
+    estimatedTokens: state.estimatedTokens,
+    hasTools: state.hasTools,
+    toolNames: boundedStringList(state.toolNames, 40, 120),
+    lastToolNames: boundedStringList(state.lastToolNames, 12, 120),
+    roundKind: state.roundKind,
+    failure: state.failure,
+    failureEvidence,
+    ...(state.contextTokens !== undefined ? { contextTokens: state.contextTokens } : {}),
+    ...(state.contextKnown !== undefined ? { contextKnown: state.contextKnown } : {}),
+    ...(state.contextGeneration !== undefined ? { contextGeneration: state.contextGeneration } : {}),
+    ...(state.repeatedFailure !== undefined ? { repeatedFailure: state.repeatedFailure } : {}),
+    ...(state.failureStreak !== undefined ? { failureStreak: state.failureStreak } : {}),
+    ...(state.contextWindow !== undefined ? { contextWindow: state.contextWindow } : {}),
+    ...(state.inputModalities ? { inputModalities: state.inputModalities.slice(0, 5) } : {}),
+    ...(state.mediaCounts ? { mediaCounts: state.mediaCounts } : {}),
+    ...(evidence.length > 0 ? { evidence } : {}),
+    ...(state.verification ? { verification: { ...state.verification, receiptId: state.verification.receiptId?.slice(0, 128) } } : {}),
+    ...(state.scopeCoverage
+      ? {
+          scopeCoverage: {
+            ...state.scopeCoverage,
+            ...(state.scopeCoverage.missing ? { missing: boundedStringList(state.scopeCoverage.missing, 32, 120) } : {}),
+          },
+        }
+      : {}),
+  }
+  return clean
+}
+
+/** Sanitize a decision before persistence while preserving legacy required fields. */
+export function sanitizeDecisionRecord(record: DecisionRecord, config?: TelemetryConfig): DecisionRecord {
+  const policy = telemetryPolicy(config)
+  const state = isPlainObject(record.state) ? sanitizeState(record.state as TrajectoryState, config) : undefined
+  const sanitized: Partial<DecisionRecord> = {
+    ts: record.ts,
+    sessionId: record.sessionId,
+    sessionKnown: record.sessionKnown,
+    requestId: record.requestId,
+    client: record.client,
+    turnId: record.turnId,
+    servedModel: record.servedModel,
+    alias: record.alias,
+    mode: record.mode,
+    rule: record.rule,
+    tier: record.tier,
+    reason: sanitizeReason(String(record.reason ?? ''), policy),
+    upstream: record.upstream,
+    upstreamModel: record.upstreamModel,
+    stream: record.stream,
+    state,
+    judge: record.judge,
+    usage: record.usage,
+    cost: record.cost,
+    latencyMs: record.latencyMs,
+    ttftMs: record.ttftMs,
+    outcome: record.outcome,
+    ...(record.error ? { error: sanitizeError(record.error) } : {}),
+    transport: record.transport,
+    fallback: record.fallback,
+    ...(record.recovery
+      ? {
+          recovery: {
+            ...record.recovery,
+            action: normalizeRecoveryAction(record.recovery.action),
+            evidenceGrade: record.recovery.evidenceGrade === 'matched' || record.recovery.evidenceGrade === 'replayed' ? record.recovery.evidenceGrade : 'observed',
+            failureSignature: String(record.recovery.failureSignature).slice(0, 64),
+            stateFingerprint: String(record.recovery.stateFingerprint).slice(0, 64),
+            ...(record.recovery.route ? { route: String(record.recovery.route).slice(0, 160) } : {}),
+            ...(record.recovery.receiptId ? { receiptId: String(record.recovery.receiptId).slice(0, 128) } : {}),
+          },
+        }
+      : {}),
+  }
+  return sanitized as DecisionRecord
+}
+
+export function serializeDecisionRecord(record: DecisionRecord, config?: TelemetryConfig): string {
+  return JSON.stringify(sanitizeDecisionRecord(record, config))
+}
+
+export function parseDecisionRecord(value: unknown, config?: TelemetryConfig): DecisionRecord | undefined {
+  let parsed: unknown = value
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value)
+    } catch {
+      return undefined
+    }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+  return sanitizeDecisionRecord(parsed as DecisionRecord, config)
 }
 
 /** One JSON object per line, malformed lines skipped — the read side of `appendDecision`.
@@ -168,9 +286,8 @@ export function readDecisions(logFile = defaultLogPath()): DecisionRecord[] {
   for (const line of readFileSync(logFile, 'utf8').split('\n')) {
     if (!line.trim()) continue
     try {
-      const value: unknown = JSON.parse(line)
-      if (value === null || typeof value !== 'object' || Array.isArray(value)) continue
-      rows.push(value as DecisionRecord)
+      const parsed = parseDecisionRecord(line)
+      if (parsed) rows.push(parsed)
     } catch {
       // skip malformed line
     }

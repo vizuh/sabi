@@ -962,3 +962,19 @@ rounds only when enabled; shipped off; 7 new tests) and the intent-gated surplus
 No controller tag (unchanged since `controller-v0.1.0`). Checkout is on `main`; the
 `release/0.1.4` branch and the `docs/ptbr-adapter-guides` stash `release-0.1.4 working tree`
 (superseded port sources) remain until Hugo prunes them.
+
+## Evidence-aware scheduler vNext — 2026-09-21
+
+The feature branch `feat/evidence-aware-scheduler-vnext` is rebased onto the current
+`origin/main` (`294b474`). It adds the Spec Kit contract and an additive foundation for
+evidence provenance, generation-bound verification, deterministic recovery actions, bounded
+controller capsules, shadow semantic profiles, fixture-only replay, and PRE/LIVE/POST eval labels.
+
+The merge surface preserves the 0.1.4 cost-ordered fallback, transport fallback, model health,
+and content-free judge egress. Raw judge snippets remain opt-in; capsule labels drop secret-like
+content; decision-log persistence uses an allowlisted projection rather than serializing unknown
+properties.
+
+This is not a claim of live quality improvement or automatic learned routing. Live provider
+receipts, external harness capsule consumption, durable profile learning, candidate promotion,
+and deployment remain follow-up work tracked in GitHub issues from the review PR.

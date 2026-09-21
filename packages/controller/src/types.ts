@@ -1,3 +1,5 @@
+import type { EvidenceSource, EvidenceStatus, RecoveryAction } from '@sabi/core'
+
 export type ControllerAction = 'CONTINUE' | 'DELEGATE' | 'SPAWN' | 'ORCHESTRATE' | 'ASK'
 
 /** Allowlisted trigger ids only — never the raw request substring that matched. */
@@ -103,6 +105,29 @@ export interface AgentHarness extends AgentDescriptor {
   modelHealth?: HarnessModelHealth
 }
 
+/** A distilled, provenance-tagged claim; never a raw transcript excerpt. */
+export interface RecoveryCapsuleItem {
+  label: string
+  status: EvidenceStatus
+  source: EvidenceSource
+}
+
+/**
+ * Compact cross-context handoff (contract: controller-capsule.md). Distilled facts and labels
+ * only — no transcript, prompt, credential, or unbounded diff. The execution receipt,
+ * idempotency key, target identity, and outcome stay outside this shape by construction.
+ */
+export interface RecoveryCapsule {
+  failureSignature: string
+  verifiedFacts: RecoveryCapsuleItem[]
+  attemptedApproaches: string[]
+  verifiedNonSolutions: RecoveryCapsuleItem[]
+  lastKnownCleanPoint?: string
+  /** Advisory only — still subject to target capability/capacity gates in agents.ts. */
+  recommendedNextAction?: RecoveryAction
+  sourceGeneration?: number
+}
+
 export interface HandoffSnapshot {
   objective: string
   originalRequest: string
@@ -119,6 +144,7 @@ export interface HandoffSnapshot {
   latestFailure?: string
   relevantDiff: string
   nextAction: string
+  recoveryCapsule?: RecoveryCapsule
 }
 
 export interface AgentRoutingCosts {

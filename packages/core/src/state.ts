@@ -1,4 +1,5 @@
 import type { ChatMessage, ChatRequestBody, EvidenceCode, FailureLevel, ModelModality, RoundKind, TrajectoryState } from './types.ts'
+import { decorateTrajectoryState } from './evidence.ts'
 
 // Exact built-in names only: never strip MCP/server prefixes to guess a capability.
 const EXPLORE_TOOLS = new Set([
@@ -372,7 +373,7 @@ export function extractTrajectoryState(body: ChatRequestBody): TrajectoryState {
   // message and was counted with the transcript. Both belong in the estimate — never in
   // `contextTokens`, which only billed usage may fill.
   const contextChars = stats.contextChars + (Array.isArray(body.tools) ? JSON.stringify(body.tools).length : 0)
-  return {
+  const state: TrajectoryState = {
     messageCount: stats.messageCount,
     assistantTurns: stats.assistantTurns,
     toolMessages: stats.toolMessages,
@@ -396,6 +397,19 @@ export function extractTrajectoryState(body: ChatRequestBody): TrajectoryState {
     inputModalities: modalitiesOf(stats.media.counts),
     ...(hasMedia ? { mediaCounts: stats.media.counts } : {}),
   }
+  const scope = body.scope ?? (body.requestedScope || body.observedScope
+    ? { expected: body.requestedScope, observed: body.observedScope }
+    : undefined)
+  const contextGeneration = typeof body.contextGeneration === 'number' && Number.isSafeInteger(body.contextGeneration) && body.contextGeneration >= 0
+    ? body.contextGeneration
+    : undefined
+  if (contextGeneration !== undefined) state.contextGeneration = contextGeneration
+  return decorateTrajectoryState(state, {
+    generation: contextGeneration,
+    summaryClaim: body.summaryClaim === true,
+    verificationReceipt: body.verificationReceipt,
+    scope,
+  })
 }
 
 export interface MeasuredUsage {
@@ -433,6 +447,16 @@ export function applyMeasuredContext(
   const generation = context.contextGeneration
   if (typeof generation === 'number' && Number.isSafeInteger(generation) && generation > 0) {
     state.contextGeneration = generation
+    if (state.verification) {
+      state.verification = {
+        ...state.verification,
+        ...(state.verification.generation !== undefined && state.verification.generation !== generation && state.verification.status !== 'not-required'
+          ? { status: 'unknown' as const, reason: 'stale-generation' as const, receiptId: undefined }
+          : {}),
+        generation,
+      }
+    }
+    state.evidence = decorateTrajectoryState(state, { generation }).evidence
   }
   return state
 }

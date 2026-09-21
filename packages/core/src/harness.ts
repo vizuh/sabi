@@ -1,7 +1,8 @@
 import { firstServingTier, servesInputModalities } from './compatibility.ts'
+import { decorateTrajectoryState } from './evidence.ts'
 import { decideTier } from './policy.ts'
 import { CHARS_PER_TOKEN, classifyRound, detectFailure, mediaTokens, modalitiesOf } from './state.ts'
-import type { CatalogTier, FailureLevel, ModelModality, RoundKind, TrajectoryState } from './types.ts'
+import type { CatalogTier, FailureLevel, ModelModality, RoundKind, ScopeInput, TrajectoryState, VerificationReceipt } from './types.ts'
 
 export interface HarnessToolCall {
   name: string
@@ -27,6 +28,9 @@ export interface HarnessRound {
    */
   inputModalities?: ModelModality[]
   mediaCounts?: Partial<Record<Exclude<ModelModality, 'text'>, number>>
+  verificationReceipt?: VerificationReceipt
+  summaryClaim?: boolean
+  scope?: ScopeInput
 }
 
 export interface RoundPlan {
@@ -80,7 +84,7 @@ export function trajectoryFromRound(
   const repeatedFailure = sameFailure === true
   const failureStreak = repeatedFailure ? 2 : failure === 'hard' ? 1 : 0
 
-  return {
+  const state: TrajectoryState = {
     messageCount: round.messageCount,
     assistantTurns: round.assistantTurns,
     toolMessages: round.calls.length,
@@ -103,6 +107,12 @@ export function trajectoryFromRound(
       ? { inputModalities: round.inputModalities ?? modalitiesOf(round.mediaCounts), mediaCounts: round.mediaCounts }
       : {}),
   }
+  return decorateTrajectoryState(state, {
+    generation: round.contextGeneration,
+    verificationReceipt: round.verificationReceipt,
+    summaryClaim: round.summaryClaim,
+    scope: round.scope,
+  })
 }
 
 function roundMedia(round: HarnessRound): { counts: Partial<Record<Exclude<ModelModality, 'text'>, number>>; payloadChars: number } {

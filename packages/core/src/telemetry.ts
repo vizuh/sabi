@@ -27,6 +27,14 @@ const ALLOWLIST: ReadonlySet<string> = new Set<EvidenceCode>([
   'rate-limited',
   'quota-exceeded',
   'timeout',
+  'mutation',
+  'verification-receipt',
+  'summary-claim',
+  'scope-observed',
+  'constraint',
+  'prior-failure',
+  'context-boundary',
+  'observation',
 ])
 
 /** Codes can be full exact labels or a string in `code: detail` form; only the code is kept. */

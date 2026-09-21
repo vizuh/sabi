@@ -106,3 +106,23 @@ Acceptance fixtures for both live in the existing `node:test` trees (core state/
 harness, mod, proxy, evals). The research loop can confirm against the working tree; the
 "not done" list above still holds (context/tool transformation and Jev-for-stuck remain
 gated behind measured benefit).
+
+## 2026-09-20 follow-up — evidence-aware scheduler foundation
+
+The supplied arXiv synthesis was converted into the Spec Kit feature at
+`specs/001-evidence-aware-scheduler/`. It is explicitly a design input, not independently
+reproduced paper evidence or a Sabi benchmark.
+
+- Core now records bounded provenance, verification, coverage and generation state; summaries cannot
+  upgrade themselves to verified.
+- Recovery planning distinguishes the intervention from the eventual route and grades attribution as
+  observed, matched or replayed. Replay is fixture-only and explicit.
+- Judge state uses bounded intent/mutation/failure/verification/constraint/prior/context slots with
+  omission markers rather than relying only on the last excerpt.
+- Controller handoffs carry a bounded recovery capsule; semantic profiling and candidate lifecycle
+  are shadow/backtest-only.
+- Offline evals expose deterministic holdouts and PRE/LIVE/POST labels; the report separates recovery
+  evidence grades and local profile confidence.
+
+Validation: 412 Node tests passed, TypeScript typecheck passed, and the offline eval ran 8 fixture
+tasks. No live provider, harness, token receipt, deployment or learned active-route claim is made.

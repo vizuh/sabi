@@ -7,8 +7,15 @@ import type { ControllerExecutionReceipt, ControllerReceiptPhase } from './types
 const MAX_SESSIONS = 128
 const SESSION_TTL_MS = 10 * 60_000
 const MAX_TEXT = 240
+const MAX_CAPSULE_SIGNATURE = 160
 const CAPACITY_STATUSES: AgentCapacityStatus[] = ['available', 'degraded', 'rate_limited', 'quota_exhausted', 'unavailable']
 const LIFECYCLES: AgentLifecycle[] = ['active', 'idle', 'blocked', 'waiting', 'dead']
+
+/** Bounded capsule anchor only — never the full RecoveryCapsule (facts/approaches stay in-band). */
+export interface CapsuleMeta {
+  failureSignature: string
+  sourceGeneration?: number
+}
 
 export interface RegisteredSession {
   id: string
@@ -24,6 +31,7 @@ export interface RegisteredSession {
   dispatchable: false
   lastOutcome?: 'started' | 'completed' | 'failed' | 'unverifiable'
   lastReceipt?: ControllerExecutionReceipt
+  lastCapsuleMeta?: CapsuleMeta
 }
 
 export interface RegisterSessionInput {
@@ -72,6 +80,17 @@ function receipt(value: unknown): ControllerExecutionReceipt | undefined {
   }
 }
 
+function capsuleMeta(value: unknown): CapsuleMeta | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const object = value as Record<string, unknown>
+  const failureSignature = text(object.failureSignature, MAX_CAPSULE_SIGNATURE)
+  if (!failureSignature) return undefined
+  const sourceGeneration = typeof object.sourceGeneration === 'number' && Number.isSafeInteger(object.sourceGeneration) && object.sourceGeneration >= 0
+    ? object.sourceGeneration
+    : undefined
+  return { failureSignature, ...(sourceGeneration !== undefined ? { sourceGeneration } : {}) }
+}
+
 function validSession(value: unknown): value is RegisteredSession {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
   const session = value as Record<string, unknown>
@@ -81,7 +100,8 @@ function validSession(value: unknown): value is RegisteredSession {
     LIFECYCLES.includes(session.lifecycle as AgentLifecycle) && capacity !== null && typeof capacity === 'object' && !Array.isArray(capacity) &&
     CAPACITY_STATUSES.includes((capacity as Record<string, unknown>).status as AgentCapacityStatus) &&
     Array.isArray(session.capabilities) && session.capabilities.every((item) => typeof item === 'string') && session.dispatchable === false &&
-    (session.lastReceipt === undefined || receipt(session.lastReceipt) !== undefined)
+    (session.lastReceipt === undefined || receipt(session.lastReceipt) !== undefined) &&
+    (session.lastCapsuleMeta === undefined || capsuleMeta(session.lastCapsuleMeta) !== undefined)
 }
 
 function readAll(stateDir: string): RegisteredSession[] {
@@ -147,6 +167,7 @@ export function registerSession(stateDir: string, input: unknown, now = Date.now
     ...session,
     ...(existing?.lastOutcome ? { lastOutcome: existing.lastOutcome } : {}),
     ...(existing?.lastReceipt ? { lastReceipt: existing.lastReceipt } : {}),
+    ...(existing?.lastCapsuleMeta ? { lastCapsuleMeta: existing.lastCapsuleMeta } : {}),
   }
   sessions.push(refreshed)
   writeAll(stateDir, sessions)
@@ -175,6 +196,8 @@ export function recordSessionOutcome(
   }
   const lastReceipt = value.receipt === undefined ? undefined : receipt(value.receipt)
   if (value.receipt !== undefined && !lastReceipt) throw new Error('receipt must include a known phase and observedAt')
+  const lastCapsuleMeta = value.capsuleMeta === undefined ? undefined : capsuleMeta(value.capsuleMeta)
+  if (value.capsuleMeta !== undefined && !lastCapsuleMeta) throw new Error('capsuleMeta must include a bounded failureSignature')
   const outcome = value.outcome as NonNullable<RegisteredSession['lastOutcome']>
   const session = registerSession(stateDir, input, now)
   const sessions = readAll(stateDir)
@@ -183,6 +206,8 @@ export function recordSessionOutcome(
     const next = { ...entry, lastOutcome: outcome }
     if (lastReceipt) next.lastReceipt = lastReceipt
     else delete next.lastReceipt
+    if (lastCapsuleMeta) next.lastCapsuleMeta = lastCapsuleMeta
+    else delete next.lastCapsuleMeta
     return next
   })
   writeAll(stateDir, updated)

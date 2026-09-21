@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { candidateBeatsIncumbent, computeRecovery, recoveryPairs, recoveryRate, recoveryStats } from '../src/recovery.ts'
+import { attributeRecovery, candidateBeatsIncumbent, computeRecovery, recoveryPairs, recoveryRate, recoveryStats, stateFingerprint } from '../src/recovery.ts'
 import type { DecisionRecord } from '../src/types.ts'
 
 const baseState = {
@@ -200,4 +200,27 @@ test('recoveryPairs decodes tier/upstreamModel without ever splitting a hand-bui
   const profile = computeRecovery(records)
   const pairs = recoveryPairs(profile)
   assert.deepEqual(pairs, [{ tier: 'strong', upstreamModel: 'weird::model/id' }])
+})
+
+test('recovery attribution keeps observed, matched, and replayed grades separate for identical state', () => {
+  const before = { ...baseState, failure: 'hard' as const, failureEvidence: ['fail-marker'], contextGeneration: 2 }
+  const after = { ...baseState, failure: 'none' as const, failureEvidence: [], contextGeneration: 2 }
+  assert.equal(stateFingerprint(before), stateFingerprint({ ...before }))
+
+  const observed = attributeRecovery({ before, after, action: 'retry-with-feedback' })
+  const matched = attributeRecovery({ before, after: before, action: 'retry-with-feedback', matched: true })
+  const replayed = attributeRecovery({ before, after: before, action: 'retry-with-feedback', replay: { safe: true, receiptId: 'fixture-receipt-1' } })
+  assert.equal(observed.evidenceGrade, 'observed')
+  assert.equal(matched.evidenceGrade, 'matched')
+  assert.equal(replayed.evidenceGrade, 'replayed')
+  assert.equal(replayed.receiptId, 'fixture-receipt-1')
+  assert.equal(observed.stateFingerprint, matched.stateFingerprint)
+})
+
+test('unsafe or stale replay never receives replay evidence', () => {
+  const before = { ...baseState, failure: 'hard' as const, contextGeneration: 1 }
+  const after = { ...baseState, failure: 'none' as const, contextGeneration: 2 }
+  const result = attributeRecovery({ before, after, action: 'fresh-context', matched: true, replay: { safe: false, receiptId: 'not-used' } })
+  assert.equal(result.evidenceGrade, 'observed')
+  assert.equal(result.receiptId, undefined)
 })

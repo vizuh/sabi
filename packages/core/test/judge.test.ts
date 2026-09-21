@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyJudge, buildJudgeState, JUDGE_QUESTIONS, judgeTriggers } from '../src/judge.ts'
+import { applyJudge, buildJudgeEvidence, buildJudgeState, JUDGE_QUESTIONS, judgeTriggers } from '../src/judge.ts'
 import { hashIdentity } from '../src/log.ts'
 import { route } from '../src/router.ts'
 import type { RecoveryProfile } from '../src/recovery.ts'
@@ -397,4 +397,42 @@ test('the shadow evidence answer is recorded and never changes the route', () =>
   assert.equal(withShadow.decision.tier, withoutShadow.decision.tier)
   assert.equal(withShadow.decision.rule, withoutShadow.decision.rule)
   assert.equal(withShadow.record.overridden, false)
+})
+
+test('judge evidence uses bounded state-conditioned slots and explicit unknowns', () => {
+  const body = failingBody()
+  const decision = route(body, base, { contextGeneration: 2 })
+  const evidence = buildJudgeEvidence(body, decision, 1200)
+  assert.equal(evidence.failure.value, undefined)
+  assert.equal(evidence.intent.status, 'observed')
+  assert.equal(evidence.mutation.status, 'unknown')
+  assert.ok(evidence.omitted.includes('mutation'))
+  assert.ok(JSON.stringify(evidence).length <= 1200)
+})
+
+test('transport and invalid receipt gates bypass judge invocation', () => {
+  const transport = route({
+    model: 'sabi-code',
+    messages: [system, { role: 'user', content: 'continue' }, { role: 'tool', content: 'HTTP 429 rate limit' }],
+  }, base)
+  assert.equal(judgeTriggers(transport, base.judge!), false)
+
+  const invalid = route({
+    model: 'sabi-code',
+    messages: [system, { role: 'user', content: 'fix' }],
+    verificationReceipt: { id: '', status: 'passed', source: 'harness', generation: 0 },
+  }, base)
+  assert.equal(invalid.state.verification?.reason, 'invalid-receipt')
+  assert.equal(judgeTriggers(invalid, base.judge!), false)
+})
+
+test('judge recovery suggestions are accepted only when code-generated actions are valid', () => {
+  const decision = route(unclassifiedBody(), base)
+  const accepted = applyJudge(decision, base, { recoveryAction: 'fresh-context' })
+  assert.equal(accepted.decision.recovery?.action, 'fresh-context')
+  assert.equal(accepted.decision.recovery?.source, 'judge')
+
+  const rejected = applyJudge(decision, base, { recoveryAction: 'run-arbitrary-command' })
+  assert.equal(rejected.decision.recovery?.action, decision.recovery?.action)
+  assert.equal(rejected.decision.recovery?.source, decision.recovery?.source)
 })
