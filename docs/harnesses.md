@@ -43,6 +43,7 @@ placeholder. Host subscription credits and login tokens are not transferred to S
 | OpenCode | Custom provider using `@ai-sdk/openai-compatible`, `options.baseURL`, explicit alias and limits; `npm run connect:opencode` writes and preserves it; see [recipe](research/opencode-terminal-plan.md) |
 | Kilo CLI | Project `kilo.jsonc`; `openai-compatible` provider, `options.baseURL`, model `openai-compatible/sabi-code` |
 | Kilo VS Code | Custom provider → **OpenAI Compatible**, base URL above, manual alias; set tool/context/output metadata in `kilo.jsonc`, not guessed UI defaults |
+| Cline | Settings → **OpenAI Compatible**; base URL above, placeholder key, model `sabi-code`; protocol fixture in-repo, live extension run pending — see [adapter](adapters/cline.md) |
 | Prime Agent | Isolated custom `models.json` provider with `api: "openai-completions"`; see [tested limits](research/prime-agent-compatibility.md) |
 | Hermes | Explicit `chat_completions` custom provider and Sabi `llm_request` attribution middleware; see [adapter](../packages/adapters/hermes/README.md) |
 | DeepSeek Harness | `@vizuh/sabi-deepseek-harness` bundle; pinned DSH `0.1.6-alpha.2`; live runtime pending |
