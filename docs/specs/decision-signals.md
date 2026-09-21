@@ -1,7 +1,8 @@
 # Decision signals
 
-Status: Phase 0 implemented (`packages/core/src/signals.ts` + `packages/core/test/signals.test.ts`).
-Types, bounded store and lineage formatter only. Nothing routes on signals yet.
+Status: Phase 1 implemented (`packages/core/src/signal-producers.ts` +
+`packages/core/test/signal-producers.test.ts`). Deterministic shadow producers with a
+parity battery against the current policy rules. Routing still untouched.
 
 ## Problem
 
@@ -18,6 +19,20 @@ Evidence is `{ kind, id }` references only — never raw text — so signals sta
 allowlist-only telemetry contract. The kind set is closed (`KNOWN_SIGNAL_KINDS`, twelve
 kinds); extending it needs a spec entry and a test, or kinds proliferate exactly like
 rules did.
+
+## Phase 1 — deterministic producers (implemented)
+
+`deterministicSignals(state, scope)` translates ground truths the code already owns
+into shadow signals at confidence 1.0: `failure.transport` (classifier output),
+`failure.real` (only on `tool-error` evidence or an explicitly clean round — fuzzy
+text-derived failures stay absent for the Jev phase), `progress.stalled`
+(`repeatedFailure`), `verification.complete` (verification rounds only),
+`context.pressure` (measured tokens/window ratio, absent when unknown),
+`context.staleness` (observed host rewrite). Absence means "not observed", never
+"false". A parity battery asserts each signal tracks its policy rule exactly
+(transport, 0.9-thresholded pressure, stuck), so future refactors cannot silently
+diverge the two. Signal ids are `${kind}:${roundId ?? 'live'}`: recomputation
+overwrites rather than duplicates.
 
 ## Store bounds
 

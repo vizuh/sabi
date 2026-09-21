@@ -1256,3 +1256,15 @@ instead of deletes), fail-closed validation, and the `explainSignal` lineage for
 Nothing routes on signals yet; modes are stored, never enforced. Joins, thresholds, hop
 limits, batched Jev splitting and micro-judges are specified as measured-later work in
 Phases 2–6, not implemented. No secret, key, host state, or live behavior changed.
+
+## [2026-09-21] spec | Decision signals Phase 1 (deterministic shadow producers)
+
+Adds `packages/core/src/signal-producers.ts` and its parity battery
+(`packages/core/test/signal-producers.test.ts`). `deterministicSignals` translates
+ground truths the code already owns into shadow signals at confidence 1.0 —
+transport flag, tool-confirmed real failure, stall, verification outcome, measured
+pressure ratio, observed rewrite — while fuzzy text-derived failures stay absent for
+the Jev phase and absence means "not observed", never "false". The battery asserts
+each signal tracks its policy rule exactly (transport, 0.9-thresholded pressure,
+stuck), so refactors cannot silently diverge the two. Routing untouched; modes stored,
+never enforced. No secret, key, host state, or live behavior changed.
