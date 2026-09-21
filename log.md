@@ -1060,3 +1060,37 @@ Verified: focused `proxy.test.ts` 19/19 (updated compaction test to the
 two-step contract plus a shared-identity recovery regression), `npm test`
 476/476, `npm run typecheck` clean, `git diff --check` clean. No paid request,
 secret, user config, publication or deployment.
+
+---
+
+## [2026-09-21] feat | JEV PR review module with PR #77 teaching fixtures
+
+Created `packages/core/src/jevPrReview.ts` — JEV's first non-proxy integration
+surface. Reuses `JUDGE_QUESTIONS`/`JudgeOutcome` from `judge.ts` (designed for
+agent routing) but maps them to PR review:
+
+- `buildPrJudgeState(pr, diff, maxChars)` — builds a bounded judge state from
+  a PR diff (mirrors `buildJudgeState` in judge.ts but PR-specific fields).
+- `judgePrOutcome(outcome, thresholds)` — returns `{ block | review | merge }`
+  using the same thresholds as `applyJudge` (realProblemFloor 0.6,
+  vetoFloor 0.25, difficultyFloor 0.6).
+
+13 tests in `packages/core/test/jevPrReview.test.ts` use PR #77 (Phase 1
+council ledger) as the teaching fixture:
+
+- Sensitive path in `council.ts` → real_problem signal (the surplus
+  pre-gate caught a sensitive rename and returned `secret-path`).
+- Subtle independence ternary (`'full' : 'reduced'`) → demanding review
+  signal (a test caught the probe-mode bug before merge).
+- Pre-gate ordering → real_problem signal (running the council pre-gate
+  before `buildSafeReviewPacket` changed the error code from `secret-path`
+  to `sensitive-paths`, caught by the existing surplus test).
+
+Worktrees: 6 abandoned worktrees removed (surplus-council-ledger,
+free-quality-stream-options, harness-model-token-routing-phase,
+opencode-muse-cheap-lane, surplus-review-hardening, sabi-agent-controller).
+
+**Verified**: 13/13 jevPrReview tests pass; 154/154 core tests pass (1
+pre-existing failure in compatibility.test.ts due to worktree module
+resolution, unrelated to this change); typecheck clean (1 pre-existing error
+in evals/client-smoke.ts).
