@@ -17,6 +17,23 @@ tool loop, resume, three unique Sabi request receipts and shared-core routing `m
 Direct provider rebinding, auxiliary/subagent calls, compaction replacement and paid-provider
 quality remain explicit separate gates.
 
+## OpenCode sandbox crash + ephemeral hook pollution — 2026-09-21
+
+Branch `fix/opencode-plugin-sandbox-and-pollution` (two commits, plus the Cline fixture commit, not
+pushed): OpenCode 1.18.31's plugin sandbox returns the plugin context object for every
+`process.env.<key>` read, which crashed the bridge on every load; env reads are now type-guarded and
+prefer `Bun.env` (verified live with an instrumented probe). `installOpenCode()` no longer registers
+ephemeral state-home plugin paths in real configs, prunes stale Sabi entries on install/uninstall,
+and doctor reports them. Controller CLI test helpers default every harness config path into the
+throwaway cwd — the daemon/setup tests were silently installing hooks into the real
+`~/.claude/settings.json` and the Orca `CODEX_HOME` when run from Orca terminals. Host repairs
+performed: 126 dead plugin entries removed from `~/.config/orca/opencode-hooks/shared/opencode.json`
+(backup kept), stale Sabi hooks removed from Claude settings and the Orca Codex home, proxy now a
+`systemd --user` service (`sabi-proxy.service`). The uncommitted Jev-routing WIP on the former
+`main` working tree is preserved unstaged. OpenRouter is exhausted (50.00/50.18) — mid/strong fail
+the output-afford check until credits are added (Hugo's decision). One bounded paid probe ran:
+sabi-cheap via the fixed path, $0.00146, recorded in `log.md`.
+
 ## Hook/upgrade/startup hardening (#71, #73, #76) — 2026-09-21
 
 Branch `muse/hooks-lifecycle` (unpushed): controller upgrade installs with

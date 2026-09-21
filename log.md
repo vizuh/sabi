@@ -1174,3 +1174,64 @@ serves. Local gates before merge: PR CI green, `npm test` 504/504, `npm run type
 `git diff --check` clean, bundle builds via `pack.mjs`, offline eval unchanged (5/8 pass,
 -388.4% warning fixture — not a product benchmark). No controller tag: `packages/controller`
 unchanged since `controller-v0.1.0`. No paid request, secret, or user configuration changed.
+
+## [2026-09-21] fix | OpenCode plugin sandbox crash, ephemeral hook pollution, durable proxy
+
+Diagnosed the live "Sabi won't open in OpenCode" failure on this host (branch
+`fix/opencode-plugin-sandbox-and-pollution`, two commits, not pushed):
+
+- **Plugin crash (verified live with an instrumented probe):** OpenCode 1.18.31's
+  plugin sandbox returns the plugin *context object* for every `process.env.<key>`
+  read — even genuinely set strings — so `sabi-hook.mjs`'s
+  `(value || DEFAULT_CONTROLLER_URL).trim()` crashed on every load
+  (`failed to load plugin ... .trim is not a function`). All env reads in the
+  bridge are now type-guarded and prefer `Bun.env`, which still exposes real
+  strings in that sandbox; 3 new adapter tests simulate the sandbox shape.
+- **Ephemeral hook pollution:** `installOpenCode()` could register an ephemeral
+  state-home plugin path (`<tmp>/hooks/opencode.mjs`) into a real OpenCode config
+  via `OPENCODE_CONFIG_DIR`/`ORCA_OPENCODE_CONFIG_DIR` (both exported by every
+  Orca terminal), appending without pruning — 126 stale `/tmp/sabi-controller-cli-*`
+  entries had accumulated in `~/.config/orca/opencode-hooks/shared/opencode.json`,
+  and every OpenCode start flooded with plugin errors (104 in the reporting
+  session alone). Install now refuses ephemeral plugin paths in non-ephemeral
+  configs before any filesystem write, prunes stale Sabi entries (ephemeral or
+  dead) on install and uninstall, and `sabi doctor` reports them; 4 new controller
+  tests. CLI test helpers now default every harness config path into the throwaway
+  cwd — the daemon/setup tests were silently installing hooks into the real
+  `~/.claude/settings.json` and the Orca `CODEX_HOME` hooks.json when run from
+  Orca terminals (observed and cleaned on this host).
+- **Host repair:** the 126 dead entries were removed from the Orca shared config
+  (backup at `opencode.json.pre-sabi-cleanup-2026-09-21`), Sabi hook entries were
+  surgically removed from the real Claude settings (one stale entry pointing at
+  the dead `sabi-agent-controller` checkout) and the Orca Codex home (3 entries),
+  and the stale `.sabi-backup` files were deleted. The inference proxy now runs as
+  a `systemd --user` service (`sabi-proxy.service`, Restart=on-failure) instead of
+  a hand-started foreground process; healthz verified.
+- **Live receipts:** the fixed plugin loads with zero load errors under the real
+  OpenCode runtime (isolated `OPENCODE_CONFIG_DIR` probe), and one bounded
+  `opencode run --model sabi/sabi-cheap` round completed through
+  OpenCode → proxy service → OpenRouter (`deepseek-v4-flash-0731`, outcome `ok`,
+  24,342 tokens, **$0.00146** — one tiny paid request, disclosed here). A
+  same-window `sabi-code` first-turn attempt on mid errored as expected: the
+  OpenRouter account is exhausted (50.00 credits, 50.18 used, verified via
+  `/api/v1/credits`), and the 4096-token output-afford check fails on mid/strong
+  while cheap still passes — the account-side fix (adding credits) is Hugo's
+  decision, not a code change.
+
+Validation: `npm test` 513/513 (7 new tests), `npm run typecheck` clean,
+`git diff --check` clean. No publication, no push.
+
+## [2026-09-21] docs+test | Cline OpenAI-compatible provider recipe + protocol fixture
+
+Added `docs/adapters/cline.md` plus `packages/server/test/cline-protocol.test.ts`
+(3 tests): Cline's documented OpenAI Compatible contract (Base URL `/v1`, POST
+`/chat/completions`, Bearer auth, model/messages/stream/tools/temperature, SSE)
+replayed against the real Sabi proxy wired to two synthetic upstream lanes —
+per-round routing across lanes, client-visible alias stability, `[DONE]`
+termination, usage frames and tool-schema passthrough. Contract sourced from
+Cline's published provider-config, API reference and SDK provider pages (read
+2026-09-21, page-level, not commit-pinned). Evidence boundary explicit in the
+doc: protocol-level fixture only, no live Cline extension/CLI run is claimed.
+Indexed from the EN/pt-BR adapter READMEs and `docs/harnesses.md`.
+
+Validation: `npm test` 513/513, `npm run typecheck` clean. No publication, no push.
