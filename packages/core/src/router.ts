@@ -46,6 +46,13 @@ export function getFallbackChain(config: SabiConfig, failedTier: string, require
     })
 }
 
+export interface FallbackTier {
+  tier: string
+  reason: string
+  upstream: string
+  upstreamModel: string
+}
+
 export function normalizeAlias(model: unknown): string {
   const raw = String(model ?? '').trim()
   return raw.includes('/') ? raw.slice(raw.lastIndexOf('/') + 1) : raw
@@ -161,3 +168,4 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
   ensureRouteCompatible(body, config, decision)
   return decision
 }
+

@@ -342,6 +342,6 @@ export interface DecisionRecord {
   error?: string
   /** HTTP status of a transport/rate-limit failure from the upstream, when it was recorded that way. */
   transport?: number
-  /** Tier that served the round after a transport-fallback retry, when the planned tier failed first. */
+  /** Tier used after a transport-fallback retry, when the original tier failed with a transport error. */
   fallback?: string
 }

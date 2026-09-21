@@ -450,6 +450,7 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
     }
   }
 
+
   return { ...config, upstreams, models, aliases, policy }
 }
 

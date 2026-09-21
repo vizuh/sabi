@@ -72,6 +72,14 @@
         "cacheRead": 0
       }
     },
+    "free": {
+      "upstream": "openrouter",
+      "model": "openrouter/auto",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "capabilities": { "inputModalities": ["text", "image", "file"] },
+      "cost": { "input": 0, "output": 0 }
+    },
     "local": {
       "upstream": "ollama",
       "model": "qwen2.5-coder:7b",
@@ -92,6 +100,7 @@
     "sabi-cheap": "cheap",
     "sabi-mid": "mid",
     "sabi-strong": "strong",
+    "sabi-free": "free",
     "sabi-local": "local"
   },
   "policy": {

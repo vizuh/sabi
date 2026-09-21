@@ -29,6 +29,7 @@ import {
   type ChatRequestBody,
   type DecisionRecord,
   type FailureLevel,
+  type FallbackTier,
   type JudgeConfig,
   type JudgeRecord,
   type JevRoutingConfig,
@@ -989,6 +990,86 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       const headers: Record<string, string> = { 'content-type': upstreamResponse.headers.get('content-type') ?? 'application/json; charset=utf-8' }
       const retryAfter = upstreamResponse.headers.get('retry-after')
       if (retryAfter !== null) headers['retry-after'] = retryAfter
+
+      // Transport errors (429 rate limit, 402 quota exceeded, 403 model not available) -> try fallback chain
+      const isTransportError = status === 429 || status === 402 || status === 403
+      const fallbackEnabled = config.transportFallback?.enabled === true
+      if (isTransportError && decision.mode === 'auto' && fallbackEnabled) {
+        const required = decision.state.inputModalities ?? []
+        const fallbacks = getFallbackChain(config, decision.tier, required)
+        for (const fallback of fallbacks) {
+          const fallbackDecision: RouteDecision = {
+            ...decision,
+            tier: fallback.tier,
+            rule: 'transport-fallback',
+            reason: fallback.reason,
+            model: fallback.tier,
+            upstream: fallback.upstream,
+            upstreamModel: fallback.upstreamModel,
+          }
+          try {
+            ensureRouteCompatible(body, config, fallbackDecision)
+            const fallbackBody = buildUpstreamBody(config, fallbackDecision, body)
+            const { response: fallbackResponse } = await callUpstream(config, fallbackDecision, fallbackBody, signal)
+            if (fallbackResponse.ok) {
+              // Success with fallback - stream/return the response
+              const streaming = (fallbackResponse.headers.get('content-type') ?? '').toLowerCase().includes('text/event-stream')
+              if (streaming !== (body.stream === true)) {
+                await fallbackResponse.body?.cancel()
+                throw new UpstreamProtocolError('upstream response mode mismatch')
+              }
+              if (!streaming) {
+                const fbText = await readResponseText(fallbackResponse)
+                let value: unknown
+                try { value = JSON.parse(fbText) } catch { throw new UpstreamProtocolError() }
+                const object = chatResponseFromJson(value)
+                const servedModel = observeModel(object.model)
+                object.model = decision.alias
+                sendJson(res, 200, object)
+                await responseFinished()
+                finish({ usage: usageFromJson(object), servedModel, fallback: fallback.tier })
+                return
+              }
+              if (!fallbackResponse.body) throw new UpstreamProtocolError('upstream returned no body')
+              const streamHeaders = {
+                'content-type': 'text/event-stream; charset=utf-8',
+                'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no',
+              }
+              let ttftMs: number | undefined
+              let streamResult: SseTapResult | undefined
+              const tap = createSseTap(decision.alias, (result) => { streamResult = result })
+              const reader = fallbackResponse.body.getReader()
+              const write = async (output: Uint8Array) => {
+                if (!output.length) return
+                signal.throwIfAborted()
+                if (!res.headersSent) res.writeHead(200, streamHeaders)
+                if (!res.write(output)) await once(res, 'drain', { signal })
+              }
+              try {
+                for (;;) {
+                  const { done, value } = await reader.read()
+                  if (done) break
+                  if (ttftMs === undefined) ttftMs = Date.now() - started
+                  await write(tap.push(value))
+                  if (tap.done) break
+                }
+                await write(tap.flush())
+              } finally {
+                await reader.cancel().catch(() => {})
+                reader.releaseLock()
+              }
+              res.end()
+              await responseFinished()
+              finish({ usage: streamResult?.usage, servedModel: observeModel(streamResult?.model), ttftMs, fallback: fallback.tier })
+              return
+            }
+            // Fallback also failed - continue to next fallback
+          } catch {
+            // Fallback failed - continue to next fallback
+          }
+        }
+      }
+
       res.writeHead(status, headers)
       res.end(text || JSON.stringify({ error: { message: `upstream error ${status}` } }))
       await responseFinished()
