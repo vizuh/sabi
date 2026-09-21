@@ -1268,3 +1268,21 @@ the Jev phase and absence means "not observed", never "false". The battery asser
 each signal tracks its policy rule exactly (transport, 0.9-thresholded pressure,
 stuck), so refactors cannot silently diverge the two. Routing untouched; modes stored,
 never enforced. No secret, key, host state, or live behavior changed.
+
+## [2026-09-21] feat | Cache-aware continuity and structured fallback handoff
+
+Added cache observations and a bounded cache-aware route decision to core and proxy telemetry:
+same-tool cycles keep the current tier, phase changes are held while a measured warm-cache
+reprocessing penalty outweighs cost savings, and failures/escalations remain explicit switch
+exceptions. Reports and decision telemetry expose hit/miss/unknown, retained/switch counts and
+bounded reprocessed tokens. Added focused core and proxy coverage.
+
+Extended controller handoffs with bounded plan, tools, failures and verifications, and serialize
+the capsule for replacement/spawn operations while the source harness keeps its native request
+loop. Removed the stale second Jev routing override; Judge remains separate and cache-kept rounds
+skip evaluator retiering. Fixed the CLI route dispatcher so `sabi --json` and route aliases execute.
+
+Verified: core 227/227, server 96/96, adapters 61/61, eval/scripts 41/41 and controller 128/128
+passed in isolated groups; the sequential controller-plus-setup run passed 154/154; typecheck and
+diff check passed. Default parallel `npm test` was 552/553 because one setup assertion about
+`git-tracked` output failed only in that combined run. No commit, push, deployment or publication.

@@ -123,12 +123,20 @@ test('cross-worktree handoff preserves structured objective, diff and next step'
     ...handoff,
     objective: 'finish the review',
     changedFiles: ['src/app.ts'],
+    currentPlan: ['run the focused tests'],
+    toolsExecuted: ['shell_command'],
+    failures: ['typescript-error'],
+    verifications: ['focused tests passed'],
     relevantDiff: '1 file changed',
     nextAction: 'run the focused tests',
   })
   const payload = JSON.parse(message.split('\n')[1]!) as Record<string, unknown>
   assert.equal(payload.objective, 'finish the review')
   assert.deepEqual(payload.filesChanged, ['src/app.ts'])
+  assert.deepEqual(payload.currentPlan, ['run the focused tests'])
+  assert.deepEqual(payload.toolsExecuted, ['shell_command'])
+  assert.deepEqual(payload.failures, ['typescript-error'])
+  assert.deepEqual(payload.verifications, ['focused tests passed'])
   assert.equal(payload.diff, '1 file changed')
   assert.equal(payload.nextSuggestedStep, 'run the focused tests')
   assert.match(message, /\[REQUEST\]\nfinish the review/)

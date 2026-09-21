@@ -1,4 +1,5 @@
 import { cheapestServingTier, ensureRouteCompatible, isEnabledUpstream, modelRouteCost, SabiRouteError, servesInputModalities } from './compatibility.ts'
+import { cacheAwareRoute } from './cache-routing.ts'
 import { tiersFor } from './config.ts'
 import { decideTier } from './policy.ts'
 import { planRecovery } from './recovery-actions.ts'
@@ -65,6 +66,11 @@ export interface RouteContext {
   contextWindow?: number
   previousFailure?: FailureLevel
   previousFailureStreak?: number
+  previousTier?: string
+  previousRoundKind?: RouteDecision['state']['roundKind']
+  previousLastRole?: string
+  previousGeneration?: number
+  previousCache?: import('./types.ts').CacheObservation
 }
 
 export function route(body: ChatRequestBody, config: SabiConfig, context: RouteContext = {}): RouteDecision {
@@ -150,6 +156,24 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
       tier = alternate
     }
   }
+  const previousModel = context.previousTier ? config.models[context.previousTier] : undefined
+  const cache = cacheAwareRoute({
+    state,
+    recoveryAction: recovery?.action,
+    plannedTier: tier,
+    previousTier: context.previousTier,
+    previousLastRole: context.previousLastRole,
+    previousGeneration: context.previousGeneration,
+    previousCache: context.previousCache,
+    previousCost: previousModel?.cost,
+    plannedCost: config.models[tier]?.cost,
+    canKeepPrevious: Boolean(context.previousTier && config.models[context.previousTier] && servesRound(config.models[context.previousTier]!)),
+  })
+  if (cache.selectedTier !== tier) {
+    tier = cache.selectedTier
+    rule = 'cache-affinity'
+    reason = cache.reason
+  }
   const model = Object.hasOwn(config.models, tier) ? config.models[tier] : undefined
   if (!model) throw new SabiRouteError(`policy rule '${rule}' maps to unknown tier '${tier}'`, 500)
   const decision: RouteDecision = {
@@ -163,6 +187,7 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
     upstreamModel: model.model,
     state,
     recovery,
+    cache,
   }
   ensureRouteCompatible(body, config, decision)
   return decision

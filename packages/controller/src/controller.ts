@@ -64,6 +64,10 @@ export interface RecoveryCapsuleItemInput {
 
 export interface RecoveryCapsuleInput {
   failureSignature: string
+  currentPlan?: string[]
+  toolsExecuted?: string[]
+  failures?: string[]
+  verifications?: string[]
   verifiedFacts?: RecoveryCapsuleItemInput[]
   attemptedApproaches?: string[]
   verifiedNonSolutions?: RecoveryCapsuleItemInput[]
@@ -188,9 +192,13 @@ function buildHandoff(cwd: string, request: string, active: AgentSession, stuck:
     progress: 'request received; live inventory discovered',
     workCompleted: files.length ? `existing worktree changes preserved (${files.length} files)` : 'no local changes detected',
     changedFiles: files,
+    currentPlan: capsuleLabels(recoveryCapsuleInput?.currentPlan ?? [request]),
+    toolsExecuted: capsuleLabels(recoveryCapsuleInput?.toolsExecuted),
+    failures: capsuleLabels(recoveryCapsuleInput?.failures ?? (stuck ? ['recent Sabi session failure is still unresolved'] : [])),
     branch,
     worktree: path.resolve(cwd),
     testsRun: [],
+    verifications: capsuleLabels(recoveryCapsuleInput?.verifications),
     latestResults: [],
     unresolvedWork: [request],
     latestFailure: stuck ? 'recent Sabi session failure is still unresolved' : undefined,
@@ -274,8 +282,12 @@ function handoffState(handoff: HandoffSnapshot): Record<string, unknown> {
     branch: handoff.branch,
     progress: handoff.progress.slice(0, 240),
     changedFileCount: handoff.changedFiles.length,
+    currentPlan: (handoff.currentPlan ?? []).slice(0, 8).map((value) => value.slice(0, 160)),
+    toolsExecuted: (handoff.toolsExecuted ?? []).slice(0, 8).map((value) => value.slice(0, 160)),
+    failures: (handoff.failures ?? []).slice(0, 8).map((value) => value.slice(0, 160)),
     testsRun: handoff.testsRun.slice(0, 8).map((value) => value.slice(0, 160)),
     latestResults: handoff.latestResults.slice(0, 8).map((value) => value.slice(0, 160)),
+    verifications: (handoff.verifications ?? []).slice(0, 8).map((value) => value.slice(0, 160)),
     unresolvedWorkCount: handoff.unresolvedWork.length,
     nextAction: handoff.nextAction.slice(0, 1200),
     ...(handoff.latestFailure ? { latestFailure: handoff.latestFailure.slice(0, 240) } : {}),
@@ -429,7 +441,11 @@ export function structuredHandoff(request: string, handoff: HandoffSnapshot): st
     branch: handoff.branch,
     progress: handoff.progress,
     filesChanged: handoff.changedFiles,
+    currentPlan: handoff.currentPlan ?? [],
+    toolsExecuted: handoff.toolsExecuted ?? [],
+    failures: handoff.failures ?? [],
     tests: handoff.testsRun,
+    verifications: handoff.verifications ?? [],
     results: handoff.latestResults,
     unresolvedWork: handoff.unresolvedWork,
     diff: handoff.relevantDiff,
@@ -449,7 +465,9 @@ function sessionExecution(
   targetWorktree?: string,
   idempotencyKey?: string,
 ): ControllerExecution {
-  const outbound = handoff && targetWorktree && path.resolve(targetWorktree) !== path.resolve(handoff.worktree)
+  const sameSourceSession = handoff !== undefined && (handoff.sourceSession === handle || handoff.sourceSession === targetId)
+  const differentWorktree = handoff !== undefined && targetWorktree !== undefined && path.resolve(targetWorktree) !== path.resolve(handoff.worktree)
+  const outbound = handoff && (operation === 'terminal-spawn' || !sameSourceSession || differentWorktree)
     ? structuredHandoff(request, handoff)
     : request
   const sent = sendOrcaTerminal(handle, outbound)

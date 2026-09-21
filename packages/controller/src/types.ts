@@ -136,9 +136,17 @@ export interface HandoffSnapshot {
   progress: string
   workCompleted: string
   changedFiles: string[]
+  /** Bounded phase plan carried to a replacement model/harness. */
+  currentPlan?: string[]
+  /** Tool identities only; never raw tool arguments or output. */
+  toolsExecuted?: string[]
+  /** Bounded failure labels and prior attempts. */
+  failures?: string[]
   branch: string
   worktree: string
   testsRun: string[]
+  /** Verification commands/results kept separate from task progress. */
+  verifications?: string[]
   latestResults: string[]
   unresolvedWork: string[]
   latestFailure?: string

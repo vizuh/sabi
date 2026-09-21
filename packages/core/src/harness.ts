@@ -1,8 +1,9 @@
 import { firstServingTier, servesInputModalities } from './compatibility.ts'
+import { cacheAwareRoute } from './cache-routing.ts'
 import { decorateTrajectoryState } from './evidence.ts'
 import { decideTier } from './policy.ts'
 import { CHARS_PER_TOKEN, classifyRound, detectFailure, mediaTokens, modalitiesOf } from './state.ts'
-import type { CatalogTier, FailureLevel, ModelModality, RoundKind, ScopeInput, TrajectoryState, VerificationReceipt } from './types.ts'
+import type { CacheObservation, CatalogTier, FailureLevel, ModelModality, RoundKind, ScopeInput, TrajectoryState, VerificationReceipt } from './types.ts'
 
 export interface HarnessToolCall {
   name: string
@@ -40,6 +41,7 @@ export interface RoundPlan {
   rule: string
   reason: string
   state: TrajectoryState
+  cache?: import('./types.ts').CacheRoutingDecision
 }
 
 function roundKindOf(round: HarnessRound, calls: Array<{ name: string; args?: string }>): RoundKind {
@@ -125,7 +127,15 @@ export function planRound(
   state: TrajectoryState,
   policy: Record<string, string>,
   tiers: Record<string, CatalogTier>,
-  options: { previous?: Pick<TrajectoryState, 'failure' | 'failureEvidence'>; contextWindow?: number } = {},
+  options: {
+    previous?: {
+      tier?: string
+      lastRole?: string
+      generation?: number
+      cache?: CacheObservation
+    }
+    contextWindow?: number
+  } = {},
 ): RoundPlan | undefined {
   const withWindow =
     options.contextWindow !== undefined && state.contextWindow === undefined ? { ...state, contextWindow: options.contextWindow } : state
@@ -144,6 +154,20 @@ export function planRound(
     rule = 'capability'
     tier = alternate
   }
+  const cache = cacheAwareRoute({
+    state: withWindow,
+    plannedTier: tier,
+    previousTier: options.previous?.tier,
+    previousLastRole: options.previous?.lastRole,
+    previousGeneration: options.previous?.generation,
+    previousCache: options.previous?.cache,
+    canKeepPrevious: Boolean(options.previous?.tier && tiers[options.previous.tier] && servesInputModalities(tiers[options.previous.tier]?.inputModalities, required)),
+  })
+  if (cache.selectedTier !== tier) {
+    tier = cache.selectedTier
+    rule = 'cache-affinity'
+    reason = cache.reason
+  }
   const chosen = tiers[tier]
   if (!chosen || !chosen.model) return undefined
   return {
@@ -153,5 +177,6 @@ export function planRound(
     rule,
     reason,
     state: withWindow,
+    cache,
   }
 }

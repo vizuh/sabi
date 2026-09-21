@@ -1284,3 +1284,31 @@ the fallback cannot drift from normal serving behavior.
 
 Verify a real free id via a live catalog refresh before shipping any `sabi-free` alias; consider
 5xx retry and per-status retry budgets only after measured transport traffic justifies them.
+
+---
+
+## [2026-09-21] Cache-aware continuity and bounded model handoff
+
+### Decision
+
+Keep the current model for the same tool cycle. Evaluate a route change only for a new phase,
+failure or explicit escalation, and retain a warm-cache route unless measured cost savings exceed
+the estimated context reprocessing penalty. Record provider cache evidence as `hit`, `miss` or
+`unknown`; do not infer cache reuse across providers or model families.
+
+When a controller replacement or spawned terminal takes over, send a bounded handoff capsule with
+the objective, plan, changed files, tools, failures, tests/verifications, results and next action.
+The source harness keeps its native loop and logical messages. Judge/Jev remains an execution or
+closed-action evaluator; it does not replace the main conversation or override a cache-kept model.
+
+### Why
+
+Conversation history and tool results survive in the host session, while KV cache and hidden
+reasoning state are provider/model-local optimizations. Treating them as transferable would make
+cost and latency claims false. A measured cache penalty makes the tradeoff explicit without
+inventing quality gains for a stronger model.
+
+### Revisit later?
+
+Add measured per-task quality utility to the switch decision when enough verified trajectory data
+exists; add provider-specific handoff metadata only when a native provider contract accepts it.

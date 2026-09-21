@@ -44,6 +44,10 @@ let shadowRedundant = 0
 let unknownCostRows = 0
 let unknownCounterfactualRows = 0
 let unknownJudgeUsageCalls = 0
+const cacheCounts = { hit: 0, miss: 0, unknown: 0 }
+let cacheRetained = 0
+let cacheSwitched = 0
+let cacheReprocessTokens = 0
 const recoveryEvidenceGrades = { observed: 0, matched: 0, replayed: 0 }
 // What the policy could not see: proof of over-escalation, blind spots, and config that never fires.
 let vetoedRounds = 0
@@ -60,6 +64,12 @@ for (const row of rows) {
   byTier.set(row.tier, (byTier.get(row.tier) ?? 0) + 1)
   byRule.set(row.rule, (byRule.get(row.rule) ?? 0) + 1)
   byModel.set(row.upstreamModel, (byModel.get(row.upstreamModel) ?? 0) + 1)
+  if (row.cache) {
+    cacheCounts[row.cache.cacheStatus] += 1
+    if (row.cache.action === 'keep') cacheRetained += 1
+    if (row.cache.action === 'switch') cacheSwitched += 1
+    if (typeof row.cache.reprocessTokens === 'number') cacheReprocessTokens += row.cache.reprocessTokens
+  }
   if (row.outcome !== 'ok') errors += 1
   if (row.outcome === 'transport') transports += 1
   if (row.judge) {
@@ -164,6 +174,7 @@ if (asJson) {
         unknownCostRows,
         unknownCounterfactualRows,
         unknownJudgeUsageCalls,
+        cache: { ...cacheCounts, retained: cacheRetained, switched: cacheSwitched, reprocessTokens: cacheReprocessTokens },
         errors,
         transports,
         byTier: Object.fromEntries(byTier),
@@ -208,6 +219,7 @@ if (asJson) {
   console.log(`by tier   ${formatMap(byTier)}`)
   console.log(`by rule   ${formatMap(byRule)}`)
   console.log(`by model  ${formatMap(byModel)}`)
+  console.log(`cache     hits ${cacheCounts.hit} · misses ${cacheCounts.miss} · unknown ${cacheCounts.unknown} · retained ${cacheRetained} · switched ${cacheSwitched} · reprocessed ${cacheReprocessTokens.toLocaleString()} tok`)
   if (judgeCalls > 0) {
     const avg = judgeLatencyCount ? Math.round(judgeLatencyMs / judgeLatencyCount) : 0
     console.log(
