@@ -110,7 +110,11 @@ function commandFor(env: NodeJS.ProcessEnv, harness: HookHarness): string {
   const quote = (value: string): string => process.platform === 'win32'
     ? `"${value.replaceAll('"', '\\"')}"`
     : `'${value.replaceAll("'", "'\\''")}'`
-  const executable = configured || (process.argv[1] ? `${quote(process.execPath)} ${quote(path.resolve(process.argv[1]))}` : 'sabi')
+  // Already validated metacharacter-free above (as executable + optional arguments) — quoting
+  // it here would collapse a legitimate multi-token value (e.g. `node /path/to/sabi.mjs`) into
+  // one argument and break it.
+  const executable = configured
+    ?? (process.argv[1] ? `${quote(process.execPath)} ${quote(path.resolve(process.argv[1]))}` : 'sabi')
   return `${executable} hook ${harness}`
 }
 

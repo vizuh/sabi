@@ -923,6 +923,62 @@ stability, plan-change sensitivity).
 - `packages/controller/test/*.test.ts` — 109/109 pass
 - `git diff --check` — clean
 
+## [2026-09-21] fix | Close six findings from a full-repo security review
+
+Four independent review passes (OpenCode/Muse free-tier live, OpenCode-Go/DeepSeek live paid,
+two Claude verification/coverage subagents) converged on and cross-verified a set of concrete
+findings; see `docs/reviews/security-review-2026-09-21.md` for the full writeup. Fixed the six
+narrow enough to land without a design decision: Orca `sabi.dispatch` rejects control characters
+instead of forwarding them straight to a terminal (was a real newline-injection-into-shell path);
+`sabi daemon --json`/`--status --json` no longer print the bearer token; `scripts/setup.ts`'s
+"Jev is off by default" message now actually writes `judge.enabled: false` for the OpenCode/
+Command-Code-B path instead of leaving the shipped `true` untouched; decision/council/surplus logs
+now write `0600` files in `0700` directories instead of inheriting the process umask; the
+controller daemon's bearer-token check uses `crypto.timingSafeEqual`; `SABI_HOOK_COMMAND` is now
+quoted the same way the default hook command already was.
+
+Left open and documented, not silently patched: the inference proxy (`packages/server`) has no
+authentication and no loopback-bind enforcement — fixing that changes the API contract for every
+adapter and is a product decision, not a hardening patch. Also documented: `SABI_DSH_BASE_URL`'s
+lack of loopback validation (architecturally can't be fixed on the Sabi side — it's evaluated by
+DSH's own YAML loader, not Sabi-authored runtime code), the unsalted tool-name hash, and a narrow
+TOCTOU window in `saveOpenRouterKey`'s chmod-after-write.
+
+Added `docs/security.md` (auth, authorization, encryption, audit logging, incident response —
+written from the codebase as it now stands, gaps named as gaps) and linked it from
+`docs/install.md`'s existing Security section.
+
+A fifth pass, `/code-review high` against the resulting diff, caught three real bugs in the fixes
+themselves before commit: the file-mode fix only applied at creation time (a pre-existing log on
+an upgraded install would keep its old permissions forever), the control-character regex missed
+the C1 range (NEL/CSI), and the new file-mode tests had no Windows guard. All three fixed — see
+the review doc for detail. A fourth code-review claim (quoting `SABI_HOOK_COMMAND` could break an
+undocumented multi-word usage) was evaluated and rejected: no test, doc, or example anywhere uses
+that pattern, and quoting is the objectively safer default regardless.
+
+Validation: full suite 431/431 (up from 402, +29 new/changed tests), `npm run typecheck` passed
+after every change, `git diff --check` passed. `sabi surplus review` was run for real against this
+diff's own tracked changes (`sabi-local`/Ollama) as a live dogfood pass — timed out twice at Sabi's
+30s deadline on the ~22KB diff on this host's local model, then confirmed via a direct call that
+the local model itself was simply slow on this input size, not broken; recorded honestly as
+`status: unavailable` in the council ledger rather than retried into a fabricated success. Two
+live external-model council receipts also recorded (Muse: `2f4920bb-...`, DeepSeek:
+`d5368cb3-...`; `sabi council history`). Merged to `main` via a PR from `security/full-repo-review`
+after resolving a real merge conflict against the PR below, which landed independently while this
+branch was open — see `docs/handoff.md` for what that changes about the still-open proxy-auth gap.
+
+The conflict was in `packages/core/src/log.ts`/`log.test.ts`: the other PR independently fixed
+this review's deferred "unsalted tool-name hash" finding (HMAC + per-install salt) and added
+decision-log write-failure resilience; this PR added the `0600`/`0700` file-mode hardening.
+Merged both — `appendDecision` now has both the salted-HMAC hashing and the mode hardening,
+wrapped in the other PR's never-throws failure tracking. `packages/controller/src/hooks.ts`
+auto-merged textually but combined two independent fixes for the same `SABI_HOOK_COMMAND`
+finding that then conflicted in behavior (this PR's quoting vs. the other PR's stricter
+validate-and-reject); kept the other PR's fix, since it correctly supports the multi-word
+`executable + arguments` case that quoting cannot. Full suite re-run after merge: 497/497
+(down from 498 after removing this PR's now-redundant, now-incorrect quoting test), `npm run
+typecheck` clean.
+
 ## [2026-09-21] fix | judge egress, loopback boundary, proxy trajectory signals, stream outcomes (#59 #60 #67 #68)
 
 - **#59 judge obeys the telemetry policy.** `buildJudgeState` is content-free by default: raw instruction/tool excerpts are replaced with lengths + SHA-256 shape, tool names use the same `hashIdentity('tool', …)` invariant as the decision log. Raw egress is an explicit opt-in via `judge.includeSnippets` (preferred) or `telemetry.captureSnippets`; `server.ts` passes both switches. Fail-open unchanged (error/timeout → deterministic policy).

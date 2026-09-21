@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
@@ -146,10 +146,17 @@ function controllerOverride(value: unknown): { sessionId?: string; harness?: str
   return sessionId || harness ? { ...(sessionId ? { sessionId } : {}), ...(harness ? { harness } : {}) } : undefined
 }
 
+/** Constant-time comparison: a bearer-token check must not leak a byte-by-byte timing signal. */
+function isAuthorized(header: string | string[] | undefined, token: string): boolean {
+  const provided = Buffer.from(typeof header === 'string' ? header : '')
+  const expected = Buffer.from(`Bearer ${token}`)
+  return provided.length === expected.length && timingSafeEqual(provided, expected)
+}
+
 async function handleRequest(req: IncomingMessage, res: ServerResponse, info: ControllerDaemonInfo): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${info.host}:${info.port}`)
   try {
-    if (req.headers.authorization !== `Bearer ${info.token}`) {
+    if (!isAuthorized(req.headers.authorization, info.token)) {
       sendJson(res, 401, { error: 'unauthorized' })
       return
     }

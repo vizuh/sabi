@@ -19,6 +19,24 @@ import type { DecisionRecord } from '../src/types.ts'
 
 const usage = { promptTokens: 100, completionTokens: 20, cachedTokens: 40, totalTokens: 120 }
 
+test('appendDecision writes a decision log that only the owner can read', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-log-'))
+  try {
+    const logFile = path.join(dir, 'nested', 'decisions.jsonl')
+    // Only the file-permission side effect matters here — the record's content is irrelevant.
+    appendDecision({ alias: 'sabi-cheap', rule: 'default' } as unknown as DecisionRecord, logFile)
+    // POSIX-only: Windows has no owner/group/other permission bits to assert on. 0o600/0o700
+    // bits are unaffected by any common POSIX umask (022, 002, ...), so this holds regardless
+    // of the host's default umask.
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(logFile).mode & 0o777, 0o600)
+      assert.equal(statSync(path.dirname(logFile)).mode & 0o777, 0o700)
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('unknown sessions are unique; explicit identities are hashed and namespaced', () => {
   assert.notEqual(sessionIdFor(), sessionIdFor())
   const id = sessionIdFor('private-session', 'opencode')

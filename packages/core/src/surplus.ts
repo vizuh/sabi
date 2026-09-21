@@ -1,7 +1,8 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
+import { appendPrivateLine } from './log.ts'
 import type { SabiConfig } from './types.ts'
 import { looksLikeCanary } from './telemetry.ts'
 
@@ -240,8 +241,7 @@ export function defaultSurplusLogPath(): string {
 }
 
 export function appendSurplusReviewReceipt(receipt: SurplusReviewReceipt, logFile = defaultSurplusLogPath()): void {
-  mkdirSync(path.dirname(logFile), { recursive: true })
-  appendFileSync(logFile, `${JSON.stringify(receipt)}\n`)
+  appendPrivateLine(logFile, `${JSON.stringify(receipt)}\n`)
 }
 
 export function readSurplusReviewReceipts(logFile = defaultSurplusLogPath()): SurplusReviewReceipt[] {

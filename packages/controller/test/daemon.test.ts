@@ -29,6 +29,10 @@ test('daemon serves health, live inventory and controller routing over loopback'
     assert.equal(health?.protocol, 1)
     const unauthorized = await requestControllerDaemon('/health', { info: { ...daemon.info, token: 'x'.repeat(64) } })
     assert.equal(unauthorized?.error, 'unauthorized')
+    // A shorter/longer token must be rejected too — the constant-time compare guards
+    // length equality itself before calling into crypto.timingSafeEqual.
+    const wrongLength = await requestControllerDaemon('/health', { info: { ...daemon.info, token: 'short' } })
+    assert.equal(wrongLength?.error, 'unauthorized')
 
     const status = await requestControllerDaemon(`/status?cwd=${encodeURIComponent(cwd)}`, { info: daemon.info })
     assert.equal(status?.runtime && (status.runtime as Record<string, unknown>).mode, 'daemon')

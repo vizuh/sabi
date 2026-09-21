@@ -33,9 +33,22 @@ export function selectTerminal(context, requestedTerminalId) {
   return terminalId
 }
 
+// C0 controls + DEL + the C1 range (U+0080-U+009F, e.g. NEL/U+0085, CSI/U+009B) — a terminal
+// configured for 8-bit C1 interpretation treats several of those as a line break or escape
+// introducer too, not just \n/\r.
+// eslint-disable-next-line no-control-regex -- the whole point is detecting control characters
+const CONTROL_CHARACTERS = /[\x00-\x1f\x7f-\x9f]/
+
 export async function dispatchToTerminal(orca, args) {
   const input = normalizeDispatchArgs(args)
   if (!input.request) throw new Error('Sabi dispatch requires a non-empty request')
+  // terminal.sendText fires one Enter keypress; an embedded newline/carriage-return would submit
+  // each line as its own shell command, turning "one dispatched request" into arbitrary multi-command
+  // execution. Reject outright rather than silently stripping — a caller with a legitimate multi-line
+  // need should send multiple dispatches, not have this adapter guess how to collapse one for them.
+  if (CONTROL_CHARACTERS.test(input.request)) {
+    throw new Error('Sabi dispatch request must not contain control characters (e.g. newlines)')
+  }
   const context = await orca.host.call('workspace.readContext', {})
   if (!context) throw new Error('no focused Orca worktree is available')
   const terminalId = selectTerminal(context, input.terminalId)

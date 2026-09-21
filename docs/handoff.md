@@ -897,6 +897,33 @@ needed.
 The Portuguese adapter navigation now includes a localized index and Hermes guide, while package
 implementation READMEs remain English developer references.
 
+## Full-repo security review — 2026-09-21
+
+Four independent passes (two live model reviews — OpenCode/Muse free tier, OpenCode-Go/DeepSeek
+paid with user-authorized spend — plus two Claude verification/coverage subagents) audited the
+whole repo against an injection/auth/data-exposure/dependency/crypto checklist. Full writeup:
+`docs/reviews/security-review-2026-09-21.md`. New `docs/security.md` documents the current
+authentication, authorization, encryption, audit-logging and incident-response posture honestly,
+including the gaps that weren't fixed.
+
+Fixed: Orca dispatch control-character injection (HIGH — newline in a dispatched request could
+execute as multiple terminal commands), daemon token printed by `--json`, setup wizard's
+Jev-off message not matching what it wrote, decision/council/surplus log file permissions,
+non-constant-time daemon token compare, unquoted `SABI_HOOK_COMMAND`. Left open and documented:
+the inference proxy has no authentication (a product decision, not a hardening patch — it changes
+every adapter's connection contract), `SABI_DSH_BASE_URL` validation (no Sabi-authored runtime
+code exists in the DSH bundle to hook it into), the unsalted tool-name hash, and a narrow
+`saveOpenRouterKey` TOCTOU window.
+
+Merged to `main` via PR from `security/full-repo-review`. Next agent: get an answer on whether
+Orca's `sabi.dispatch` is reachable by non-human callers (determines real severity of the fixed
+HIGH finding), then decide the proxy-auth design before anyone builds on the assumption the local
+proxy is a trust boundary — #60 below (merged separately, in flight while this branch was open)
+adds an origin/Host/Referer check that closes real DNS-rebinding/CSRF exposure but is not
+authentication: it does not stop another local process, or a remote client that simply sets a
+loopback-looking `Host` header, from calling `/v1/chat/completions` or `/decisions` with zero
+credential. The gap this review flagged is narrower than it was, not closed.
+
 ## Privacy/egress hardening (#59 #60 #67 #68) — 2026-09-21
 
 Implemented in this worktree (`muse/privacy-egress`, local only, not pushed): judge state is
