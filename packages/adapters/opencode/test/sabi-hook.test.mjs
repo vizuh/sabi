@@ -1,12 +1,37 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import SabiOpenCodePlugin, { trustedControllerURL } from '../src/sabi-hook.mjs'
+import SabiOpenCodePlugin, { envString, trustedControllerURL } from '../src/sabi-hook.mjs'
 
 test('OpenCode accepts only loopback controller URLs', () => {
   assert.equal(trustedControllerURL('http://127.0.0.1:7433'), 'http://127.0.0.1:7433')
   assert.equal(trustedControllerURL('http://localhost:7433/'), 'http://localhost:7433')
   assert.equal(trustedControllerURL('http://198.51.100.10:7433'), undefined)
   assert.equal(trustedControllerURL('https://127.0.0.1:7433'), undefined)
+})
+
+test('OpenCode sandbox context objects cannot crash URL resolution', () => {
+  // OpenCode 1.18.31's plugin sandbox returns the plugin context object for
+  // `process.env.<key>` reads (verified live 2026-09-21 with an instrumented
+  // probe: every key, even a genuinely exported string, arrives as an object).
+  // The old code called `.trim()` on it and failed every plugin load.
+  const sandboxContext = { client: {}, project: {}, worktree: '/', directory: '/tmp', serverUrl: {}, $: () => {} }
+  assert.equal(trustedControllerURL(sandboxContext), 'http://127.0.0.1:7433')
+  assert.equal(trustedControllerURL(42), 'http://127.0.0.1:7433')
+  assert.equal(trustedControllerURL(null), 'http://127.0.0.1:7433')
+})
+
+test('envString prefers Bun.env strings and never returns a non-string', () => {
+  const hadBun = globalThis.Bun
+  globalThis.Bun = { env: { SABI_CONTROLLER_URL: 'http://localhost:7433' } }
+  try {
+    assert.equal(envString('SABI_CONTROLLER_URL'), 'http://localhost:7433')
+    assert.equal(envString('SABI_CONTROLLER_TOKEN'), undefined)
+  } finally {
+    if (hadBun === undefined) delete globalThis.Bun
+    else globalThis.Bun = hadBun
+  }
+  const fallback = envString('SABI_CONTROLLER_URL')
+  assert.ok(fallback === undefined || typeof fallback === 'string')
 })
 
 test('OpenCode fails open without fetching a remote controller URL', async () => {
