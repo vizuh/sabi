@@ -250,7 +250,7 @@ function isAllowedOrigin(value: string | undefined): boolean {
     return false
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
-  const host = url.hostname.toLowerCase()
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
   return host === '127.0.0.1' || host === 'localhost' || host === '::1'
 }
 

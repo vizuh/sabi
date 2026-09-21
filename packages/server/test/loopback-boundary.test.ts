@@ -176,6 +176,14 @@ test('loopback origins and ordinary local clients still work', async () => {
   })
   assert.equal(loopbackOrigin.status, 200)
 
+  const ipv6LoopbackOrigin = await raw({
+    method: 'POST',
+    path: '/v1/chat/completions',
+    headers: { 'content-type': 'application/json', origin: 'http://[::1]:4000' },
+    body: chatBody,
+  })
+  assert.equal(ipv6LoopbackOrigin.status, 200)
+
   const read = await raw({ method: 'GET', path: '/decisions' })
   assert.equal(read.status, 200)
 })
