@@ -1,3 +1,5 @@
 name: sabi-metadata
 version: "0.1.0"
 description: Opaque attribution headers for the local Sabi Chat Completions alias
+provides_middleware:
+  - llm_request

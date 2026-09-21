@@ -5,6 +5,7 @@ import {
   appendDecision,
   applyJudge,
   buildJudgeState,
+  cacheObservationFromUsage,
   defaultLogPath,
   estimateCost,
   ensureRouteCompatible,
@@ -23,6 +24,7 @@ import {
   sessionIdFor,
   telemetryPolicy,
   type ChatRequestBody,
+  type CacheObservation,
   type DecisionRecord,
   type FailureLevel,
   type JudgeRecord,
@@ -108,6 +110,11 @@ interface SessionMemory {
   lastFailure?: FailureLevel
   /** Repeated-failure depth flag (1 = first hard round, 2 = repeated), matching the harness. */
   failureStreak?: number
+  /** Last Sabi route and role, used only for bounded model affinity. */
+  lastTier?: string
+  lastRoundKind?: RouteContext['previousRoundKind']
+  lastLastRole?: string
+  cache?: CacheObservation
   /**
    * Pre-shrink message count of an unconfirmed compaction candidate. A single small
    * request can also be a second consumer reusing the same session identity with a
@@ -166,6 +173,10 @@ function observeSession(
     // model is continuing. Unattributed requests never carry a previous failure.
     lastFailure: confirmed ? undefined : memory?.lastFailure,
     failureStreak: confirmed ? undefined : memory?.failureStreak,
+    lastTier: confirmed ? undefined : memory?.lastTier,
+    lastRoundKind: confirmed ? undefined : memory?.lastRoundKind,
+    lastLastRole: confirmed ? undefined : memory?.lastLastRole,
+    cache: confirmed ? undefined : memory?.cache,
     // Keep the original baseline while a candidate is armed so the next request is judged
     // against the same pre-shrink size; clear it once the candidate confirms or recovers.
     ...(armed ? { pendingBaseline: memory?.messages } : {}),
@@ -183,6 +194,13 @@ function observeSession(
       previousFailure: previous.lastFailure,
       ...(previous.failureStreak !== undefined ? { previousFailureStreak: previous.failureStreak } : {}),
     } : {}),
+    ...(previous?.lastTier !== undefined ? {
+      previousTier: previous.lastTier,
+      previousRoundKind: previous.lastRoundKind,
+      previousLastRole: previous.lastLastRole,
+      previousGeneration: previous.generation,
+      ...(previous.cache ? { previousCache: previous.cache } : {}),
+    } : {}),
   }
 }
 
@@ -193,6 +211,9 @@ function rememberFailure(state: ServerState, record: DecisionRecord): void {
   if (!memory) return
   memory.lastFailure = record.state.failure
   memory.failureStreak = record.state.failureStreak ?? 0
+  memory.lastTier = record.fallback ?? record.tier
+  memory.lastRoundKind = record.state.roundKind
+  memory.lastLastRole = record.state.lastRole
 }
 
 function rememberUsage(state: ServerState, record: DecisionRecord): void {
@@ -201,6 +222,7 @@ function rememberUsage(state: ServerState, record: DecisionRecord): void {
   if (!memory) return
   const tokens = measuredContextTokens(record.usage)
   if (tokens !== undefined) memory.tokens = tokens
+  memory.cache = cacheObservationFromUsage(record.usage)
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
@@ -523,6 +545,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     Object.assign(record, {
       alias: next.alias, mode: next.mode, rule: next.rule, tier: next.tier,
       reason: sanitizeReason(next.reason, state.telemetry), upstream: next.upstream, upstreamModel: next.upstreamModel,
+      cache: next.cache,
       state: {
         ...next.state,
         // Tool identities can contain arbitrary private text; classification still uses originals.
@@ -555,9 +578,11 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     }
     saveDecision(decision)
 
+    // Judge is a separate, bounded execution-evaluation lane. Cache affinity owns the
+    // conversation route; a retained same-cycle model must not be replaced by the evaluator.
     let judgeRecord: JudgeRecord | undefined
     stage = 'judge'
-    if (decision.mode === 'auto' && config.judge && judgeTriggers(decision, config.judge)) {
+    if (decision.mode === 'auto' && decision.cache?.action !== 'keep' && config.judge && judgeTriggers(decision, config.judge)) {
       // The judge endpoint is an explicit egress surface: raw instruction/tool text leaves
       // only on operator opt-in (`judge.includeSnippets` or `telemetry.captureSnippets`).
       const judgeState = buildJudgeState(body, decision, config.judge.maxStateChars, {

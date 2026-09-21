@@ -365,6 +365,33 @@ export interface UsageTotals {
   totalTokens: number
 }
 
+export type CacheStatus = 'hit' | 'miss' | 'unknown'
+
+export interface CacheObservation {
+  status: CacheStatus
+  promptTokens?: number
+  cachedTokens?: number
+}
+
+export type CacheRoutingPhase = 'same-tool-cycle' | 'new-phase' | 'failure' | 'escalation' | 'unknown'
+export type CacheRoutingAction = 'keep' | 'evaluate' | 'switch'
+
+/** Bounded routing evidence; costs are provider-rate units (USD per token after /1e6). */
+export interface CacheRoutingDecision {
+  action: CacheRoutingAction
+  phase: CacheRoutingPhase
+  cacheStatus: CacheStatus
+  plannedTier: string
+  selectedTier: string
+  previousTier?: string
+  estimatedContextTokens?: number
+  cachedTokens?: number
+  reprocessTokens?: number
+  expectedGain?: number
+  cachePenalty?: number
+  reason: string
+}
+
 export interface RouteDecision {
   alias: string
   mode: 'auto' | 'fixed'
@@ -376,6 +403,7 @@ export interface RouteDecision {
   upstreamModel: string
   state: TrajectoryState
   recovery?: RecoveryPlan
+  cache?: CacheRoutingDecision
 }
 
 export interface CostBreakdown {
@@ -423,6 +451,7 @@ export interface DecisionRecord {
   upstreamModel: string
   stream: boolean
   state: TrajectoryState
+  cache?: CacheRoutingDecision
   judge?: JudgeRecord
   usage?: UsageTotals
   cost?: CostBreakdown

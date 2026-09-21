@@ -1,5 +1,25 @@
 # Handoff Notes
 
+## Cache-aware model continuity + structured fallback handoff — 2026-09-21
+
+The scheduler now keeps the selected model through the same tool cycle and evaluates a change only
+at a new phase, failure or explicit escalation. Provider usage records `hit`, `miss` or `unknown`
+cache status; when a cache is warm, a phase change is retained unless the measured cost saving is
+greater than the estimated context reprocessing penalty. Hard failures and recovery actions remain
+explicit switch exceptions. Decision logs and `sabi report` expose the bounded cache evidence.
+
+Controller replacements and spawned terminals now receive a bounded structured capsule containing
+the objective, current plan, changed files, tools, failures, tests/verifications, results and next
+action. The current source session continues with the native harness request. The stale second Jev
+routing override was removed; Judge remains a separate bounded execution evaluator, and cache-kept
+rounds do not let it replace the serving model or rewrite the main conversation.
+
+Validation: core 227/227, server 96/96, adapters 61/61, eval/scripts 41/41 and controller 128/128
+passed in isolated groups; the sequential controller-plus-setup run passed 154/154; `npm run
+typecheck` and `git diff --check` passed. The default parallel `npm test` reached 552/553 because
+one setup assertion about `git-tracked` output failed only in that combined run. No commit, push,
+deployment or external publication was performed.
+
 ## OpenCode sandbox/pollution guards + Cline recipe (PR #92 keepers) — 2026-09-21
 
 Supersedes PR #92 (closed CONFLICTING): keeps only its independently-mergeable commits —

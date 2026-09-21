@@ -233,6 +233,7 @@ export function sanitizeDecisionRecord(record: DecisionRecord, config?: Telemetr
     upstreamModel: record.upstreamModel,
     stream: record.stream,
     state,
+    cache: record.cache,
     judge: record.judge,
     usage: record.usage,
     cost: record.cost,

@@ -696,6 +696,7 @@ async function main(): Promise<void> {
     return
   }
   const { command, args } = commandAndArgs(argv)
+  if (command === 'route') return runRoute(args)
   if (command === 'status' || command === 'agents') return runStatus(command, args)
   if (command === 'sessions') return runSessions(args)
   if (command === 'doctor') return runDoctor(args)

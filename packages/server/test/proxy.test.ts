@@ -539,6 +539,40 @@ test('a billed total floors the next round of the same session and marks the con
   assert.equal(thirdRecord.state.contextKnown, false)
 })
 
+test('a measured cache hit keeps the model through one tool cycle', async () => {
+  const before = (await readDecisions()).length
+  const headers = { 'content-type': 'application/json', 'x-sabi-session': 'cache-affinity-session-1' }
+  const first = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: 'sabi-code',
+      stream: false,
+      messages: [system, user, { role: 'assistant', tool_calls: [{ function: { name: 'grep', arguments: '{}' } }] }, { role: 'tool', content: '2 matches' }],
+    }),
+  })
+  await first.json()
+  await waitForDecision(before + 1)
+
+  const second = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: 'sabi-code',
+      stream: false,
+      messages: [system, user, { role: 'assistant', tool_calls: [{ function: { name: 'edit_file', arguments: '{}' } }] }, { role: 'tool', content: 'updated' }],
+    }),
+  })
+  assert.equal(second.status, 200)
+  await second.json()
+  const record = (await waitForDecision(before + 2)).at(-1)!
+  assert.equal(record.cache?.action, 'keep')
+  assert.equal(record.cache?.phase, 'same-tool-cycle')
+  assert.equal(record.cache?.plannedTier, 'mid')
+  assert.equal(record.tier, 'cheap')
+  assert.equal(mockBodies[mockBodies.length - 1]?.model, 'mock-cheap')
+})
+
 test('a transcript that stays much smaller is a host compaction: generation advances on the second small request', async () => {
   const before = (await readDecisions()).length
   const headers = { 'content-type': 'application/json', 'x-sabi-session': 'compaction-session-1' }

@@ -1,6 +1,7 @@
 import type { AgentState, ModApi, ModContext, ModelRequestEvent, TurnUsage } from '@commandcode/harness'
 import {
   appendDecision,
+  cacheObservationFromUsage,
   hashIdentity,
   loadConfig,
   measuredContextTokens,
@@ -42,6 +43,9 @@ interface Ledger {
   hasTools: boolean
   lastModel?: string
   lastUsage?: TurnUsage
+  lastTier?: string
+  lastLastRole?: string
+  lastCache?: import('@sabi/core').CacheObservation
   /** Stable per-mod-session identity; created once and never derived from prompt content. */
   sessionId?: string
 }
@@ -58,6 +62,9 @@ function readLedger(state: AgentState): Ledger {
     hasTools: raw.hasTools === true,
     lastModel: raw.lastModel,
     lastUsage: raw.lastUsage,
+    lastTier: raw.lastTier,
+    lastLastRole: raw.lastLastRole,
+    lastCache: raw.lastCache,
     sessionId: typeof raw.sessionId === 'string' ? raw.sessionId : undefined,
   }
 }
@@ -165,6 +172,9 @@ export default function sabi(cmd: ModApi): void {
         previousFailure = undefined
         ledger.generation = (ledger.generation ?? 0) + 1
         ledger.contextTokens = undefined
+        ledger.lastTier = undefined
+        ledger.lastLastRole = undefined
+        ledger.lastCache = { status: 'unknown' }
       }
       const round: HarnessRound = {
         messageCount: stats.messageCount,
@@ -181,7 +191,15 @@ export default function sabi(cmd: ModApi): void {
           : {}),
       }
       const trajectory = trajectoryFromRound(round, previousFailure)
-      const plan = planRound(trajectory, policy, tiers, { contextWindow: config.harness?.contextWindow })
+      const plan = planRound(trajectory, policy, tiers, {
+        contextWindow: config.harness?.contextWindow,
+        previous: {
+          tier: ledger.lastTier,
+          lastRole: ledger.lastLastRole,
+          generation: ledger.generation,
+          cache: ledger.lastCache,
+        },
+      })
       if (!plan) return undefined
       nextPlan = plan
       return plan.effort ? { model: plan.model, effort: plan.effort } : { model: plan.model }
@@ -215,6 +233,9 @@ export default function sabi(cmd: ModApi): void {
         // usage or model event stays unknown rather than re-serializing an old round's value.
         lastModel: servedBy,
         lastUsage: usedThisTurn ? usage : undefined,
+        lastTier: adopted?.tier ?? (compacted ? undefined : ledger.lastTier),
+        lastLastRole: adopted?.state.lastRole ?? (compacted ? undefined : ledger.lastLastRole),
+        lastCache: usedThisTurn ? cacheObservationFromUsage(toUsageTotals(usage)) : { status: 'unknown' },
       }
       previousFailure = adopted ? { failure: adopted.state.failure, failureEvidence: adopted.state.failureEvidence } : undefined
 
@@ -264,6 +285,7 @@ export default function sabi(cmd: ModApi): void {
           // This is the host adapter, not a provider entitlement claim.
           upstream: CLIENT_ID,
           upstreamModel: servingPlan.model,
+          cache: servingPlan.cache,
           stream: false,
           state: {
             ...servingPlan.state,
