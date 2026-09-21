@@ -952,3 +952,13 @@ OpenCode modalities paragraph describes the code derivation like the EN guide. F
 Validation: focused `cli.test.ts` 17/17, `npm test` 476/476, `npm run typecheck` clean,
 `git diff --check` clean, workflow YAML parses. No paid request, secret, user configuration,
 deployment or publication. Not pushed.
+
+## Public 0.1.4 release — 2026-09-21
+
+`@vizuh/sabi@0.1.4` is published (PR #84, tag `v0.1.4`, workflow `35580099282`, GitHub Release
+with the served tarball). It ships opt-in transport fallback (429/402/403 retry on adaptive
+rounds only when enabled; shipped off; 7 new tests) and the intent-gated surplus council spec;
+`sabi-free` was deferred for lack of a verifiable free id. Registry and tarball verified live.
+No controller tag (unchanged since `controller-v0.1.0`). Checkout is on `main`; the
+`release/0.1.4` branch and the `docs/ptbr-adapter-guides` stash `release-0.1.4 working tree`
+(superseded port sources) remain until Hugo prunes them.

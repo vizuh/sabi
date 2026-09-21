@@ -1163,3 +1163,14 @@ verify a free id, and the drafted `openrouter/auto` cost-zero claim would be fal
 auto-enlist via `surplusResources()`. Spec: multi-alias intent-gated council section in
 `docs/specs/surplus-inference.md` with the verified Hermes manifest backdrop; decision recorded
 in `docs/decisions.md`.
+## [2026-09-21] release | Publish @vizuh/sabi 0.1.4 (opt-in transport fallback)
+
+PR #84 (`release/0.1.4`) merged at `2e112dd`, tag `v0.1.4` pushed; release workflow `35580099282`
+succeeded. Verified from the registry, not just locally: `npm view @vizuh/sabi@0.1.4` resolves,
+the published tarball carries 5 files (`package.json`, `mod/sabi.mjs`, `sabi.config.json`,
+`README.md`, `LICENSE`) at version 0.1.4, and the shipped `sabi.config.json` contains
+`transportFallback: { enabled: false }`. GitHub Release `v0.1.4` created with the tarball npm
+serves. Local gates before merge: PR CI green, `npm test` 504/504, `npm run typecheck` clean,
+`git diff --check` clean, bundle builds via `pack.mjs`, offline eval unchanged (5/8 pass,
+-388.4% warning fixture — not a product benchmark). No controller tag: `packages/controller`
+unchanged since `controller-v0.1.0`. No paid request, secret, or user configuration changed.
