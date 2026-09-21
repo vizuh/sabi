@@ -1186,3 +1186,16 @@ an allowlisted projection so structurally compatible extra fields cannot persist
 
 This remains an additive foundation: no live provider-quality claim, automatic profile promotion,
 durable learning, external capsule consumer, deployment, or publication is implied.
+
+## [2026-09-21] docs | OpenCode native-first default
+
+`docs/adapters/opencode.md` now recommends keeping OpenCode's default on a native subscription
+model (e.g. `opencode-go/kimi-k3`) and using `sabi/sabi-code` per run, so an exhausted OpenRouter
+balance only fails `sabi/*` rounds instead of every session. Verified on the host 2026-09-21
+(OpenCode 1.18.31): default `sabi/sabi-code` failed a trivial prompt with the OpenRouter credit
+error (`requested up to 4096 tokens, but can only afford 3858`); native default answered. Same
+session also found that registering the state-home file path in `plugin` breaks
+`opencode models` (`undefined is not an object (evaluating 'n.provider')`), so the controller
+OpenCode bridge stays opt-in until file-path plugin loading is verified. Host config rewired
+accordingly (native default, `sabi` provider kept, no plugin entry); no secret, key, or WIP
+branch touched.
