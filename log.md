@@ -922,3 +922,45 @@ stability, plan-change sensitivity).
 - `packages/core/test/*.test.ts` — 154/154 pass
 - `packages/controller/test/*.test.ts` — 109/109 pass
 - `git diff --check` — clean
+
+## [2026-09-21] fix | Close six findings from a full-repo security review
+
+Four independent review passes (OpenCode/Muse free-tier live, OpenCode-Go/DeepSeek live paid,
+two Claude verification/coverage subagents) converged on and cross-verified a set of concrete
+findings; see `docs/reviews/security-review-2026-09-21.md` for the full writeup. Fixed the six
+narrow enough to land without a design decision: Orca `sabi.dispatch` rejects control characters
+instead of forwarding them straight to a terminal (was a real newline-injection-into-shell path);
+`sabi daemon --json`/`--status --json` no longer print the bearer token; `scripts/setup.ts`'s
+"Jev is off by default" message now actually writes `judge.enabled: false` for the OpenCode/
+Command-Code-B path instead of leaving the shipped `true` untouched; decision/council/surplus logs
+now write `0600` files in `0700` directories instead of inheriting the process umask; the
+controller daemon's bearer-token check uses `crypto.timingSafeEqual`; `SABI_HOOK_COMMAND` is now
+quoted the same way the default hook command already was.
+
+Left open and documented, not silently patched: the inference proxy (`packages/server`) has no
+authentication and no loopback-bind enforcement — fixing that changes the API contract for every
+adapter and is a product decision, not a hardening patch. Also documented: `SABI_DSH_BASE_URL`'s
+lack of loopback validation (architecturally can't be fixed on the Sabi side — it's evaluated by
+DSH's own YAML loader, not Sabi-authored runtime code), the unsalted tool-name hash, and a narrow
+TOCTOU window in `saveOpenRouterKey`'s chmod-after-write.
+
+Added `docs/security.md` (auth, authorization, encryption, audit logging, incident response —
+written from the codebase as it now stands, gaps named as gaps) and linked it from
+`docs/install.md`'s existing Security section.
+
+A fifth pass, `/code-review high` against the resulting diff, caught three real bugs in the fixes
+themselves before commit: the file-mode fix only applied at creation time (a pre-existing log on
+an upgraded install would keep its old permissions forever), the control-character regex missed
+the C1 range (NEL/CSI), and the new file-mode tests had no Windows guard. All three fixed — see
+the review doc for detail. A fourth code-review claim (quoting `SABI_HOOK_COMMAND` could break an
+undocumented multi-word usage) was evaluated and rejected: no test, doc, or example anywhere uses
+that pattern, and quoting is the objectively safer default regardless.
+
+Validation: full suite 431/431 (up from 402, +29 new/changed tests), `npm run typecheck` passed
+after every change, `git diff --check` passed. `sabi surplus review` was run for real against this
+diff's own tracked changes (`sabi-local`/Ollama) as a live dogfood pass — timed out twice at Sabi's
+30s deadline on the ~22KB diff on this host's local model, then confirmed via a direct call that
+the local model itself was simply slow on this input size, not broken; recorded honestly as
+`status: unavailable` in the council ledger rather than retried into a fabricated success. Two
+live external-model council receipts also recorded (Muse: `2f4920bb-...`, DeepSeek:
+`d5368cb3-...`; `sabi council history`). No push; local commit only on `security/full-repo-review`.

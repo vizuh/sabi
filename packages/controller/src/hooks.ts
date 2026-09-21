@@ -52,7 +52,9 @@ function commandFor(env: NodeJS.ProcessEnv, harness: HookHarness): string {
   const quote = (value: string): string => process.platform === 'win32'
     ? `"${value.replaceAll('"', '\\"')}"`
     : `'${value.replaceAll("'", "'\\''")}'`
-  const executable = configured || (process.argv[1] ? `${quote(process.execPath)} ${quote(path.resolve(process.argv[1]))}` : 'sabi')
+  const executable = configured
+    ? quote(configured)
+    : (process.argv[1] ? `${quote(process.execPath)} ${quote(path.resolve(process.argv[1]))}` : 'sabi')
   return `${executable} hook ${harness}`
 }
 

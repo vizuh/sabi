@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
@@ -83,6 +83,12 @@ test('surplus receipts persist metadata only', () => {
     appendSurplusReviewReceipt(receipt, file)
     assert.equal(readSurplusReviewReceipts(file)[0]?.claimCount, 1)
     assert.ok(!readFileSync(file, 'utf8').includes('null state'))
+    // POSIX-only (Windows has no owner/group/other bits). 0o600/0o700 bits survive any
+    // common POSIX umask (022, 002, ...).
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(file).mode & 0o777, 0o600)
+      assert.equal(statSync(path.dirname(file)).mode & 0o777, 0o700)
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

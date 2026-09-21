@@ -42,7 +42,7 @@ test('installHooks merges Claude, Codex and OpenCode without replacing existing 
     assert.equal(claudeWritten.model, 'keep-me')
     assert.equal(claudeWritten.hooks.Stop[0].hooks[0].command, 'existing-stop')
     assert.equal(claudeWritten.hooks.UserPromptSubmit.length, 1)
-    assert.match(claudeWritten.hooks.UserPromptSubmit[0].hooks[0].command, /^sabi-test hook claude/)
+    assert.match(claudeWritten.hooks.UserPromptSubmit[0].hooks[0].command, /^['"]sabi-test['"] hook claude/)
 
     const codexWritten = JSON.parse(readFileSync(codex, 'utf8'))
     assert.equal(codexWritten.hooks.Stop[0].hooks[0].command, 'existing-stop')
@@ -69,6 +69,32 @@ test('installHooks merges Claude, Codex and OpenCode without replacing existing 
     assert.equal(JSON.parse(readFileSync(codex, 'utf8')).hooks.UserPromptSubmit.length, 1)
     assert.equal(JSON.parse(readFileSync(opencode, 'utf8')).plugin.length, 2)
     assert.equal(second.length, 3)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a SABI_HOOK_COMMAND containing shell metacharacters cannot break out of its quoting', () => {
+  const root = workspace()
+  try {
+    const claude = path.join(root, 'claude', 'settings.json')
+    const payload = "sabi-test; touch /tmp/sabi-hooks-injection-poc"
+    const env = {
+      ...process.env,
+      HOME: root,
+      SABI_CLAUDE_SETTINGS: claude,
+      SABI_CODEX_HOOKS: path.join(root, 'codex', 'hooks.json'),
+      SABI_OPENCODE_CONFIG: path.join(root, 'opencode', 'opencode.json'),
+      SABI_HOOK_COMMAND: payload,
+      SABI_OPENCODE_HOOK_SOURCE: path.resolve('packages/adapters/opencode/src/sabi-hook.mjs'),
+    }
+    installHooks({ stateDir: path.join(root, 'state'), env })
+
+    const written = JSON.parse(readFileSync(claude, 'utf8'))
+    const command: string = written.hooks.UserPromptSubmit[0].hooks[0].command
+    // The whole payload must be one single-quoted shell token — never a bare, unescaped
+    // semicolon a shell would treat as a command separator.
+    assert.equal(command, `'${payload}' hook claude --event=UserPromptSubmit`)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

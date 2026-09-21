@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
@@ -147,6 +147,33 @@ test('council ledger receipts sanitize unknown fields, default and validate inde
       independence: 'bogus' as CouncilIndependence,
       claimCount: 0,
     }).independence, 'full')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('appendCouncilLedgerReceipt writes a ledger file that only the owner can read', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-council-mode-'))
+  const file = path.join(dir, 'nested', 'council.jsonl')
+  try {
+    const receipt = newCouncilLedgerReceipt({
+      taskKey: 'task-1',
+      harness: 'opencode',
+      stage: 'review',
+      mode: 'probe',
+      intent: 'api-contract',
+      status: 'completed',
+      evidence: 'execution',
+      source: 'live',
+      claimCount: 0,
+      now: new Date('2026-09-20T22:00:00.000Z'),
+    })
+    appendCouncilLedgerReceipt(receipt, file)
+    // POSIX-only — Windows has no owner/group/other permission bits to assert on.
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(file).mode & 0o777, 0o600)
+      assert.equal(statSync(path.dirname(file)).mode & 0o777, 0o700)
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

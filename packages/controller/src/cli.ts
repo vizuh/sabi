@@ -13,6 +13,7 @@ import {
   startControllerDaemon,
   stopControllerDaemon,
   writeControllerPreferences,
+  type ControllerDaemonInfo,
 } from './daemon.ts'
 import { configuredHarnesses } from './inventory.ts'
 import { adapterReady, builtInAdapterManifests, commandAvailable } from './adapter-contract.ts'
@@ -573,6 +574,14 @@ async function runHook(argv: string[]): Promise<void> {
   await runHookCommand(harness, flagValue(argv, '--event') ?? 'UserPromptSubmit')
 }
 
+/** The daemon token is a live IPC credential (packages/controller/src/daemon.ts:152) — it stays
+ * in the 0600 daemon.json file, never in a CLI print a scripted `--json` pipeline could log. */
+function withoutToken(info: ControllerDaemonInfo | undefined): Omit<ControllerDaemonInfo, 'token'> | undefined {
+  if (!info) return info
+  const { token: _token, ...rest } = info
+  return rest
+}
+
 async function runDaemon(argv: string[]): Promise<void> {
   const stateDir = controllerStateDir()
   if (argv.includes('--foreground')) {
@@ -587,14 +596,15 @@ async function runDaemon(argv: string[]): Promise<void> {
     return
   }
   if (argv.includes('--status')) {
-    const result = { stateDir, ...(await inspectControllerDaemon(stateDir)) }
+    const status = await inspectControllerDaemon(stateDir)
+    const result = { stateDir, ...status, info: withoutToken(status.info) }
     if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
     else console.log(`Sabi daemon: ${result.state}`)
     return
   }
   try {
     const info = await startControllerDaemon({ stateDir })
-    const result = { stateDir, state: 'running', info }
+    const result = { stateDir, state: 'running', info: withoutToken(info) }
     if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
     else console.log(`Sabi daemon running on http://${info.host}:${info.port}`)
   } catch (error) {

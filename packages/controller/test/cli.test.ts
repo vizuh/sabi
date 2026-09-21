@@ -305,6 +305,32 @@ test('setup reports the detached fallback when the user service backend is disab
   assert.equal(JSON.parse(stopped.stdout).stopped, true)
 })
 
+test('daemon --json and daemon --status --json never print the bearer token', () => {
+  const cwd = workspace()
+  const stateDir = path.join(cwd, 'controller-state')
+  try {
+    const started = run(['setup', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir, SABI_SERVICE_MODE: 'disabled' })
+    assert.equal(started.status, 0)
+    assert.equal(JSON.parse(started.stdout).daemon, 'running')
+
+    const status = run(['daemon', '--status', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
+    assert.equal(status.status, 0)
+    const statusRecord = JSON.parse(status.stdout)
+    assert.equal(statusRecord.state, 'running')
+    assert.equal('token' in statusRecord.info, false)
+    assert.equal(typeof statusRecord.info.port, 'number')
+    assert.equal(status.stdout.includes('token'), false)
+
+    const again = run(['daemon', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
+    assert.equal(again.status, 0)
+    const daemonRecord = JSON.parse(again.stdout)
+    assert.equal('token' in daemonRecord.info, false)
+    assert.equal(again.stdout.includes('token'), false)
+  } finally {
+    run(['daemon', '--stop', '--json'], cwd, { SABI_CONTROLLER_HOME: stateDir })
+  }
+})
+
 test('sessions lists bounded adapter registrations without exposing raw identities', () => {
   const cwd = workspace()
   const stateDir = path.join(cwd, 'controller-state')

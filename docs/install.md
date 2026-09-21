@@ -484,6 +484,10 @@ round. The mod never calls the judge; this applies to proxy clients only.
 
 ## Security
 
+This section covers the Command Code mod specifically. For the full picture across every
+harness — authentication, authorization, encryption, audit logging, and incident response — see
+[`docs/security.md`](security.md).
+
 - **The mod is arbitrary code** — it runs in-process with no sandbox, like any Command Code mod.
   Install packages you trust; this one is short and readable (`mod/sabi.ts`, plus `packages/core`).
 - **No secrets in git.** Keys are read from the environment; the config only stores `$ENV_VAR`

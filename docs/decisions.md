@@ -1058,3 +1058,33 @@ default; AI explanation is explicit, bounded and allowed to fall back locally.
 Move the flow behind the released `@vizuh/sabi-controller` package only after its controller-v*
 tag, clean-machine package proof and host-specific live receipts exist. Do not describe Claude/Codex
 hooks as native per-round model switching, or OpenRouter BYOK configuration as verified entitlement.
+
+## [2026-09-21] Security findings get fixed only when the fix has no design decision embedded
+
+### Decision
+
+Of the findings from the 2026-09-21 full-repo security review
+(`docs/reviews/security-review-2026-09-21.md`), fix in-place only the ones whose correct behavior
+is unambiguous from the surrounding code (Orca dispatch control-character rejection, daemon
+`--json` token redaction, the setup wizard writing what it prints, log file permissions matching
+the controller's own convention, constant-time token compare, hook-command quoting). Leave the
+inference proxy's missing authentication documented but unfixed.
+
+### Why
+
+Adding authentication to `packages/server` is not a hardening patch — it changes the API contract
+every adapter (`opencode`, `command-code`, `hermes`, `deepseek-harness`, `prime-agent`) currently
+relies on to talk to the proxy with zero credential. Whether that becomes an opt-in bearer token, a
+loopback-refuse-only floor mirroring the controller daemon, or something else is a real design
+choice with compatibility tradeoffs across every adapter's `connect.ts` — the kind of choice this
+log exists to record, not one to make silently inside a security-fix commit. The six fixes that did
+land share one property the auth question doesn't: their "correct" version was already implied by
+sibling code in the same repo (the controller daemon's own loopback/token/mode patterns, the
+default hook command's own quoting), so applying them was mechanical, not a judgment call.
+
+### Revisit later?
+
+Decide the proxy-auth design before building anything that assumes the local proxy is a trust
+boundary. Also open: `SABI_DSH_BASE_URL` validation (blocked on a DSH-side plugin that doesn't
+exist yet — the YAML patch is evaluated by DSH's own loader, not Sabi-authored code), the unsalted
+tool-name hash, and `saveOpenRouterKey`'s narrow chmod-after-write TOCTOU window.

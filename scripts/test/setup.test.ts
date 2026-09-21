@@ -229,6 +229,23 @@ test('--harness=opencode wires the real writer end to end', () => {
   assert.ok(written.provider.sabi)
 })
 
+test('--harness=opencode with neither --jev nor --no-jev actually turns Jev off, matching the printed message', () => {
+  const dir = workspace()
+  const configPath = tempSabiConfig()
+  const openCodeConfigPath = path.join(dir, 'opencode.json')
+  assert.equal(JSON.parse(readFileSync(configPath, 'utf8')).judge.enabled, true, 'precondition: shipped config starts true')
+
+  const { status, stdout } = run(['--harness=opencode'], {
+    SABI_CONFIG: configPath,
+    SABI_OPENCODE_CONFIG: openCodeConfigPath,
+  })
+  assert.equal(status, 0)
+  assert.match(stdout, /Jev is off by default/)
+  // The message claims Jev is off — the config must actually say so, not just the shipped
+  // default that was never touched (this was the bug: message printed, judge.enabled left true).
+  assert.equal(JSON.parse(readFileSync(configPath, 'utf8')).judge.enabled, false)
+})
+
 test('a failing writer is surfaced as this process\'s own non-zero exit code', () => {
   const dir = workspace()
   const openCodeConfigPath = path.join(dir, 'opencode.json')

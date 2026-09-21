@@ -1,8 +1,9 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
+import { appendPrivateLine } from './log.ts'
 import { hasSensitivePath } from './surplus.ts'
 import { looksLikeCanary } from './telemetry.ts'
 import type { SurplusResource } from './surplus.ts'
@@ -260,12 +261,11 @@ const RECEIPT_KEYS: ReadonlyArray<keyof CouncilLedgerReceipt> = [
 ]
 
 export function appendCouncilLedgerReceipt(receipt: CouncilLedgerReceipt, logFile = defaultCouncilLedgerPath()): void {
-  mkdirSync(path.dirname(logFile), { recursive: true })
   const sanitized: Record<string, unknown> = {}
   for (const key of RECEIPT_KEYS) {
     if (receipt[key] !== undefined) sanitized[key as string] = receipt[key]
   }
-  appendFileSync(logFile, `${JSON.stringify(sanitized)}\n`)
+  appendPrivateLine(logFile, `${JSON.stringify(sanitized)}\n`)
 }
 
 export function readCouncilLedgerReceipts(logFile = defaultCouncilLedgerPath()): CouncilLedgerReceipt[] {

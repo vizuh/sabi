@@ -68,3 +68,51 @@ test('activation registers the command, subscribes events, and sends through Orc
   assert.match(logs[0], /term-opencode/)
   await dispatchToTerminal(orca, 'read-only follow-up')
 })
+
+test('dispatch rejects a request carrying a newline instead of forwarding it to the terminal', async () => {
+  const calls = []
+  const orca = {
+    host: {
+      async call(name, params) {
+        calls.push({ name, params })
+        if (name === 'workspace.readContext') {
+          return { branch: 'main', displayName: 'sabi', terminals: [{ id: 'term-1' }] }
+        }
+        return { accepted: true }
+      },
+    },
+    log() {},
+  }
+
+  // A single embedded newline would submit as two separate terminal commands via
+  // terminal.sendText's Enter keypress — the injection this check exists to block.
+  await assert.rejects(
+    () => dispatchToTerminal(orca, 'run tests\nrm -rf /'),
+    /control characters/,
+  )
+  // Nothing should have reached Orca's host — the check fires before any host call.
+  assert.deepEqual(calls, [])
+})
+
+test('dispatch also rejects a C1 control character, not just ASCII \\n/\\r', async () => {
+  const calls = []
+  const orca = {
+    host: {
+      async call(name, params) {
+        calls.push({ name, params })
+        return name === 'workspace.readContext'
+          ? { branch: 'main', displayName: 'sabi', terminals: [{ id: 'term-1' }] }
+          : { accepted: true }
+      },
+    },
+    log() {},
+  }
+
+  // U+0085 (NEL) is outside the ASCII \n/\r range but a terminal reading 8-bit C1 controls
+  // treats it as a line break too — the same multi-command-injection shape as a literal newline.
+  await assert.rejects(
+    () => dispatchToTerminal(orca, 'run tests\u0085rm -rf /'),
+    /control characters/,
+  )
+  assert.deepEqual(calls, [])
+})
