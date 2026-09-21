@@ -17,8 +17,18 @@ tool loop, resume, three unique Sabi request receipts and shared-core routing `m
 Direct provider rebinding, auxiliary/subagent calls, compaction replacement and paid-provider
 quality remain explicit separate gates.
 
-## Host-AI onboarding and OpenRouter-only credential path — 2026-09-20
+## Hook/upgrade/startup hardening (#71, #73, #76) — 2026-09-21
 
+Branch `muse/hooks-lifecycle` (unpushed): controller upgrade installs with
+`--ignore-scripts` plus an `npm audit signatures` gate, server startup reports
+a busy port in one line and never echoes a pasted credential, uninstall removes
+`.sabi-backup` instead of resurrecting deleted configs, `SABI_HOOK_COMMAND`
+rejects shell metacharacters at install time, and `sabi doctor` reports stale
+absolute hook paths. Validation: `npm test` 435/435, `npm run typecheck` and
+`git diff --check` clean. Live host activation and cross-terminal execution
+remain separate evidence gates.
+
+## Host-AI onboarding and OpenRouter-only credential path — 2026-09-20
 The checkout setup wizard now supports a localized, question-led onboarding path for the existing
 Command Code, OpenCode and Hermes adapter surfaces: `--language=en|pt-BR`, explicit Hermes
 `--upstream=openrouter|hermes-nous`, and `--explain=local|ai`. OpenRouter is the only credential it

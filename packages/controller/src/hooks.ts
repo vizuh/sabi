@@ -42,13 +42,71 @@ function readObject(file: string, initial: JsonObject): JsonObject {
 function writeObject(file: string, value: JsonObject): string | undefined {
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   const backup = `${file}.sabi-backup`
+  // Created once and never refreshed: the rollback target stays anchored to the
+  // pre-first-setup content. It is removed when uninstall succeeds (see
+  // restoreHookBackups), so a later uninstall cannot resurrect a deleted file.
   if (existsSync(file) && !existsSync(backup)) copyFileSync(file, backup)
   writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
   return existsSync(backup) ? backup : undefined
 }
 
+/**
+ * Validate an executable-plus-arguments hook command. The value is written
+ * into host configuration that the harness runs through a shell, so shell
+ * metacharacters are rejected rather than quoted: quoting the whole value
+ * would break the supported `executable + arguments` shape (e.g.
+ * `node /path/to/sabi.mjs`). The error never echoes the value itself.
+ */
+export function validateHookCommand(value: string): void {
+  const trimmed = value.trim()
+  if (!trimmed) throw new Error('invalid SABI_HOOK_COMMAND: value must be an executable path plus optional arguments')
+  const tokens = splitHookCommand(trimmed)
+  if (!tokens.length) throw new Error('invalid SABI_HOOK_COMMAND: value must be an executable path plus optional arguments')
+  const forbidden = process.platform === 'win32'
+    ? /[;|&$`'"\n\r\0()<>*?!~#%^\[\]{}]/
+    : /[;|&$`\\'"\n\r\0()<>*?!~#%^\[\]{}]/
+  for (const token of tokens) {
+    if (!token || forbidden.test(token)) {
+      throw new Error('invalid SABI_HOOK_COMMAND: shell metacharacters are not allowed (use an executable path plus arguments)')
+    }
+  }
+}
+
+function splitHookCommand(value: string): string[] {
+  const tokens: string[] = []
+  let current = ''
+  let quote: "'" | '"' | undefined
+  let hasToken = false
+  for (const char of value) {
+    if (quote) {
+      if (char === quote) quote = undefined
+      else current += char
+      continue
+    }
+    if (char === "'" || char === '"') {
+      quote = char
+      hasToken = true
+      continue
+    }
+    if (char === ' ' || char === '\t') {
+      if (hasToken) {
+        tokens.push(current)
+        current = ''
+        hasToken = false
+      }
+      continue
+    }
+    current += char
+    hasToken = true
+  }
+  if (quote) throw new Error('invalid SABI_HOOK_COMMAND: unterminated quote (use an executable path plus arguments)')
+  if (hasToken) tokens.push(current)
+  return tokens
+}
+
 function commandFor(env: NodeJS.ProcessEnv, harness: HookHarness): string {
   const configured = env.SABI_HOOK_COMMAND?.trim()
+  if (configured) validateHookCommand(configured)
   const quote = (value: string): string => process.platform === 'win32'
     ? `"${value.replaceAll('"', '\\"')}"`
     : `'${value.replaceAll("'", "'\\''")}'`
@@ -179,11 +237,14 @@ export function restoreHookBackups(options: { harnesses?: InstalledHook[]; env?:
     const file = paths[harness]
     const backup = `${file}.sabi-backup`
     const hasBackup = existsSync(backup)
-    if (hasBackup && !existsSync(file)) {
-      copyFileSync(backup, file)
-      return { harness, path: file, restored: true }
+    // A deleted config stays deleted: uninstall strips Sabi entries from files
+    // that exist and never recreates a file the user removed. The backup has
+    // served its purpose once uninstall runs, so it is removed rather than
+    // kept for a later run to resurrect.
+    if (!existsSync(file)) {
+      if (hasBackup) removeBackup(backup)
+      return { harness, path: file, restored: false }
     }
-    if (!existsSync(file)) return { harness, path: file, restored: false }
     try {
       const current = readObject(file, {})
       let changed = false
@@ -219,10 +280,117 @@ export function restoreHookBackups(options: { harnesses?: InstalledHook[]; env?:
         if (onlySabiConfig) unlinkSync(file)
         else writeFileSync(file, `${JSON.stringify(current, null, 2)}\n`, { mode: 0o600 })
       }
+      if (hasBackup) removeBackup(backup)
       return { harness, path: file, restored: changed }
     } catch {
       return { harness, path: file, restored: false }
     }
+  })
+}
+
+function removeBackup(backup: string): void {
+  try {
+    unlinkSync(backup)
+  } catch {
+    // The backup is best-effort cleanup; a missing or locked file must not
+    // fail the uninstall that has already done its work.
+  }
+}
+
+export interface HookHealth {
+  harness: InstalledHook
+  path: string
+  installed: boolean
+  stale: boolean
+  detail: string
+}
+
+function hookExecutableTargets(command: string): string[] {
+  let tokens: string[]
+  try {
+    tokens = splitHookCommand(command)
+  } catch {
+    return []
+  }
+  if (!tokens.length) return []
+  const targets = [tokens[0] as string]
+  if (tokens.length >= 3 && tokens[2] === 'hook' && tokens[1] && /[/\\]|\.m?js$|\.ts$/.test(tokens[1] as string)) {
+    targets.push(tokens[1] as string)
+  }
+  return targets
+}
+
+function missingAbsoluteTarget(targets: string[]): string | undefined {
+  // Bare executable names rely on the host shell's PATH at hook runtime and
+  // cannot be verified from here; only baked absolute paths go stale.
+  for (const target of targets) {
+    if (!path.isAbsolute(target)) continue
+    if (!existsSync(target)) return target
+  }
+  return undefined
+}
+
+function sabiHookCommands(value: JsonObject, harness: HookHarness): string[] {
+  const commands: string[] = []
+  const hooks = value.hooks
+  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return commands
+  for (const entries of Object.values(hooks as JsonObject)) {
+    if (!Array.isArray(entries)) continue
+    for (const entry of entries) {
+      if (!isSabiHookEntry(entry, harness)) continue
+      const list = (entry as JsonObject).hooks
+      if (!Array.isArray(list)) continue
+      for (const hook of list) {
+        if (hook !== null && typeof hook === 'object' && !Array.isArray(hook)) {
+          const command = (hook as JsonObject).command
+          if (typeof command === 'string') commands.push(command)
+        }
+      }
+    }
+  }
+  return commands
+}
+
+/**
+ * Report whether installed Sabi hooks still resolve. Version-managed Node
+ * upgrades and moved checkouts leave baked absolute paths pointing at nothing;
+ * the hook then fails and Sabi silently fails open, so `sabi doctor` surfaces
+ * the staleness instead. Repair is the existing `sabi hooks install`.
+ */
+export function checkHookHealth(options: { env?: NodeJS.ProcessEnv } = {}): HookHealth[] {
+  const env = options.env ?? process.env
+  const paths: Record<InstalledHook, string> = {
+    claude: claudeSettingsPath(env),
+    codex: codexHooksPath(env),
+    opencode: openCodeConfigPath(env),
+  }
+  return (['claude', 'codex', 'opencode'] as InstalledHook[]).map((harness) => {
+    const file = paths[harness]
+    if (!existsSync(file)) return { harness, path: file, installed: false, stale: false, detail: 'not installed' }
+    let current: JsonObject
+    try {
+      current = readObject(file, {})
+    } catch {
+      return { harness, path: file, installed: false, stale: false, detail: 'unreadable config; run sabi hooks install to repair' }
+    }
+    if (harness === 'opencode') {
+      const plugins = current.plugin
+      if (!Array.isArray(plugins)) return { harness, path: file, installed: false, stale: false, detail: 'not installed' }
+      const installed = path.resolve(controllerStateDir(env), 'hooks', 'opencode.mjs')
+      const candidates = (plugins as unknown[]).filter((plugin): plugin is string =>
+        typeof plugin === 'string' && (plugin === installed || /sabi/i.test(plugin)))
+      if (!candidates.length) return { harness, path: file, installed: false, stale: false, detail: 'not installed' }
+      const missing = missingAbsoluteTarget(candidates)
+      if (missing) return { harness, path: file, installed: true, stale: true, detail: `hook plugin missing ${missing}; run sabi hooks install to repair` }
+      return { harness, path: file, installed: true, stale: false, detail: `${candidates.length} plugin(s) resolve` }
+    }
+    const commands = sabiHookCommands(current, harness)
+    if (!commands.length) return { harness, path: file, installed: false, stale: false, detail: 'not installed' }
+    for (const command of commands) {
+      const missing = missingAbsoluteTarget(hookExecutableTargets(command))
+      if (missing) return { harness, path: file, installed: true, stale: true, detail: `hook points at missing ${missing}; run sabi hooks install to repair` }
+    }
+    return { harness, path: file, installed: true, stale: false, detail: `${commands.length} hook(s) resolve` }
   })
 }
 

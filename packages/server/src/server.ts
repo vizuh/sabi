@@ -11,8 +11,10 @@ import {
   hashIdentity,
   JUDGE_QUESTIONS,
   judgeTriggers,
+  keyReferenceName,
   loadRecovery,
   measuredContextTokens,
+  resolveKey,
   route,
   SabiRouteError,
   sanitizeError,
@@ -34,6 +36,38 @@ import { buildUpstreamBody, callUpstream, chatResponseFromJson, isObject, readEr
 
 const BODY_LIMIT = 32 * 1024 * 1024
 const RECENT_LIMIT = 200
+
+/**
+ * Startup credential labels that never echo configured values. A literal key
+ * pasted into `apiKey` must not end up on the terminal (and from there in a
+ * pasted log), so only the config field name — plus the referenced env var
+ * when the reference itself is valid — is reported.
+ */
+export function credentialWarnings(config: SabiConfig, env: NodeJS.ProcessEnv = process.env): string[] {
+  const warnings: string[] = []
+  for (const [name, upstream] of Object.entries(config.upstreams)) {
+    if (upstream.apiKey === false) continue
+    try {
+      if (resolveKey(upstream.apiKey, env)) continue
+      const reference = keyReferenceName(upstream.apiKey)
+      warnings.push(reference ? `${name} ($${reference} is not set)` : `${name} (apiKey is not configured)`)
+    } catch {
+      warnings.push(`${name} (unsupported apiKey reference; use "$ENV_VAR" or false)`)
+    }
+  }
+  const judge = config.judge
+  if (judge?.enabled) {
+    try {
+      if (!resolveKey(judge.apiKey, env)) {
+        const reference = keyReferenceName(judge.apiKey)
+        warnings.push(reference ? `judge ($${reference} is not set)` : 'judge (apiKey is not configured)')
+      }
+    } catch {
+      warnings.push('judge (unsupported apiKey reference; use "$ENV_VAR" or false)')
+    }
+  }
+  return warnings
+}
 
 export interface SabiServerOptions {
   config: SabiConfig

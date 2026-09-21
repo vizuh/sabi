@@ -31,17 +31,33 @@ function safeVersion(value: string): string {
 export function upgradeController(versionValue = 'latest', env: NodeJS.ProcessEnv = process.env): UpgradeResult {
   const version = safeVersion(versionValue)
   const command = env.SABI_NPM_COMMAND?.trim() || 'npm'
-  const result = spawnSync(command, ['install', '--global', `@vizuh/sabi-controller@${version}`], {
+  const args = ['install', '--global', '--ignore-scripts', `@vizuh/sabi-controller@${version}`]
+  const display = `${command} ${args.join(' ')}`
+  const result = spawnSync(command, args, {
     stdio: 'inherit',
     env,
   })
   const status = result.status ?? 1
+  if (result.error) return { version, command: display, status, restarted: false, error: result.error.message }
+  if (status !== 0) return { version, command: display, status, restarted: false }
+  // The release workflow publishes with provenance, so verify the registry
+  // signatures of what was just installed. `--ignore-scripts` above keeps an
+  // arbitrary postinstall from running as the user either way.
+  const manager = command.split(/[\\/]/).pop()?.toLowerCase() ?? ''
+  if (manager === 'npm' || manager.startsWith('npm.')) {
+    const audit = spawnSync(command, ['audit', 'signatures'], { stdio: 'inherit', env })
+    if (audit.error) {
+      return { version, command: display, status: audit.status ?? 1, restarted: false, error: `signature verification failed: ${audit.error.message}` }
+    }
+    if ((audit.status ?? 1) !== 0) {
+      return { version, command: display, status: audit.status ?? 1, restarted: false, error: 'signature verification failed: npm audit signatures reported untrusted signatures' }
+    }
+  }
   return {
     version,
-    command: `${command} install --global @vizuh/sabi-controller@${version}`,
+    command: display,
     status,
     restarted: false,
-    ...(result.error ? { error: result.error.message } : {}),
   }
 }
 

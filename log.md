@@ -970,3 +970,33 @@ capture, receipts still hashes and counts. Session grouping hashes change once a
 upgrade (old and new hashes do not correlate — the intended privacy effect).
 
 Validation: `npm test` 434/434, `npm run typecheck` clean, `git diff --check` clean.
+## 2026-09-21 — Hook/upgrade/startup hardening (#71, #73, #76)
+
+**Scope**: `packages/controller/src/lifecycle.ts`, `hooks.ts`, `cli.ts`;
+`packages/server/src/server.ts`, `index.ts`; focused tests only. No paid
+providers, secrets, external worktrees, or unrelated files.
+
+- **#71** — `upgradeController` installs with `--ignore-scripts` and, for
+  npm-managed installs, verifies registry signatures (`npm audit signatures`)
+  after a successful install, failing the upgrade otherwise. Server startup
+  wraps `listen()` so a busy port prints one line (port + `SABI_PORT`/stop
+  hint) instead of an `EADDRINUSE` stack. Startup credential warnings
+  (`credentialWarnings()` in `server.ts`) report field names plus the
+  referenced `$VAR` only — a literal key pasted into `apiKey` is never echoed.
+- **#73** — `restoreHookBackups` no longer recreates a deleted harness config
+  from `.sabi-backup`, and removes the backup once uninstall has run (kept only
+  when the current file is unreadable). The create-once backup semantics are
+  now documented at the write site.
+- **#76** — `SABI_HOOK_COMMAND` is validated as executable-plus-arguments at
+  install time: shell metacharacters (`;|&$\`` etc.) and unterminated quotes
+  are rejected with an error that does not echo the value, and nothing is
+  written. Quoted multi-word paths and plain flags still work. `sabi doctor`
+  gains a `hooks` check via `checkHookHealth()`: baked absolute hook/plugin
+  paths that no longer exist are reported stale with a repair hint
+  (`sabi hooks install`); bare executable names are left to the host `PATH`.
+
+**Verified**:
+- focused: `hooks.test.ts`, `lifecycle.test.ts`, `server/test/startup.test.ts` pass
+- `npm test` — 435/435 pass
+- `npm run typecheck` — clean
+- `git diff --check` — clean

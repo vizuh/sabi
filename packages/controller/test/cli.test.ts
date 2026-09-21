@@ -221,6 +221,7 @@ test('doctor and config report local boundaries without reading secrets', () => 
   const doctorRecord = JSON.parse(doctor.stdout)
   assert.equal(doctorRecord.runtime.daemon, 'not-configured')
   assert.equal(doctorRecord.checks.some((check: { name: string }) => check.name === 'node'), true)
+  assert.equal(doctorRecord.checks.some((check: { name: string }) => check.name === 'hooks'), true)
 
   const config = run(['config', '--json'], cwd)
   assert.equal(config.status, 0)
