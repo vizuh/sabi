@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:http'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,7 +11,10 @@ import { registerSession } from '../src/registry.ts'
 const cliPath = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
 
 function workspace(): string {
-  return mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-cli-'))
+  // macOS getcwd() returns the physical path, so a temp dir under a symlinked
+  // TMPDIR (/var -> /private/var) must be canonicalized here or every cwd
+  // assertion compares a symlinked path against the CLI's resolved one.
+  return realpathSync.native(mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-cli-')))
 }
 
 function fakeHarnessPath(cwd: string, harnesses: string[]): string {
