@@ -35,6 +35,7 @@ limite, mas o adaptador não deve alegar troca nativa de modelo que o host não 
 | [Hermes](hermes.pt-BR.md) | Middleware nativo `llm_request` + proxy | Caminho Hermes 0.21.3 fixado e testado; caminhos auxiliares separados | Perfil isolado |
 | [Prime Agent](prime-agent.md) | Provider compatível com OpenAI + sondas | Compatibilidade do proxy testada com mock; timing nativo experimental | Perfil manual |
 | [Kilo](kilo.md) | Provider compatível com OpenAI | Receita de CLI testada; VS Code é um gate separado | Perfil manual |
+| [Cline](cline.md) | Provider compatível com OpenAI | Fixture de protocolo testada; execução real da extensão pendente | Perfil manual |
 | [Claude Code](claude-code.md) | Hook de controller no prompt do usuário | Integração parcial do controller | `sabi setup` |
 | [Codex](codex.md) | Hooks de ciclo de vida/prompt do controller | Integração parcial do controller | `sabi setup` |
 | [Orca](orca.md) | Plugin + ponte de inventário/dispatch | Inventário e superfície de dispatch limitada | `sabi setup` + Orca |

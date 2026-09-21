@@ -5,8 +5,31 @@ import path from 'node:path'
 
 const DEFAULT_CONTROLLER_URL = 'http://127.0.0.1:7433'
 
-export function trustedControllerURL(value = process.env.SABI_CONTROLLER_URL) {
-  const candidate = (value || DEFAULT_CONTROLLER_URL).trim()
+/**
+ * Reads a real environment string. OpenCode 1.18.31's plugin sandbox returns the
+ * plugin context object for `process.env.<key>` reads (verified live 2026-09-21
+ * with an instrumented probe plugin: even a genuinely exported string arrives as
+ * an object, so `.trim()` crashed every load). Every env read is therefore
+ * type-guarded and prefers `Bun.env`, which still exposes real strings there.
+ */
+export function envString(key) {
+  try {
+    const bunEnv = globalThis.Bun?.env
+    const viaBun = bunEnv ? bunEnv[key] : undefined
+    if (typeof viaBun === 'string') return viaBun
+  } catch {
+    // A sandboxed or absent Bun global must never break the plugin.
+  }
+  try {
+    const viaProcess = process?.env ? process.env[key] : undefined
+    return typeof viaProcess === 'string' ? viaProcess : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function trustedControllerURL(value = envString('SABI_CONTROLLER_URL')) {
+  const candidate = (typeof value === 'string' && value ? value : DEFAULT_CONTROLLER_URL).trim()
   try {
     const parsed = new URL(candidate)
     const host = parsed.hostname.toLowerCase()
@@ -19,10 +42,11 @@ export function trustedControllerURL(value = process.env.SABI_CONTROLLER_URL) {
 }
 
 function controllerToken() {
-  if (process.env.SABI_CONTROLLER_TOKEN) return process.env.SABI_CONTROLLER_TOKEN
-  const stateHome = process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state')
-  const stateDir = process.env.SABI_CONTROLLER_HOME || (process.platform === 'win32'
-    ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'sabi')
+  const explicitToken = envString('SABI_CONTROLLER_TOKEN')
+  if (explicitToken) return explicitToken
+  const stateHome = envString('XDG_STATE_HOME') || path.join(os.homedir(), '.local', 'state')
+  const stateDir = envString('SABI_CONTROLLER_HOME') || (process.platform === 'win32'
+    ? path.join(envString('LOCALAPPDATA') || path.join(os.homedir(), 'AppData', 'Local'), 'sabi')
     : path.join(stateHome, 'sabi'))
   try {
     const value = JSON.parse(readFileSync(path.join(stateDir, 'daemon.json'), 'utf8'))

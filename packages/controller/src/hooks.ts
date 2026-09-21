@@ -165,6 +165,34 @@ function openCodeConfigPath(env: NodeJS.ProcessEnv): string {
   return path.join(directory || path.join(os.homedir(), '.config', 'opencode'), 'opencode.json')
 }
 
+function isEphemeralPath(target: string, tmpRoot: string = os.tmpdir()): boolean {
+  try {
+    const resolved = path.resolve(target)
+    const root = path.resolve(tmpRoot)
+    return resolved === root || resolved.startsWith(root + path.sep)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Structural match for Sabi's own OpenCode plugin entries (`.../hooks/opencode.mjs`).
+ * Deliberately not an exact-path match: entries left by older or ephemeral state
+ * homes (test temp dirs) must still be recognizable for pruning and health checks.
+ */
+function isSabiOpenCodePluginEntry(entry: unknown): entry is string {
+  return typeof entry === 'string' && /(?:^|[/\\])hooks[/\\]opencode\.mjs$/.test(entry)
+}
+
+/**
+ * Sabi plugin entries that must never persist in an OpenCode config: paths under
+ * the OS temp dir (ephemeral test/controller homes) and entries whose plugin file
+ * no longer exists. Unrelated user plugins are never touched.
+ */
+function isStaleSabiPluginEntry(entry: unknown): boolean {
+  return isSabiOpenCodePluginEntry(entry) && (isEphemeralPath(entry) || !existsSync(entry))
+}
+
 function openCodeSourcePath(env: NodeJS.ProcessEnv): string {
   if (env.SABI_OPENCODE_HOOK_SOURCE?.trim()) return env.SABI_OPENCODE_HOOK_SOURCE.trim()
   const moduleDir = path.dirname(fileURLToPath(import.meta.url))
@@ -201,13 +229,24 @@ function installOpenCode(env: NodeJS.ProcessEnv, stateDir: string): HookInstallR
   const source = openCodeSourcePath(env)
   if (!existsSync(source)) throw new Error(`OpenCode hook source not found: ${source}`)
   const plugin = path.join(stateDir, 'hooks', 'opencode.mjs')
+  const file = openCodeConfigPath(env)
+  // An ephemeral state home (a test temp dir) must never be registered in a real
+  // OpenCode config: the entry dies with the temp dir and every later OpenCode
+  // start fails to load it. Refuse before touching the filesystem; test runs must
+  // point SABI_OPENCODE_CONFIG/OPENCODE_CONFIG_DIR at a temporary config too.
+  if (isEphemeralPath(plugin) && !isEphemeralPath(file)) {
+    throw new Error(
+      `Refusing to register the ephemeral plugin path ${plugin} in ${file}: the Sabi controller state home must be a durable directory when installing into a real OpenCode config`,
+    )
+  }
   mkdirSync(path.dirname(plugin), { recursive: true, mode: 0o700 })
   copyFileSync(source, plugin)
-  const file = openCodeConfigPath(env)
   const config = readObject(file, { $schema: 'https://opencode.ai/config.json' })
   const current = config.plugin
   if (current !== undefined && !Array.isArray(current)) throw new Error(`${file}.plugin must be an array`)
-  const plugins = (current as unknown[] | undefined) ?? []
+  // Prune stale Sabi entries (ephemeral leftovers, dead files) left by earlier
+  // installs before registering the current plugin path.
+  const plugins = ((current as unknown[] | undefined) ?? []).filter((entry) => !isStaleSabiPluginEntry(entry))
   config.plugin = plugins.includes(plugin) ? plugins : [...plugins, plugin]
   return { harness: 'opencode', path: file, plugin, backup: writeObject(file, config) }
 }
@@ -256,7 +295,11 @@ export function restoreHookBackups(options: { harnesses?: InstalledHook[]; env?:
         const plugins = current.plugin
         if (Array.isArray(plugins)) {
           const installed = path.resolve(controllerStateDir(env), 'hooks', 'opencode.mjs')
-          const filtered = plugins.filter((plugin) => plugin !== installed)
+          // Remove the current install plus stale Sabi entries (ephemeral test
+          // leftovers, dead files); a different durable Sabi install and unrelated
+          // user plugins are preserved.
+          const filtered = plugins.filter((plugin) =>
+            typeof plugin !== 'string' || (plugin !== installed && !isStaleSabiPluginEntry(plugin)))
           changed = filtered.length !== plugins.length
           if (changed) {
             if (filtered.length) current.plugin = filtered
@@ -384,6 +427,13 @@ export function checkHookHealth(options: { env?: NodeJS.ProcessEnv } = {}): Hook
       const candidates = (plugins as unknown[]).filter((plugin): plugin is string =>
         typeof plugin === 'string' && (plugin === installed || /sabi/i.test(plugin)))
       if (!candidates.length) return { harness, path: file, installed: false, stale: false, detail: 'not installed' }
+      const staleEntries = candidates.filter((candidate) => isStaleSabiPluginEntry(candidate))
+      if (staleEntries.length) {
+        return {
+          harness, path: file, installed: true, stale: true,
+          detail: `${staleEntries.length} stale Sabi plugin entr${staleEntries.length === 1 ? 'y' : 'ies'} (ephemeral or dead); run sabi hooks install to prune`,
+        }
+      }
       const missing = missingAbsoluteTarget(candidates)
       if (missing) return { harness, path: file, installed: true, stale: true, detail: `hook plugin missing ${missing}; run sabi hooks install to repair` }
       return { harness, path: file, installed: true, stale: false, detail: `${candidates.length} plugin(s) resolve` }

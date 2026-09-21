@@ -1228,3 +1228,20 @@ all `ok` via Nous with $0 cost while OpenRouter 402s. Bumped the Command Code ad
 `0.1.4` → `0.1.5`; the published tarball is code-identical to 0.1.4 (mod, default
 config, adapter README, LICENSE) and the release carries docs/recipe only. No secret,
 key, host state, or WIP branch changed by this release.
+
+## [2026-09-21] fix | OpenCode sandbox/pollution guards + Cline recipe (from PR #92)
+
+Supersedes PR #92, closed as CONFLICTING: only its independently-mergeable commits are
+kept here (cherry-picked with authorship intact). (1) `sabi-hook.mjs` reads env via
+`Bun.env` with type guards — OpenCode 1.18.31's plugin sandbox returns the plugin context
+object for `process.env` reads, which crashed every load (verified live with an
+instrumented probe). (2) `installOpenCode()` refuses ephemeral state-home plugin paths
+in real configs, prunes stale Sabi entries on install/uninstall, and `doctor` reports
+them. (3) Cline OpenAI-compatible provider recipe (`docs/adapters/cline.md`) plus a
+229-line protocol fixture test. Host repairs from that line (126 dead Orca plugin entries
+pruned with backup, stale Claude/Codex hooks removed, `sabi-proxy` user service) are host
+state, not in git. Deliberately NOT carried: the Jev-routing/dashboard/catalog WIP and
+its merge-conflict wreckage stay on the old branch for their owner; note its `sabi models
+suggest` recommended `:batch` models that 404 on `chat/completions` (verified live) and
+an unverified `$0` claim on `openrouter/auto` — both need fixing before that line can
+merge. No secret, key, or host state changed by this PR.

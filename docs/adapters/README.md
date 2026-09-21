@@ -30,6 +30,7 @@ If a host has no verified execution seam, Sabi can still document or observe the
 | [Hermes](hermes.md) | Native llm_request middleware + proxy | Pinned Hermes 0.21.3 path tested; auxiliary paths separate | Isolated profile |
 | [Prime Agent](prime-agent.md) | Custom OpenAI-compatible provider + probes | Proxy compatibility tested with mock; native timing experimental | Manual profile |
 | [Kilo](kilo.md) | OpenAI-compatible provider | CLI recipe tested; VS Code is a separate gate | Manual profile |
+| [Cline](cline.md) | OpenAI-compatible provider | Protocol fixture tested; live extension run pending | Manual profile |
 | [Claude Code](claude-code.md) | User-prompt controller hook | Partial controller integration | sabi setup |
 | [Codex](codex.md) | Lifecycle/prompt controller hooks | Partial controller integration | sabi setup |
 | [Orca](orca.md) | Plugin + inventory/dispatch bridge | Inventory and bounded dispatch surface | sabi setup + Orca |

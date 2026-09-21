@@ -1,5 +1,14 @@
 # Handoff Notes
 
+## OpenCode sandbox/pollution guards + Cline recipe (PR #92 keepers) — 2026-09-21
+
+Supersedes PR #92 (closed CONFLICTING): keeps only its independently-mergeable commits —
+the OpenCode 1.18.31 sandbox fix (`Bun.env` + type-guarded env reads), ephemeral-registration
+refusal with stale-entry pruning and doctor reporting, and the Cline provider recipe with
+protocol fixture. The Jev-routing/dashboard/catalog WIP and its conflict wreckage stay on
+the old branch; its `sabi models suggest` needs a fix for `:batch` recommendations (live
+404 on `chat/completions`) before merging.
+
 ## Current status
 
 `main` includes the global controller, Claude/Codex hooks, OpenCode bridge, Orca inventory/handoff,
