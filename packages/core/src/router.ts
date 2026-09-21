@@ -4,7 +4,7 @@ import { decideTier } from './policy.ts'
 import { applyMeasuredContext, extractTrajectoryState } from './state.ts'
 import type { ChatRequestBody, FailureLevel, ModelModality, RouteDecision, SabiConfig } from './types.ts'
 
-export { ensureRouteCompatible, isEnabledUpstream, SabiRouteError } from './compatibility.ts'
+export { ensureRouteCompatible, isEnabledUpstream, servesInputModalities, SabiRouteError } from './compatibility.ts'
 
 /**
  * One transport-fallback candidate: the next serving tier after the planned tier

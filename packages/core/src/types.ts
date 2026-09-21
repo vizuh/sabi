@@ -163,6 +163,21 @@ export interface JudgeThresholds {
   difficultyConfidence?: number
 }
 
+export interface JevRoutingConfig {
+  enabled: boolean
+  shadow: boolean
+  baseURL: string
+  apiKey?: string | false
+  model?: string
+  timeoutMs?: number
+  callOn?: string[]
+  maxStateChars?: number
+  costPerMTokInput?: number
+  privateProfiles?: string[]
+  /** Explicit opt-in for raw prompt/tool-excerpt egress to the Jev routing endpoint. */
+  includeSnippets?: boolean
+}
+
 export interface JudgeConfig {
   enabled: boolean
   baseURL: string
@@ -217,6 +232,7 @@ export interface SabiConfig {
   aliases: Record<string, string>
   policy: Record<string, string>
   compatibility?: CompatibilityConfig
+  jev?: JevRoutingConfig
   judge?: JudgeConfig
   telemetry?: TelemetryConfig
   controller?: ControllerConfig
@@ -251,6 +267,14 @@ export interface RouteDecision {
   upstream: string
   upstreamModel: string
   state: TrajectoryState
+  /** Jev routing decision, when consulted. Shadow mode records what Jev would do; live mode records what was applied. */
+  jevRouting?: {
+    shadow: boolean
+    jevTier: string
+    jevConfidence: number
+    policyTier: string
+    consulted: boolean
+  }
 }
 
 export interface CostBreakdown {
@@ -274,6 +298,10 @@ export interface JudgeRecord {
   overridden?: boolean
   direction?: 'down' | 'up'
   note?: string
+  /** Jev routing decision: which tier Jev recommends for this turn. */
+  routingTier?: string
+  /** Confidence for the routing decision. */
+  routingConfidence?: number
   usage?: { inputTokens: number; outputTokens: number }
 }
 
@@ -299,6 +327,13 @@ export interface DecisionRecord {
   stream: boolean
   state: TrajectoryState
   judge?: JudgeRecord
+  jevRouting?: {
+    shadow: boolean
+    jevTier: string
+    jevConfidence: number
+    policyTier: string
+    consulted: boolean
+  }
   usage?: UsageTotals
   cost?: CostBreakdown
   latencyMs?: number

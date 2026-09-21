@@ -5,11 +5,14 @@ import {
   appendDecision,
   applyJudge,
   buildJudgeState,
+  buildRoutingState,
   defaultLogPath,
   estimateCost,
   ensureRouteCompatible,
   getFallbackChain,
   hashIdentity,
+  isEnabledUpstream,
+  jevRoutingTriggers,
   JUDGE_QUESTIONS,
   judgeTriggers,
   keyReferenceName,
@@ -17,6 +20,7 @@ import {
   measuredContextTokens,
   resolveKey,
   route,
+  servesInputModalities,
   SabiRouteError,
   sanitizeError,
   sanitizeReason,
@@ -25,7 +29,9 @@ import {
   type ChatRequestBody,
   type DecisionRecord,
   type FailureLevel,
+  type JudgeConfig,
   type JudgeRecord,
+  type JevRoutingConfig,
   type RecoveryProfile,
   type RouteContext,
   type RouteDecision,
@@ -211,6 +217,169 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
 
 function sendError(res: ServerResponse, status: number, message: string, type = 'sabi_error'): void {
   sendJson(res, status, { error: { message, type, code: status } })
+}
+
+function buildDashboardHtml(decisions: DecisionRecord[]): string {
+  const rows = decisions.map((d) => {
+    const ts = d.ts ?? '-'
+    const alias = escapeHtml(d.alias)
+    const tier = escapeHtml(d.tier)
+    const rule = escapeHtml(d.rule)
+    const upstream = escapeHtml(d.upstream)
+    const model = escapeHtml(d.upstreamModel)
+    const latency = d.latencyMs != null ? `${d.latencyMs}ms` : '-'
+    const tokens = d.usage
+      ? `${d.usage.promptTokens}in/${d.usage.completionTokens}out`
+      : '-'
+    const cost = d.cost ? `$${d.cost.total.toFixed(5)}` : '-'
+    const outcome = escapeHtml(d.outcome)
+    const jevCols = d.jevRouting
+      ? [
+          `<td class="meta">shadow:${escapeHtml(String(d.jevRouting.shadow))}</td>`,
+          `<td class="meta">jevTier:${escapeHtml(d.jevRouting.jevTier)}</td>`,
+          `<td class="meta">jevConf:${d.jevRouting.jevConfidence.toFixed(2)}</td>`,
+          `<td class="meta">policyTier:${escapeHtml(d.jevRouting.policyTier)}</td>`,
+          `<td class="meta">consulted:${escapeHtml(String(d.jevRouting.consulted))}</td>`,
+        ].join('')
+      : '<td class="meta" colspan="5">-</td>'
+    const judgeCols = d.judge
+      ? [
+          `<td class="meta">status:${escapeHtml(d.judge.status)}</td>`,
+          `<td class="meta">jvLat:${d.judge.latencyMs != null ? `${d.judge.latencyMs}ms` : '-'}</td>`,
+          `<td class="meta">cached:${escapeHtml(String(d.judge.cached ?? false))}</td>`,
+        ].join('')
+      : '<td class="meta" colspan="3">-</td>'
+    return `      <tr>
+        <td>${ts}</td>
+        <td>${alias}</td>
+        <td>${tier}</td>
+        <td>${rule}</td>
+        <td>${upstream}</td>
+        <td>${model}</td>
+        <td>${latency}</td>
+        <td>${tokens}</td>
+        <td>${cost}</td>
+        <td>${outcome}</td>
+        ${jevCols}
+        ${judgeCols}
+      </tr>`
+  }).join('\n')
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="refresh" content="5">
+  <title>SABI Routing Dashboard</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      margin: 0;
+      padding: 20px;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 0 0 16px 0;
+      color: #e0e0e0;
+    }
+    .info {
+      color: #888;
+      font-size: 12px;
+      margin-bottom: 16px;
+    }
+    .table-wrapper {
+      overflow-x: auto;
+      border: 1px solid #333;
+      border-radius: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1100px;
+    }
+    th, td {
+      padding: 8px 10px;
+      text-align: left;
+      border-bottom: 1px solid #2a2a3e;
+      white-space: nowrap;
+    }
+    th {
+      background: #16162a;
+      color: #aaa;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      position: sticky;
+      top: 0;
+    }
+    tr:hover td {
+      background: #22223a;
+    }
+    td.meta {
+      color: #888;
+      font-size: 11px;
+    }
+    .outcome-ok { color: #4ade80; }
+    .outcome-error { color: #f87171; }
+    .outcome-transport { color: #fbbf24; }
+    .outcome-aborted { color: #94a3b8; }
+    .empty {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+    @media (max-width: 768px) {
+      body { padding: 10px; }
+      h1 { font-size: 15px; }
+      th, td { padding: 6px 8px; font-size: 11px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>SABI Routing Dashboard</h1>
+    <div class="info">Auto-refreshes every 5 seconds · Showing ${decisions.length} recent decision${decisions.length !== 1 ? 's' : ''}</div>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Alias</th>
+            <th>Tier</th>
+            <th>Rule</th>
+            <th>Upstream</th>
+            <th>Model</th>
+            <th>Latency</th>
+            <th>Tokens</th>
+            <th>Cost</th>
+            <th>Outcome</th>
+            <th colspan="5">Jev Routing</th>
+            <th colspan="3">Judge</th>
+          </tr>
+        </thead>
+        <tbody>
+${rows || '          <tr><td class="empty" colspan="18">No recent decisions</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>`
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 /**
@@ -468,6 +637,14 @@ async function handleRequest(state: ServerState, req: IncomingMessage, res: Serv
     sendJson(res, 200, { count: decisions.length, decisions })
     return
   }
+  if (req.method === 'GET' && path === '/dashboard') {
+    const limit = Math.min(Number(url.searchParams.get('limit') ?? 50) || 50, RECENT_LIMIT)
+    const decisions = state.recent.slice(-limit)
+    const html = buildDashboardHtml(decisions)
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    res.end(html)
+    return
+  }
   sendError(res, 404, `no route for ${req.method} ${path}`, 'not_found')
 }
 
@@ -511,8 +688,14 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     if (state.options.verbose !== false) {
       const cost = record.cost ? ` $${record.cost.total.toFixed(5)}` : ''
       const tokens = record.usage ? ` ${record.usage.promptTokens}in/${record.usage.completionTokens}out` : ''
-      console.log(`[sabi] ${record.alias} -> ${record.tier} (${record.rule}) -> ${record.upstreamModel}` +
-        ` · ${record.latencyMs}ms${tokens}${cost} · ${record.outcome}`)
+      const baseLog = `[sabi] ${record.alias} -> ${record.tier} (${record.rule}) -> ${record.upstreamModel}` +
+        ` · ${record.latencyMs}ms${tokens}${cost} · ${record.outcome}`
+      if (record.jevRouting && record.jevRouting.consulted) {
+        const jev = record.jevRouting
+        const shadowStr = jev.shadow ? 'shadow' : 'live'
+        console.log(`[sabi:jev] ${shadowStr}: Jev ${jev.shadow ? 'would route' : 'routed'} to ${jev.jevTier} (confidence ${jev.jevConfidence.toFixed(2)}), ${jev.shadow ? 'policy chose' : 'overriding policy\'s'} ${jev.policyTier}`)
+      }
+      console.log(baseLog)
     }
   }
   const observeModel = (model: unknown): string | undefined =>
@@ -523,6 +706,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     Object.assign(record, {
       alias: next.alias, mode: next.mode, rule: next.rule, tier: next.tier,
       reason: sanitizeReason(next.reason, state.telemetry), upstream: next.upstream, upstreamModel: next.upstreamModel,
+      jevRouting: next.jevRouting,
       state: {
         ...next.state,
         // Tool identities can contain arbitrary private text; classification still uses originals.
@@ -535,6 +719,10 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
   }
 
   try {
+    // Extract raw session header for private-profile routing before requestIdentity
+    // validates it (requestIdentity may throw on invalid format, but we only need
+    // the raw value for prefix matching against privateProfiles).
+    const rawSession = typeof req.headers['x-sabi-session'] === 'string' ? req.headers['x-sabi-session'] : undefined
     const identity = requestIdentity(req)
     res.setHeader('x-sabi-request-id', identity.requestId!)
     const raw = await readBody(req, signal)
@@ -554,6 +742,170 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       stream: body.stream === true, state: decision.state, outcome: 'ok',
     }
     saveDecision(decision)
+
+    // Jev routing: consult Jev for every auto round when configured.
+    // Shadow mode records what Jev would do; live mode overrides the policy tier.
+    //
+    // FAIL-OPEN CONTRACT (intentional — the proxy must always serve requests):
+    //   1. Jev unavailable (timeout, network error, HTTP error): policy decision is kept.
+    //   2. Jev returns an invalid routingTier (not a string, or not in config.models):
+    //      policy decision is kept, a warning is logged.
+    //   3. Jev returns a routingTier that is unavailable (upstream disabled, capability
+    //      mismatch): policy decision is kept, the tier is skipped.
+    //   4. Jev returns an invalid routingConfidence (not a number, or outside [0,1]):
+    //      the confidence is replaced with 0, a warning is logged, policy decision is kept.
+    //
+    // This is not a gap to be filled — it is the design. Jev is an opinion about routing,
+    // never a dependency of serving. The moment a routing opinion can prevent a request from
+    // being served, the proxy is worse than the deterministic policy it supplements. Every
+    // failure path above ends with the request served exactly as the policy alone would have
+    // chosen. Fail-open is the default; live override is the exception that must clear every
+    // gate.
+    let jevRoutingMeta: RouteDecision['jevRouting'] = undefined
+    if (decision.mode === 'auto' && config.jev && jevRoutingTriggers(decision, config.jev)) {
+      const jevConfig: JudgeConfig = {
+        enabled: true,
+        baseURL: config.jev.baseURL,
+        apiKey: config.jev.apiKey,
+        model: config.jev.model ?? 'jev-latest',
+        timeoutMs: config.jev.timeoutMs,
+        cacheTtlMs: 0,
+        callOn: ['auto'],
+      }
+      const routingState = buildRoutingState(
+        body, decision, decision.tier, config,
+        config.jev.maxStateChars ?? 2500,
+        rawSession,
+      )
+      const routingStarted = Date.now()
+      try {
+        const routingResult = await abortable(
+          state.judge.ask(routingState, JUDGE_QUESTIONS, jevConfig, signal), signal,
+        )
+        const outcome = routingResult.outcome
+
+        // --- Validate the Jev response before using it. ---
+        // Fail-open guard: if the response is malformed, the policy decision is kept and a
+        // warning is logged. This catches caller bugs, upstream schema drift, and partial
+        // responses — all of which must not alter routing.
+        const routingTier = outcome.routingTier
+        const routingConfidence = outcome.routingConfidence
+        let responseValid = true
+
+        if (typeof routingTier !== 'string' || routingTier.length === 0) {
+          console.warn(
+            `[sabi:jev] invalid Jev response: routingTier must be a non-empty string, ` +
+            `got ${JSON.stringify(routingTier)}. Keeping policy decision.`
+          )
+          responseValid = false
+        } else if (!config.models[routingTier]) {
+          console.warn(
+            `[sabi:jev] invalid Jev response: routingTier "${routingTier}" is not in ` +
+            `config.models. Keeping policy decision.`
+          )
+          responseValid = false
+        }
+
+        if (typeof routingConfidence !== 'number' || !Number.isFinite(routingConfidence) ||
+            routingConfidence < 0 || routingConfidence > 1) {
+          if (responseValid) {
+            console.warn(
+              `[sabi:jev] invalid Jev response: routingConfidence must be a number in [0,1], ` +
+              `got ${JSON.stringify(routingConfidence)}. Keeping policy decision.`
+            )
+          } else {
+            console.warn(
+              `[sabi:jev] invalid Jev response: routingConfidence must be a number in [0,1], ` +
+              `got ${JSON.stringify(routingConfidence)}.`
+            )
+          }
+          // Any validation failure — including a bad confidence — means the Jev response
+          // is not trustworthy. Fail open: keep the policy decision. The confidence is
+          // recorded as 0 in the fail-open metadata below; we do not carry a bad value.
+          responseValid = false
+        }
+
+        if (!responseValid) {
+          // Jev response was invalid — fail open: keep the policy decision, record the
+          // consultation so it shows up in logs and the /decisions endpoint.
+          jevRoutingMeta = {
+            shadow: config.jev.shadow,
+            jevTier: decision.tier,
+            jevConfidence: 0,
+            policyTier: decision.tier,
+            consulted: true,
+          }
+          decision = { ...decision, jevRouting: jevRoutingMeta }
+        } else if (config.jev.shadow) {
+          // Shadow: log what Jev would do, keep the policy decision.
+          jevRoutingMeta = {
+            shadow: true,
+            jevTier: outcome.routingTier ?? decision.tier,
+            jevConfidence: outcome.routingConfidence ?? 0,
+            policyTier: decision.tier,
+            consulted: true,
+          }
+          decision = { ...decision, jevRouting: jevRoutingMeta }
+        } else if (outcome.routingTier && config.models[outcome.routingTier]) {
+          // Live: override with Jev's tier, with capability/availability fallback.
+          // The routingTier was already validated above (string + present in config.models).
+          // This branch additionally checks: (a) the upstream is enabled, and (b) the model
+          // serves the input modalities the request needs. If either check fails, the policy
+          // decision is kept — Jev suggested a tier we cannot actually serve. Fail-open.
+          const jevTier = outcome.routingTier!
+          const jevModel = config.models[jevTier]!
+          if (isEnabledUpstream(config.upstreams[jevModel.upstream]) &&
+              servesInputModalities(jevModel.capabilities?.inputModalities, decision.state.inputModalities ?? [])) {
+            jevRoutingMeta = {
+              shadow: false,
+              jevTier,
+              jevConfidence: outcome.routingConfidence ?? 0,
+              policyTier: decision.tier,
+              consulted: true,
+            }
+            decision = {
+              ...decision,
+              tier: jevTier,
+              rule: 'jev-routing',
+              reason: `jev routing: ${jevTier} (confidence ${outcome.routingConfidence?.toFixed(2)})`,
+              model: jevTier,
+              upstream: jevModel.upstream,
+              upstreamModel: jevModel.model,
+              jevRouting: jevRoutingMeta,
+            }
+          }
+        }
+      } catch (error) {
+        if (signal.aborted) throw signal.reason
+        // Fail-open: Jev was unreachable (timeout, network error, HTTP error, DNS failure).
+        // The policy decision is kept — the request is served exactly as the deterministic
+        // policy alone would have chosen. This is the contract: a routing opinion must never
+        // prevent a request from being served. The consultation is still recorded so the event
+        // appears in /decisions and the console log, making outages visible rather than silent.
+        jevRoutingMeta = {
+          shadow: config.jev.shadow,
+          jevTier: decision.tier,
+          jevConfidence: 0,
+          policyTier: decision.tier,
+          consulted: true,
+        }
+        decision = { ...decision, jevRouting: jevRoutingMeta }
+      }
+    }
+
+    // Re-save decision after Jev routing may have modified it.
+    saveDecision(decision)
+
+    // Add Jev routing header to response when Jev was consulted.
+    if (decision.jevRouting && decision.jevRouting.consulted) {
+      const jev = decision.jevRouting
+      res.setHeader('x-sabi-jev', JSON.stringify({
+        'jev-tier': jev.jevTier,
+        'jev-confidence': jev.jevConfidence,
+        'jev-shadow': jev.shadow ? 'true' : 'false',
+        'jev-policy-tier': jev.policyTier,
+      }))
+    }
 
     let judgeRecord: JudgeRecord | undefined
     stage = 'judge'

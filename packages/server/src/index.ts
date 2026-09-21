@@ -40,6 +40,9 @@ for (const [tier, model] of Object.entries(config.models)) {
 if (judge?.enabled) {
   console.log(`  judge  : ${judge.model ?? 'jev-latest'} at ${judge.baseURL} (on: ${(judge.callOn ?? ['failure', 'unclassified']).join(', ')})`)
 }
+if (config.jev?.enabled) {
+  console.log(`  jev-routing: ${config.jev.model ?? 'jev-latest'} at ${config.jev.baseURL} (shadow: ${config.jev.shadow}, on: ${(config.jev.callOn ?? ['auto']).join(', ')})`)
+}
 if (missingKeys.length) {
   console.log(`  WARN   : missing upstream credentials for ${missingKeys.join(', ')} — those requests will fail`)
 }

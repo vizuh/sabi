@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs'
 import { defaultLogPath, estimateCost, loadConfig, readDecisions, readLogWriteFailures } from '@sabi/core'
+import { TIER_ORDER } from '@sabi/core'
 
 const config = loadConfig()
 const logFile = defaultLogPath()
@@ -40,6 +41,11 @@ let judgeLatencyCount = 0
 let judgeInputTokens = 0
 let shadowScored = 0
 let shadowRedundant = 0
+let jevRoutingShadowDecisions = 0
+let jevRoutingShadowAgreed = 0
+let jevRoutingShadowDown = 0
+let jevRoutingShadowUp = 0
+let jevRoutingShadowSame = 0
 let unknownCostRows = 0
 let unknownCounterfactualRows = 0
 let unknownJudgeUsageCalls = 0
@@ -78,6 +84,23 @@ for (const row of rows) {
     if (typeof row.judge.evidenceRedundant === 'number') {
       shadowScored += 1
       if (row.judge.evidenceRedundant >= EVIDENCE_REDUNDANT_THRESHOLD) shadowRedundant += 1
+    }
+  }
+  // Jev routing shadow comparison: when shadow mode was on, compare Jev's choice to policy.
+  if (row.jevRouting?.shadow && row.jevRouting.consulted) {
+    jevRoutingShadowDecisions += 1
+    const jevTier = row.jevRouting.jevTier
+    const policyTier = row.jevRouting.policyTier
+    if (jevTier === policyTier) {
+      jevRoutingShadowAgreed += 1
+    } else {
+      const jevOrder = TIER_ORDER[jevTier]
+      const policyOrder = TIER_ORDER[policyTier]
+      if (jevOrder !== undefined && policyOrder !== undefined) {
+        if (jevOrder < policyOrder) jevRoutingShadowDown += 1
+        else if (jevOrder > policyOrder) jevRoutingShadowUp += 1
+        else jevRoutingShadowSame += 1
+      }
     }
   }
   firedRules.add(row.rule)
@@ -186,6 +209,13 @@ if (asJson) {
           cost: judgeCost,
           evidenceRedundant: { scored: shadowScored, redundant: shadowRedundant, threshold: EVIDENCE_REDUNDANT_THRESHOLD },
         },
+        jevRouting: {
+          shadowDecisions: jevRoutingShadowDecisions,
+          agreed: jevRoutingShadowAgreed,
+          downgradings: jevRoutingShadowDown,
+          upgradings: jevRoutingShadowUp,
+          sameTier: jevRoutingShadowSame,
+        },
       },
       null,
       2,
@@ -211,6 +241,11 @@ if (asJson) {
   if (shadowScored > 0) {
     console.log(
       `shadow    evidence-redundant ≥ ${EVIDENCE_REDUNDANT_THRESHOLD.toFixed(2)} on ${shadowRedundant}/${shadowScored} judged rounds — recorded only, nothing dropped`,
+    )
+  }
+  if (jevRoutingShadowDecisions > 0) {
+    console.log(
+      `jev-routing shadow ${jevRoutingShadowDecisions} decisions · policy/Jev agreed ${jevRoutingShadowAgreed} · Jev would downgrade ${jevRoutingShadowDown} · Jev would upgrade ${jevRoutingShadowUp} · same tier ${jevRoutingShadowSame} — ${config.jev?.shadow ? 'shadow mode: Jev does not control the route' : 'live mode'}`,
     )
   }
   console.log('')

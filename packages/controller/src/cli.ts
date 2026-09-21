@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
-import { appendCouncilLedgerReceipt, councilPreGate, createCouncilPlanReceipt, configureFreeQuality, defaultConfigPath, loadConfig, newCouncilLedgerReceipt, readCouncilLedgerReceipts, readSurplusReviewReceipts, surplusResources, type CouncilEvidenceLevel, type CouncilIndependence, type CouncilIntent, type CouncilMode, type CouncilPlan, type CouncilPlanReason, type CouncilReceiptSource, type CouncilReceiptStatus, type CouncilStage, type SurplusReviewIntent } from '@sabi/core'
+import { appendCouncilLedgerReceipt, councilPreGate, createCouncilPlanReceipt, configureFreeQuality, defaultConfigPath, loadConfig, newCouncilLedgerReceipt, readCouncilLedgerReceipts, readSurplusReviewReceipts, surplusResources, type CouncilEvidenceLevel, type CouncilIndependence, type CouncilIntent, type CouncilMode, type CouncilPlan, type CouncilPlanReason, type CouncilReceiptSource, type CouncilReceiptStatus, type CouncilStage, type ModelCapabilities, type ModelEntry, type SurplusReviewIntent } from '@sabi/core'
 import {
   controllerPreferencesPath,
   controllerStateDir,
@@ -26,9 +26,9 @@ import { checkHookHealth, installHooks, runHookCommand, type InstalledHook } fro
 import { runSurplusReview } from './surplus.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'upgrade' | 'uninstall'
+type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'upgrade' | 'uninstall' | 'models'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'upgrade', 'uninstall'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'upgrade', 'uninstall', 'models'])
 const CLI_VERSION = process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
 
 function flagValue(argv: string[], name: string): string | undefined {
@@ -85,6 +85,8 @@ function printHelp(): void {
   sabi daemon [--status|--stop|--foreground] [--json]
   sabi hooks install [--claude] [--codex] [--opencode] [--json]
   sabi hook <claude|codex> [--event=UserPromptSubmit]
+  sabi models list [--cwd=<path>] [--json]
+  sabi models suggest [--dry-run] [--write] [--cwd=<path>] [--json]
 
 The current CLI uses live Orca state when available. Run "sabi setup" once;
 it installs hooks only for detected supported harnesses after this explicit setup command.`)
@@ -685,6 +687,297 @@ function runReplay(argv: string[]): void {
   if (result.averageDurationMs !== undefined) console.log(`average duration: ${result.averageDurationMs}ms`)
 }
 
+async function runModels(argv: string[]): Promise<void> {
+  const action = argv.find((arg) => !arg.startsWith('--')) ?? 'list'
+  if (action === 'list') {
+    runModelsList(argv)
+    return
+  }
+  if (action === 'suggest') return runModelsSuggest(argv)
+  throw new Error(`unsupported models action '${action}'. Use 'list' or 'suggest'.`)
+}
+
+function runModelsList(argv: string[]): void {
+  const cwd = resolvedCwd(argv)
+  const configPath = defaultConfigPath({ cwd })
+  const config = loadConfig(configPath)
+
+  if (jsonRequested(argv)) {
+    console.log(JSON.stringify({
+      configPath,
+      models: Object.entries(config.models).map(([tier, entry]) => ({
+        tier,
+        upstream: entry.upstream,
+        model: entry.model,
+        contextWindow: entry.contextWindow,
+        maxOutputTokens: entry.maxOutputTokens,
+        capabilities: entry.capabilities,
+        cost: entry.cost,
+      })),
+      aliases: config.aliases,
+      policy: config.policy,
+    }, null, 2))
+    return
+  }
+
+  console.log('Sabi models')
+  console.log(`config: ${configPath}`)
+  console.log('')
+
+  // Models table
+  const rows = Object.entries(config.models)
+  if (rows.length === 0) {
+    console.log('No models configured.')
+    console.log('')
+  } else {
+    const header = '| Tier | Upstream | Model | Context Window | Max Output | Input $/MTok | Output $/MTok | Capabilities |'
+    const separator = '|:-----|:---------|:------|:---------------|:-----------|:-------------|:---------------|:-------------|'
+    console.log(header)
+    console.log(separator)
+    for (const [tier, entry] of rows) {
+      const contextWindow = entry.contextWindow ? formatNumber(entry.contextWindow) : '—'
+      const maxOutput = entry.maxOutputTokens ? formatNumber(entry.maxOutputTokens) : '—'
+      const inputCost = entry.cost?.input != null ? `$${entry.cost.input.toFixed(2)}` : '—'
+      const outputCost = entry.cost?.output != null ? `$${entry.cost.output.toFixed(2)}` : '—'
+      const capabilities = entry.capabilities
+        ? Object.entries(entry.capabilities)
+            .filter(([, v]) => v !== undefined && v !== false)
+            .map(([k, v]) => {
+              if (k === 'inputModalities' || k === 'outputModalities') {
+                return `${k}: [${v.join(', ')}]`
+              }
+              return k
+            })
+            .join(', ')
+        : '—'
+      console.log(`| ${tier} | ${entry.upstream} | ${entry.model} | ${contextWindow} | ${maxOutput} | ${inputCost} | ${outputCost} | ${capabilities} |`)
+    }
+    console.log('')
+  }
+
+  // Aliases
+  if (Object.keys(config.aliases).length > 0) {
+    console.log('Aliases:')
+    for (const [alias, target] of Object.entries(config.aliases)) {
+      console.log(`  ${alias} → ${target}`)
+    }
+    console.log('')
+  }
+
+  // Policy mapping
+  if (Object.keys(config.policy).length > 0) {
+    console.log('Policy mapping (rule → tier):')
+    for (const [rule, tier] of Object.entries(config.policy)) {
+      console.log(`  ${rule}: ${tier}`)
+    }
+  }
+}
+
+interface Suggestion {
+  model: string
+  upstream: string
+  contextWindow: number | null
+  inputPricePerMTok: number | null
+  outputPricePerMTok: number | null
+  modalities: string[]
+  rationale: string
+}
+
+interface PriceBand {
+  inputMin?: number
+  inputMax?: number
+  outputMin?: number
+  outputMax?: number
+}
+
+async function runModelsSuggest(argv: string[]): Promise<void> {
+  const cwd = resolvedCwd(argv)
+  const configPath = defaultConfigPath({ cwd })
+  const config = loadConfig(configPath)
+  const dryRun = argv.includes('--dry-run')
+  const write = argv.includes('--write')
+
+  if (!dryRun && !write) {
+    throw new Error('Specify --dry-run to preview suggestions or --write to save them to the config.')
+  }
+  if (dryRun && write) {
+    throw new Error('Specify either --dry-run or --write, not both.')
+  }
+
+  console.log('Sabi model suggestions')
+  console.log(`config: ${configPath}`)
+  console.log('')
+
+  // Price bands per tier (USD per 1M tokens)
+  const bands: Record<string, PriceBand> = {
+    cheap: { inputMax: 0.10, outputMax: 0.20 },
+    mid: { inputMin: 0.10, inputMax: 1.00, outputMin: 1.00, outputMax: 5.00 },
+    strong: { inputMin: 1.00, outputMin: 5.00 },
+  }
+
+  // Tier requirements
+  const tierRequirements = {
+    cheap: { minContextWindow: 32000, modalities: ['text'] },
+    mid: { minContextWindow: 100000, modalities: ['text'] },
+    strong: { minContextWindow: 1000000, modalities: ['text', 'image', 'file'] },
+  }
+
+  let catalog: OpenRouterModel[]
+  try {
+    catalog = await getOpenRouterCatalog()
+    console.log(`Catalog: ${catalog.length} models from OpenRouter (fetched live)`)
+  } catch (error) {
+    console.log(`Warning: could not fetch OpenRouter catalog: ${(error as Error).message}`)
+    console.log('Using cached catalog from config provenance or empty catalog.')
+    catalog = []
+  }
+  console.log('')
+
+  const suggestions: Record<string, Suggestion | null> = {}
+
+  for (const tier of ['cheap', 'mid', 'strong'] as const) {
+    const band = bands[tier]
+    const req = tierRequirements[tier]
+
+    const candidates = catalog.filter((m) => {
+      // Check price band
+      const inputInBand = m.inputPricePerMTok != null &&
+        (band.inputMin === undefined || m.inputPricePerMTok >= band.inputMin) &&
+        (band.inputMax === undefined || m.inputPricePerMTok <= band.inputMax)
+      const outputInBand = m.outputPricePerMTok != null &&
+        (band.outputMin === undefined || m.outputPricePerMTok >= band.outputMin) &&
+        (band.outputMax === undefined || m.outputPricePerMTok <= band.outputMax)
+      if (!inputInBand || !outputInBand) return false
+
+      // Check context window
+      if (m.contextWindow != null && m.contextWindow < req.minContextWindow) return false
+
+      // Check modalities
+      const mods = m.modalities || []
+      if (!req.modalities.every((m) => mods.includes(m))) return false
+
+      return true
+    })
+
+    if (candidates.length === 0) {
+      suggestions[tier] = null
+      console.log(`${tier}: no candidates match price band and requirements`)
+      continue
+    }
+
+    // Sort by input price (cheapest first), then by context window (largest first)
+    candidates.sort((a, b) => {
+      const priceDiff = (a.inputPricePerMTok ?? Infinity) - (b.inputPricePerMTok ?? Infinity)
+      if (priceDiff !== 0) return priceDiff
+      return (b.contextWindow ?? 0) - (a.contextWindow ?? 0)
+    })
+
+    const best = candidates[0]
+    suggestions[tier] = {
+      model: best.id,
+      upstream: 'openrouter',
+      contextWindow: best.contextWindow,
+      inputPricePerMTok: best.inputPricePerMTok,
+      outputPricePerMTok: best.outputPricePerMTok,
+      modalities: best.modalities,
+      rationale: `Cheapest in band ($${best.inputPricePerMTok?.toFixed(2)}/$${best.outputPricePerMTok?.toFixed(2)} per MTok), ${formatNumber(best.contextWindow ?? 0)} context window`,
+    }
+    console.log(`${tier}: ${best.id} ($${best.inputPricePerMTok?.toFixed(2)}/$${best.outputPricePerMTok?.toFixed(2)} per MTok, ${formatNumber(best.contextWindow ?? 0)} context)`)
+  }
+
+  console.log('')
+
+  if (dryRun) {
+    console.log('Dry-run: suggestions would be:')
+    for (const [tier, suggestion] of Object.entries(suggestions)) {
+      if (suggestion === null) {
+        console.log(`  ${tier}: no suitable model found`)
+      } else {
+        console.log(`  ${tier}: ${suggestion.model} (upstream: ${suggestion.upstream})`)
+      }
+    }
+    return
+  }
+
+  // Write suggestions to config
+  const suggestionsToWrite: Record<string, ModelEntry> = {}
+  for (const [tier, suggestion] of Object.entries(suggestions)) {
+    if (suggestion === null) continue
+    suggestionsToWrite[tier] = {
+      upstream: suggestion.upstream,
+      model: suggestion.model,
+      contextWindow: suggestion.contextWindow,
+      capabilities: {
+        inputModalities: suggestion.modalities,
+      } as ModelCapabilities,
+      cost: {
+        input: suggestion.inputPricePerMTok ?? 0,
+        output: suggestion.outputPricePerMTok ?? 0,
+        cacheRead: 0,
+      },
+    }
+  }
+
+  const updatedConfig = {
+    ...config,
+    models: { ...config.models, ...suggestionsToWrite },
+    provenance: `Model suggestions generated ${new Date().toISOString()} by sabi models suggest. Original provenance: ${config.provenance ?? 'unknown'}.`,
+  }
+
+  writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2) + '\n')
+  console.log(`Wrote ${Object.keys(suggestionsToWrite).length} suggestion(s) to ${configPath}`)
+}
+
+interface OpenRouterModel {
+  id: string
+  name: string
+  contextWindow: number | null
+  modalities: string[]
+  inputPricePerMTok: number | null
+  outputPricePerMTok: number | null
+  provider: string | null
+}
+
+async function getOpenRouterCatalog(): Promise<OpenRouterModel[]> {
+  const response = await fetch('https://openrouter.ai/api/v1/models', {
+    headers: {
+      'HTTP-Referer': 'https://github.com/vizuh/sabi',
+      'X-Title': 'Sabi',
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`OpenRouter API returned ${response.status}`)
+  }
+  const data = await response.json()
+  const models: OpenRouterModel[] = []
+  const dataArray = data.data as Record<string, unknown>[] | undefined
+  if (!dataArray) return models
+  for (const model of dataArray) {
+    const pricing = model.pricing as Record<string, unknown> | undefined
+    const promptPrice = pricing?.prompt
+    const completionPrice = pricing?.completion
+    const architecture = model.architecture as Record<string, unknown> | undefined
+    const inputModalities = (architecture?.input_modalities as string[] | undefined) ?? ['text']
+    models.push({
+      id: model.id as string,
+      name: (model.name as string) ?? '',
+      contextWindow: model.context_length as number | null,
+      modalities: inputModalities,
+      inputPricePerMTok: typeof promptPrice === 'string' ? (() => { const p = parseFloat(promptPrice); return p >= 0 ? p * 1_000_000 : null; })() : null,
+      outputPricePerMTok: typeof completionPrice === 'string' ? (() => { const p = parseFloat(completionPrice); return p >= 0 ? p * 1_000_000 : null; })() : null,
+      provider: model.provider as string | null,
+    })
+  }
+  return models
+}
+
+function formatNumber(n: number | undefined): string {
+  if (n === undefined || n === null) return '—'
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`
+  return n.toLocaleString()
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2)
   if (argv.includes('--version') || argv.includes('-v')) {
@@ -711,7 +1004,7 @@ async function main(): Promise<void> {
   if (command === 'hook') return runHook(args)
   if (command === 'upgrade') return runUpgrade(args)
   if (command === 'uninstall') return runUninstall(args)
-  await runRoute(args)
+  if (command === 'models') return runModels(args)
 }
 
 void main().catch((error: unknown) => {

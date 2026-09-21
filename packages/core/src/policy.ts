@@ -95,6 +95,8 @@ export function decideTier(
   }
 }
 
+export const TIER_ORDER: Record<string, number> = { cheap: 0, mid: 1, strong: 2 }
+
 /** Suggest a resolving tier for a state, ignoring the configured policy map (used by the mod for a stuck tier). */
 export function suggestTier(state: TrajectoryState, tiers: Record<string, string>): string | undefined {
   if (state.repeatedFailure === true) return tiers.stuck

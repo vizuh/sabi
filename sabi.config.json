@@ -1,6 +1,9 @@
 {
-  "provenance": "Model ids, context windows, output limits and prices verified live from https://openrouter.ai/api/v1/models on 2026-09-20; input modalities for the same ids verified from the same endpoint. Prices are USD per 1M tokens. Declared modalities are enforced: an undeclared capability is unknown, a declared one is binding.",
-  "server": { "host": "127.0.0.1", "port": 8787 },
+  "provenance": "Model suggestions generated 2026-09-21T10:45:00.600Z by sabi models suggest. Original provenance: Model ids, context windows, output limits and prices verified live from https://openrouter.ai/api/v1/models on 2026-09-20; input modalities for the same ids verified from the same endpoint. Prices are USD per 1M tokens. Declared modalities are enforced: an undeclared capability is unknown, a declared one is binding..",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8787
+  },
   "upstreams": {
     "openrouter": {
       "baseURL": "https://openrouter.ai/api/v1",
@@ -20,34 +23,68 @@
   "models": {
     "cheap": {
       "upstream": "openrouter",
-      "model": "deepseek/deepseek-v4-flash-0731",
-      "contextWindow": 1310720,
-      "maxOutputTokens": 943718,
-      "capabilities": { "inputModalities": ["text"] },
-      "cost": { "input": 0.06, "output": 0.12, "cacheRead": 0.012 }
+      "model": "thinkingmachines/inkling-small:free",
+      "contextWindow": 1048576,
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image",
+          "audio"
+        ]
+      },
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0
+      }
     },
     "mid": {
       "upstream": "openrouter",
-      "model": "openai/gpt-5.6-luna",
-      "contextWindow": 1050000,
-      "maxOutputTokens": 128000,
-      "capabilities": { "inputModalities": ["text", "image", "file"] },
-      "cost": { "input": 0.2, "output": 1.2, "cacheRead": 0.02 }
+      "model": "openai/gpt-5-mini:batch",
+      "contextWindow": 400000,
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image",
+          "file"
+        ]
+      },
+      "cost": {
+        "input": 0.125,
+        "output": 1,
+        "cacheRead": 0
+      }
     },
     "strong": {
       "upstream": "openrouter",
-      "model": "anthropic/claude-sonnet-5",
-      "contextWindow": 1000000,
-      "maxOutputTokens": 128000,
-      "capabilities": { "inputModalities": ["text", "image", "file"] },
-      "cost": { "input": 2, "output": 10, "cacheRead": 0.2 }
+      "model": "openai/gpt-5.6-terra-pro:batch",
+      "contextWindow": 1050000,
+      "capabilities": {
+        "inputModalities": [
+          "file",
+          "image",
+          "text"
+        ]
+      },
+      "cost": {
+        "input": 1,
+        "output": 6,
+        "cacheRead": 0
+      }
     },
     "local": {
       "upstream": "ollama",
       "model": "qwen2.5-coder:7b",
       "contextWindow": 32768,
-      "capabilities": { "inputModalities": ["text"] },
-      "cost": { "input": 0, "output": 0 }
+      "capabilities": {
+        "inputModalities": [
+          "text"
+        ]
+      },
+      "cost": {
+        "input": 0,
+        "output": 0
+      }
     }
   },
   "aliases": {
@@ -77,10 +114,24 @@
     "captureChars": 800
   },
   "controller": {
-    "preferredHarnesses": ["opencode", "command-code", "claude", "codex", "hermes"],
+    "preferredHarnesses": [
+      "opencode",
+      "command-code",
+      "claude",
+      "codex",
+      "hermes"
+    ],
     "harnesses": {
-      "command-code": { "preferredModels": ["moonshotai/kimi-k3"] },
-      "opencode": { "preferredModels": ["opencode-go/kimi-k3"] }
+      "command-code": {
+        "preferredModels": [
+          "moonshotai/kimi-k3"
+        ]
+      },
+      "opencode": {
+        "preferredModels": [
+          "opencode-go/kimi-k3"
+        ]
+      }
     }
   },
   "judge": {
@@ -90,10 +141,31 @@
     "model": "jev-latest",
     "timeoutMs": 2500,
     "cacheTtlMs": 600000,
-    "callOn": ["failure", "unclassified"],
-    "thresholds": { "realProblem": 0.6, "veto": 0.25, "difficultyConfidence": 0.6 },
+    "callOn": [
+      "failure",
+      "unclassified"
+    ],
+    "thresholds": {
+      "realProblem": 0.6,
+      "veto": 0.25,
+      "difficultyConfidence": 0.6
+    },
     "maxStateChars": 6000,
     "costPerMTokInput": 0.042
+  },
+  "jev": {
+    "enabled": false,
+    "shadow": true,
+    "baseURL": "https://api.typesafe.ai/v1",
+    "apiKey": "$TYPESAFE_API_KEY",
+    "model": "jev-latest",
+    "timeoutMs": 2500,
+    "callOn": [
+      "auto"
+    ],
+    "maxStateChars": 6000,
+    "costPerMTokInput": 0.042,
+    "privateProfiles": []
   },
   "harness": {
     "provenance": "Command Code catalog ids, efforts and min plans verified 2026-09-18 against `cmd --list-models` and the bundled reference models.md. Used by the in-process mod adapter (harness keeps its own loop, no proxy, no key). The `models` tiers above are the separate BYOK proxy path and are unused while the mod is active. A tier must be a model the account can actually serve: `cmd --list-models` prints the whole catalog regardless of plan, and an out-of-plan model answers 403 MODEL_NOT_IN_PLAN and fails that round. The defaults are the strongest ids available from the Go plan up; docs/install.md lists Pro and Max presets. `contextWindow` is the largest verified window among the tiers (1M), used by the context-pressure rule. `inputModalities` mirror the CLI's own model registry, read from the shipped bundle on 2026-09-18: plain `deepseek-v4-flash` and `glm-5.3` are text-only while `gpt-5.6-luna` accepts images. The host strips images for a text-only model, so a tier that cannot read them is passed over for one that can.",
@@ -102,19 +174,26 @@
         "model": "deepseek/deepseek-v4-flash",
         "effort": "high",
         "minPlan": "Go",
-        "inputModalities": ["text"]
+        "inputModalities": [
+          "text"
+        ]
       },
       "mid": {
         "model": "gpt-5.6-luna",
         "effort": "high",
         "minPlan": "Go",
-        "inputModalities": ["text", "image"]
+        "inputModalities": [
+          "text",
+          "image"
+        ]
       },
       "strong": {
         "model": "zai-org/glm-5.3",
         "effort": "high",
         "minPlan": "Go",
-        "inputModalities": ["text"]
+        "inputModalities": [
+          "text"
+        ]
       }
     },
     "contextWindow": 1000000

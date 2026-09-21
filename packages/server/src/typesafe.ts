@@ -32,38 +32,67 @@ export function validateAnswers(payload: unknown, questions: JudgeQuestions, req
   if (!answers || typeof answers !== 'object') throw new Error('typesafe: missing answers map')
   const map = answers as Record<string, unknown>
 
-  const real = map.real_problem as Record<string, unknown> | undefined
-  if (!real || real.type !== 'noul') throw new Error('typesafe: missing noul answer for real_problem')
-  const noul = Number(real.noul)
-  if (!Number.isFinite(noul) || noul < 0 || noul > 1) {
-    throw new Error('typesafe: real_problem.noul out of range')
+  const outcome: JudgeOutcome = {
+    model: typeof record.model === 'string' && record.model ? record.model : requestedModel,
   }
 
-  const difficulty = map.difficulty as Record<string, unknown> | undefined
-  if (!difficulty || difficulty.type !== 'choice') throw new Error('typesafe: missing choice answer for difficulty')
-  const options = Object.keys(questions.difficulty.criteria)
-  const choice = String(difficulty.choice ?? '')
-  if (!options.includes(choice)) throw new Error(`typesafe: unknown difficulty choice '${choice}'`)
-  const confidence = Number(difficulty.confidence)
-  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
-    throw new Error('typesafe: difficulty.confidence out of range')
-  }
-  const probabilities = (difficulty.probabilities ?? {}) as Record<string, unknown>
-  for (const option of options) {
-    const probability = Number(probabilities[option])
-    if (!Number.isFinite(probability) || probability < 0 || probability > 1) {
-      throw new Error(`typesafe: difficulty probability missing for '${option}'`)
+  // Only validate questions that were actually sent.
+  const has = (key: keyof JudgeQuestions): boolean => key in questions
+
+  if (has('real_problem')) {
+    const real = map.real_problem as Record<string, unknown> | undefined
+    if (!real || real.type !== 'noul') throw new Error('typesafe: missing noul answer for real_problem')
+    const noul = Number(real.noul)
+    if (!Number.isFinite(noul) || noul < 0 || noul > 1) {
+      throw new Error('typesafe: real_problem.noul out of range')
     }
+    outcome.realProblem = noul
+  }
+
+  if (has('difficulty')) {
+    const difficulty = map.difficulty as Record<string, unknown> | undefined
+    if (!difficulty || difficulty.type !== 'choice') throw new Error('typesafe: missing choice answer for difficulty')
+    const options = Object.keys(questions.difficulty.criteria)
+    const choice = String(difficulty.choice ?? '')
+    if (!options.includes(choice)) throw new Error(`typesafe: unknown difficulty choice '${choice}'`)
+    const confidence = Number(difficulty.confidence)
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+      throw new Error('typesafe: difficulty.confidence out of range')
+    }
+    const probabilities = (difficulty.probabilities ?? {}) as Record<string, unknown>
+    for (const option of options) {
+      const probability = Number(probabilities[option])
+      if (!Number.isFinite(probability) || probability < 0 || probability > 1) {
+        throw new Error(`typesafe: difficulty probability missing for '${option}'`)
+      }
+    }
+    outcome.difficulty = choice
+    outcome.difficultyConfidence = confidence
   }
 
   // The evidence-redundancy question is shadow-only: it measures what a future context-selection
   // step could drop. A missing or malformed shadow answer must never fail the applied judgment,
   // so it is read leniently — absence stays absence, never an error.
-  let evidenceRedundant: number | undefined
-  const shadow = map.evidence_redundant as Record<string, unknown> | undefined
-  if (shadow && shadow.type === 'noul') {
-    const value = Number(shadow.noul)
-    if (Number.isFinite(value) && value >= 0 && value <= 1) evidenceRedundant = value
+  if (has('evidence_redundant')) {
+    const shadow = map.evidence_redundant as Record<string, unknown> | undefined
+    if (shadow && shadow.type === 'noul') {
+      const value = Number(shadow.noul)
+      if (Number.isFinite(value) && value >= 0 && value <= 1) outcome.evidenceRedundant = value
+    }
+  }
+
+  if (has('routing')) {
+    const routing = map.routing as Record<string, unknown> | undefined
+    if (!routing || routing.type !== 'choice') throw new Error('typesafe: missing choice answer for routing')
+    const options = Object.keys(questions.routing.criteria)
+    const choice = String(routing.choice ?? '')
+    if (!options.includes(choice)) throw new Error(`typesafe: unknown routing choice '${choice}'`)
+    const confidence = Number(routing.confidence)
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+      throw new Error('typesafe: routing.confidence out of range')
+    }
+    outcome.routingTier = choice
+    outcome.routingConfidence = confidence
   }
 
   const usage = record.usage && typeof record.usage === 'object' && !Array.isArray(record.usage)
@@ -71,14 +100,11 @@ export function validateAnswers(payload: unknown, questions: JudgeQuestions, req
   const inputTokens = usage?.input_tokens
   const outputTokens = usage?.output_tokens
   const validTokens = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-  return {
-    realProblem: noul,
-    difficulty: choice,
-    difficultyConfidence: confidence,
-    evidenceRedundant,
-    model: typeof record.model === 'string' && record.model ? record.model : requestedModel,
-    usage: validTokens(inputTokens) && validTokens(outputTokens) ? { inputTokens, outputTokens } : undefined,
+  if (validTokens(inputTokens) && validTokens(outputTokens)) {
+    outcome.usage = { inputTokens, outputTokens }
   }
+
+  return outcome
 }
 
 async function callJev(
