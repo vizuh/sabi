@@ -1,0 +1,58 @@
+{
+  "provenance": "Model ids observed in the Nous Portal catalog on 2026-09-20; catalog presence is not entitlement. Verify the logged-in Hermes profile before paid use.",
+  "server": { "host": "127.0.0.1", "port": 8787 },
+  "upstreams": {
+    "hermes-nous": {
+      "baseURL": "http://127.0.0.1:8645/v1",
+      "apiKey": false,
+      "streamUsage": true
+    }
+  },
+  "models": {
+    "cheap": {
+      "upstream": "hermes-nous",
+      "model": "deepseek/deepseek-v4-flash",
+      "contextWindow": 65536,
+      "maxOutputTokens": 8192
+    },
+    "mid": {
+      "upstream": "hermes-nous",
+      "model": "openai/gpt-5.6-luna",
+      "contextWindow": 65536,
+      "maxOutputTokens": 8192
+    },
+    "strong": {
+      "upstream": "hermes-nous",
+      "model": "anthropic/claude-sonnet-5",
+      "contextWindow": 65536,
+      "maxOutputTokens": 8192
+    }
+  },
+  "aliases": {
+    "sabi-code": "auto",
+    "sabi-cheap": "cheap",
+    "sabi-mid": "mid",
+    "sabi-strong": "strong"
+  },
+  "policy": {
+    "failure": "strong",
+    "stuck": "mid",
+    "context-pressure": "mid",
+    "transport": "mid",
+    "first-turn": "mid",
+    "verification": "mid",
+    "implementation": "mid",
+    "exploration": "cheap",
+    "unclassified": "cheap"
+  },
+  "telemetry": {
+    "allowlistOnly": true,
+    "captureSnippets": false,
+    "captureChars": 800
+  },
+  "judge": {
+    "enabled": false,
+    "baseURL": "https://api.typesafe.ai/v1",
+    "apiKey": "$TYPESAFE_API_KEY"
+  }
+}

@@ -8,17 +8,19 @@ O Sabi fica entre um harness de código e seus provedores de modelo. O harness m
 
 ## Instalar o Sabi uma vez
 
-O Sabi é instalado uma vez por usuário/máquina. Você não precisa escolher um harness, instalar por worktree ou manter um checkout do repositório para usar o controller.
+O Sabi é instalado uma vez por usuário/máquina. Para Claude Code, Codex e os fluxos de OpenCode apoiados pelo controller, instale o pacote público:
 
 ~~~bash
-npm install --global @vizuh/sabi-controller
+npm install --global @vizuh/sabi-controller@0.1.0
 sabi setup
-sabi status
+sabi doctor
 ~~~
+
+A release pública do `@vizuh/sabi-controller` é `controller-v0.1.0`. Para Hermes ou para inferência do OpenCode pelo proxy local do Sabi, use o [guia de checkout do proxy](docs/install.pt-BR.md): o controller instala hooks e daemon, não o servidor proxy nem o perfil do Hermes.
 
 O `setup` é idempotente: mantém o daemon e o estado no escopo do usuário, detecta hosts compatíveis, instala apenas hooks do Sabi que tenham suporte e deixa o harness seguir normalmente se o Sabi estiver indisponível. Use `sabi setup --no-hooks` se quiser inicializar o daemon sem alterar a configuração do host.
 
-O pacote do controller é publicado separadamente por tags `controller-v*`. Se ainda não houver uma versão no npm, use temporariamente o [checkout de mantenedor](docs/install.pt-BR.md#checkout-do-mantenedor-somente-desenvolvimento); esse fluxo não é o modelo de instalação para usuários.
+Se o próprio AI do host estiver fazendo a instalação, use o [fluxo de instalação por host-AI](docs/install.ai.pt-BR.md); ele pergunta explicitamente o harness e a rota, e só pede uma chave do OpenRouter no caminho de proxy.
 
 Depois da instalação, abra seu harness normalmente. As integrações de Command Code, proxy e controller são opcionais e entram apenas quando você precisa daquela capacidade.
 
@@ -29,7 +31,7 @@ Depois da instalação, abra seu harness normalmente. As integrações de Comman
 |---|---|---|---|
 | Roteamento por rodada de modelo + esforço de raciocínio | [Mod do Command Code](docs/adapters/command-code.md) | Usa o loop nativo e o catálogo da assinatura do host | Somente Command Code |
 | Roteamento de modelo/provedor com suas próprias credenciais | [Proxy local](docs/install.pt-BR.md#integração-opcional--proxy-local-compatível-com-openai) | Encaminha requisições por um endpoint compatível com OpenAI | Modelo/provedor; não troca nativamente o esforço de raciocínio |
-| Mover trabalho entre sessões e worktrees | [Hooks do controller](docs/adapters/README.md) | Coordena ações limitadas de continuar/delegar/criar | Não troca o modelo dentro de uma sessão nativa existente |
+| Mover trabalho entre sessões e worktrees | [Hooks do controller](docs/adapters/README.pt-BR.md) | Coordena ações limitadas de continuar/delegar/criar | Não troca o modelo dentro de uma sessão nativa existente |
 | Adicionar outro host | [Contrato de mantenedor](docs/maintainers.md) | Define a fronteira e as evidências necessárias para o adaptador | Adaptador não cria uma segunda política de roteamento |
 
 Essas integrações compartilham o core do Sabi, mas não são etapas da instalação. Instale o Sabi uma vez; escolha uma integração somente quando precisar daquela capacidade.
@@ -133,10 +135,9 @@ sabi uninstall                   # restaura backups dos hooks e arquiva o estado
 sabi replay --last=1000         # resumo somente leitura das decisões/resultados
 ```
 
-A primeira release de `@vizuh/sabi-controller` é preparada pelo workflow `controller-v*`. Até uma
-tag do controller ser publicada, `npm run build:controller` neste repositório é apenas uma
-verificação de mantenedor/CI, não um fluxo de instalação para usuários. O resultado é um tarball
-autocontido com CLI, daemon, hooks, plugin OpenCode e recursos da ponte Orca; ele não depende deste
+A primeira release de `@vizuh/sabi-controller` é `controller-v0.1.0`. `npm run build:controller`
+continua sendo a verificação de mantenedor/CI; a instalação de usuário usa o tarball publicado,
+autocontido com CLI, daemon, hooks, plugin OpenCode e recursos da ponte Orca, sem depender deste
 checkout nem do `node_modules` em runtime.
 
 `setup` detecta os harnesses instalados e habilita o roteamento automático pelo daemon. Com
@@ -162,10 +163,9 @@ terminal não são persistidos por padrão; o handoff live é enviado somente ao
 tráfego observado antes de executar.
 
 O controller tem seu próprio pacote `@vizuh/sabi-controller` e sua própria linha de release. A
-release pública `@vizuh/sabi` no GitHub/npm publica apenas o adaptador do Command Code. Uma release
-do controller ainda precisa passar pelo teste em máquina limpa e pelos gates de integração do host
-em `docs/research/public-installation-plan.md`; instalar o pacote não prova ativação live no Orca
-nem execução entre terminais.
+release pública `@vizuh/sabi` no GitHub/npm publica apenas o adaptador do Command Code. O pacote do
+controller passou pelo gate de pacote em máquina limpa; isso não prova ativação live no Orca nem
+execução entre terminais.
 
 Na subida, o proxy carrega somente os nomes de credencial referenciados pela configuração ativa.
 Variáveis já presentes no ambiente vencem; depois vêm `SABI_SECRETS_FILE`, o `secrets/.env` mais
@@ -267,6 +267,8 @@ Nome do produto: **Sabi**. Os handles `sabi` e `uasabi` no GitHub já estavam to
 - [Folder review](docs/research/folder-review.md) — achados no código e comentários prontos para issue (em inglês)
 - [Prime Agent reuse](docs/research/prime-agent-reuse.md) — evidência do runtime instalado e padrões que valem reaproveitar (em inglês)
 - [docs/install.pt-BR.md](docs/install.pt-BR.md) — instalação passo a passo na máquina de outra pessoa
+- [docs/install.ai.pt-BR.md](docs/install.ai.pt-BR.md) — fluxo para pedir a instalação ao AI do host
+- [docs/adapters/README.pt-BR.md](docs/adapters/README.pt-BR.md) — mapa de adaptadores e limites em português
 - [docs/context.md](docs/context.md) — contexto, restrições, riscos (em inglês)
 - [docs/decisions.md](docs/decisions.md) — decisões correntes (em inglês)
 - [docs/handoff.md](docs/handoff.md) — estado atual e próximos passos (em inglês)

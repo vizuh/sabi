@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { configureFreeQuality, defaultConfigPath, loadConfig, readSurplusReviewReceipts, surplusResources, type SurplusReviewIntent } from '@sabi/core'
+import { appendCouncilLedgerReceipt, configureFreeQuality, defaultConfigPath, loadConfig, newCouncilLedgerReceipt, readCouncilLedgerReceipts, readSurplusReviewReceipts, surplusResources, type CouncilEvidenceLevel, type CouncilIntent, type CouncilMode, type CouncilReceiptSource, type CouncilReceiptStatus, type CouncilStage, type SurplusReviewIntent } from '@sabi/core'
 import {
   controllerPreferencesPath,
   controllerStateDir,
@@ -24,13 +24,20 @@ import { installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
 import { runSurplusReview } from './surplus.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'upgrade' | 'uninstall'
+type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'upgrade' | 'uninstall'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'daemon', 'hooks', 'hook', 'integrations', 'upgrade', 'uninstall'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'upgrade', 'uninstall'])
 const CLI_VERSION = process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
 
 function flagValue(argv: string[], name: string): string | undefined {
   return argv.find((a) => a.startsWith(`${name}=`))?.slice(name.length + 1)
+}
+
+function numericFlag(argv: string[], name: string): number | undefined {
+  const raw = flagValue(argv, name)
+  if (raw === undefined) return undefined
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : undefined
 }
 
 function commandAndArgs(argv: string[]): { command: Command; args: string[] } {
@@ -69,6 +76,7 @@ function printHelp(): void {
   sabi replay [--cwd=<path>] [--last=<n>] [--json]
   sabi setup [--no-start] [--no-hooks] [--free-quality] [--json]
   sabi surplus [inventory|review|history] [--cwd=<path>] [--intent=bug-hunt|test-gap|api-contract] [--alias=<alias>] [--json]
+  sabi council [history|record] [--harness=<id>] [--runtime-version=<version>] [--provider=<id>] [--model=<id>] [--seat=<id>] [--task-key=<key>] [--stage=<stage>] [--mode=<mode>] [--intent=<intent>] [--status=<status>] [--evidence=<level>] [--source=<source>] [--claims=<n>] [--verified-claims=<n>] [--input-tokens=<n>] [--output-tokens=<n>] [--latency-ms=<n>] [--http-status=<n>] [--input-sha256=<sha>] [--output-sha256=<sha>] [--error-code=<code>] [--json]
   sabi integrations [list|repair] [--json]
   sabi upgrade [--version=<semver>|latest] [--json]
   sabi uninstall [--keep-config] [--json]
@@ -245,6 +253,70 @@ async function runSetup(argv: string[]): Promise<void> {
   console.log(`harnesses: ${detected.length ? detected.map(({ agent }) => `${agent} ✓`).join(' · ') : 'none detected'}`)
   console.log(hooks.length ? `hooks: installed — ${hooks.map(({ harness }) => harness).join(', ')}` : 'hooks: not installed — no supported harness detected or disabled with --no-hooks')
   console.log(`preferences: ${preferencesPath}`)
+}
+
+const COUNCIL_STAGES: CouncilStage[] = ['plan', 'review', 'cross-examination', 'synthesis', 'verification']
+const COUNCIL_MODES: CouncilMode[] = ['none', 'probe', 'panel', 'debate', 'council']
+const COUNCIL_INTENTS: CouncilIntent[] = ['bug-hunt', 'test-gap', 'api-contract', 'architecture', 'security', 'quality', 'other']
+const COUNCIL_STATUSES: CouncilReceiptStatus[] = ['planned', 'started', 'completed', 'failed', 'unavailable', 'unverified']
+const COUNCIL_EVIDENCE: CouncilEvidenceLevel[] = ['none', 'transport', 'execution', 'completion', 'verification']
+const COUNCIL_SOURCES: CouncilReceiptSource[] = ['live', 'mock', 'simulated']
+
+function runCouncil(argv: string[]): void {
+  const action = argv.find((arg) => !arg.startsWith('--')) ?? 'history'
+  const logFile = process.env.SABI_COUNCIL_LOG?.trim() || undefined
+  if (action === 'history') {
+    const requestedLast = Number(flagValue(argv, '--last') ?? 20)
+    const last = Number.isFinite(requestedLast) && requestedLast >= 0 ? Math.floor(requestedLast) : 20
+    const receipts = last === 0 ? [] : readCouncilLedgerReceipts(logFile).slice(-last)
+    const result = { logFile: logFile ?? undefined, count: receipts.length, receipts }
+    if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
+    else {
+      console.log('Sabi council ledger')
+      console.log(`log: ${logFile ?? 'default user config path'}`)
+      for (const receipt of receipts) console.log(`${receipt.ts} ${receipt.harness} ${receipt.model ?? 'model-unknown'} ${receipt.stage} ${receipt.status} evidence=${receipt.evidence}`)
+    }
+    return
+  }
+  if (action !== 'record') throw new Error(`unsupported council action '${action}'`)
+  const stage = flagValue(argv, '--stage') as CouncilStage | undefined
+  const mode = flagValue(argv, '--mode') as CouncilMode | undefined
+  const intent = flagValue(argv, '--intent') as CouncilIntent | undefined
+  const status = flagValue(argv, '--status') as CouncilReceiptStatus | undefined
+  const evidence = flagValue(argv, '--evidence') as CouncilEvidenceLevel | undefined
+  const source = flagValue(argv, '--source') as CouncilReceiptSource | undefined
+  if (!stage || !COUNCIL_STAGES.includes(stage)) throw new Error(`invalid council stage '${stage ?? ''}'`)
+  if (!mode || !COUNCIL_MODES.includes(mode)) throw new Error(`invalid council mode '${mode ?? ''}'`)
+  if (!intent || !COUNCIL_INTENTS.includes(intent)) throw new Error(`invalid council intent '${intent ?? ''}'`)
+  if (!status || !COUNCIL_STATUSES.includes(status)) throw new Error(`invalid council status '${status ?? ''}'`)
+  if (!evidence || !COUNCIL_EVIDENCE.includes(evidence)) throw new Error(`invalid council evidence '${evidence ?? ''}'`)
+  if (!source || !COUNCIL_SOURCES.includes(source)) throw new Error(`invalid council source '${source ?? ''}'`)
+  const receipt = newCouncilLedgerReceipt({
+    taskKey: flagValue(argv, '--task-key'),
+    harness: flagValue(argv, '--harness') ?? 'unknown',
+    runtimeVersion: flagValue(argv, '--runtime-version'),
+    provider: flagValue(argv, '--provider'),
+    model: flagValue(argv, '--model'),
+    seatId: flagValue(argv, '--seat'),
+    stage,
+    mode,
+    intent,
+    status,
+    evidence,
+    source,
+    inputSha256: flagValue(argv, '--input-sha256'),
+    outputSha256: flagValue(argv, '--output-sha256'),
+    claimCount: numericFlag(argv, '--claims'),
+    verifiedClaimCount: numericFlag(argv, '--verified-claims'),
+    inputTokens: numericFlag(argv, '--input-tokens'),
+    outputTokens: numericFlag(argv, '--output-tokens'),
+    latencyMs: numericFlag(argv, '--latency-ms'),
+    transportStatus: numericFlag(argv, '--http-status'),
+    errorCode: flagValue(argv, '--error-code'),
+  })
+  appendCouncilLedgerReceipt(receipt, logFile)
+  if (jsonRequested(argv)) console.log(JSON.stringify({ logFile: logFile ?? undefined, receipt }, null, 2))
+  else console.log(`Sabi council receipt: ${receipt.receiptId} → ${logFile ?? 'default user config path'}`)
 }
 
 const SURPLUS_INTENTS: SurplusReviewIntent[] = ['bug-hunt', 'test-gap', 'api-contract']
@@ -495,6 +567,7 @@ async function main(): Promise<void> {
   if (command === 'replay') return runReplay(args)
   if (command === 'setup') return runSetup(args)
   if (command === 'surplus') return runSurplus(args)
+  if (command === 'council') return runCouncil(args)
   if (command === 'daemon') return runDaemon(args)
   if (command === 'hooks') return runHooks(args)
   if (command === 'hook') return runHook(args)
