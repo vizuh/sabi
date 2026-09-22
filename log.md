@@ -1297,3 +1297,15 @@ published adapter manifest gains `bugs` and two keywords (`ai-agents`,
 `inference-scheduling`); version untouched, so no release is cut by this change. Adds
 the `inference-scheduling` GitHub topic (7 total). No code, secret, or live behavior
 changed.
+
+## [2026-09-22] fix | Annotate generated Hermes profile metadata
+
+The Hermes setup wizard now inspects an existing `HERMES_HOME/config.yaml` or
+`~/.hermes/config.yaml` for numeric context capacity and an `lcm` context engine,
+then writes those observations as schema-neutral comments into the generated
+isolated Hermes `config.yaml`. Added focused detection and setup integration
+coverage. No credentials or provider claims are inferred from these observations.
+
+Verification is run with `TMPDIR=/tmp`: focused setup tests, the full repository
+suite, `npm run typecheck` and `git diff --check` pass. No live provider request,
+user profile mutation, deployment or publication.

@@ -296,6 +296,71 @@ function runOpenCode(argv: string[]): void {
   checkSpawn(spawnSync(process.execPath, [OPENCODE_CONNECT, ...extra], { stdio: 'inherit' }))
 }
 
+export type HermesProfileInfo = {
+  hermesRuntimeCapacity?: number
+  hermesContextEngine?: string | null
+}
+
+export function detectHermesProfileInfo(paths: string[] = []): HermesProfileInfo {
+  const info: HermesProfileInfo = { hermesContextEngine: null }
+  for (const p of paths) {
+    try {
+      if (!p || !existsSync(p)) continue
+      const txt = readFileSync(p, 'utf8')
+      const contextMatch = txt.match(/context_length:\s*(?:&[\w-]+\s*)?['"]?(\d{4,7})['"]?/) ||
+        txt.match(/context_window:\s*(?:&[\w-]+\s*)?['"]?(\d{4,7})['"]?/)
+      if (contextMatch) {
+        const capacity = Number(contextMatch[1])
+        if (Number.isFinite(capacity) && capacity > 0) info.hermesRuntimeCapacity = capacity
+      }
+      const overrideMatch = txt.match(/context_window:\s*(?:&[\w-]+\s*)?['"]?(\d{4,7})['"]?/)
+      if (overrideMatch) {
+        const capacity = Number(overrideMatch[1])
+        if (Number.isFinite(capacity) && capacity > 0) {
+          info.hermesRuntimeCapacity = info.hermesRuntimeCapacity
+            ? Math.max(info.hermesRuntimeCapacity, capacity)
+            : capacity
+        }
+      }
+      if (/plugins:\s*\n[\s\S]*?enabled:\s*\n[\s\S]*?-\s*hermes-lcm/m.test(txt) ||
+        /context:\s*\n[\s\S]*?engine:\s*lcm/m.test(txt)) {
+        info.hermesContextEngine = 'lcm'
+      }
+      if (info.hermesRuntimeCapacity !== undefined || info.hermesContextEngine) return info
+    } catch {
+      continue
+    }
+  }
+  return info
+}
+
+/** Keep Hermes' schema unchanged while making local observations inspectable. */
+export function renderHermesProfileMetadata(yaml: string, info: HermesProfileInfo): string {
+  const lines = [
+    info.hermesRuntimeCapacity === undefined ? undefined : `# hermesRuntimeCapacity: ${info.hermesRuntimeCapacity}`,
+    info.hermesContextEngine ? `# hermesContextEngine: ${info.hermesContextEngine}` : undefined,
+  ].filter((line): line is string => line !== undefined)
+  if (lines.length === 0) return yaml
+  return [
+    '# Sabi detected Hermes profile metadata (informational only):',
+    ...lines,
+    '',
+    yaml,
+  ].join('\n')
+}
+
+function hermesProfileInfoPaths(targetHome: string): string[] {
+  const targetConfig = path.resolve(targetHome, 'config.yaml')
+  const candidates = [
+    process.env.HERMES_HOME?.trim() ? path.join(process.env.HERMES_HOME.trim(), 'config.yaml') : undefined,
+    path.join(os.homedir(), '.hermes', 'config.yaml'),
+  ]
+  return candidates
+    .filter((candidate): candidate is string => candidate !== undefined)
+    .map((candidate) => path.resolve(candidate))
+    .filter((candidate, index, all) => candidate !== targetConfig && all.indexOf(candidate) === index)
+}
+
 function runHermes(argv: string[], jevEnabled: boolean, upstream: HermesUpstream, language: SetupLanguage): void {
   // Validate the config exists and parses *before* any filesystem side effect below, so a
   // missing/invalid sabi.config.json fails cleanly instead of aborting mid-way through creating
@@ -330,7 +395,11 @@ function runHermes(argv: string[], jevEnabled: boolean, upstream: HermesUpstream
     recursive: true,
     filter: (src) => !src.includes('__pycache__'),
   })
-  copyFileSync(HERMES_CONFIG_EXAMPLE, path.join(home, 'config.yaml'))
+  const detectedProfileInfo = detectHermesProfileInfo(hermesProfileInfoPaths(home))
+  writeFileSync(path.join(home, 'config.yaml'), renderHermesProfileMetadata(
+    readFileSync(HERMES_CONFIG_EXAMPLE, 'utf8'),
+    detectedProfileInfo,
+  ))
   const sabiConfigPath = path.join(home, 'sabi.config.json')
   copyFileSync(sabiConfigExample, sabiConfigPath)
   if (jevEnabled) setJevEnabled(sabiConfigPath, true)
