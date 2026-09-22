@@ -5,7 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSy
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { resolveExplainMode, resolveHarness, resolveHermesUpstream, resolveLanguage, resolveYesNo, saveOpenRouterKey, setJevEnabled } from '../setup.ts'
+import { detectHermesProfileInfo, renderHermesProfileMetadata, resolveExplainMode, resolveHarness, resolveHermesUpstream, resolveLanguage, resolveYesNo, saveOpenRouterKey, setJevEnabled } from '../setup.ts'
+
 
 const setupPath = fileURLToPath(new URL('../setup.ts', import.meta.url))
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
@@ -35,6 +36,25 @@ function tempSabiConfig(): string {
   writeFileSync(configPath, readFileSync(path.join(repoRoot, 'sabi.config.json'), 'utf8'))
   return configPath
 }
+test('Hermes profile detection reads anchored capacity and LCM metadata without changing empty output', () => {
+  const dir = workspace()
+  const source = path.join(dir, 'config.yaml')
+  writeFileSync(source, [
+    'model:',
+    '  context_length: &context 524288',
+    'context:',
+    '  engine: lcm',
+    '',
+  ].join('\n'))
+
+  const info = detectHermesProfileInfo([source])
+  assert.deepEqual(info, { hermesRuntimeCapacity: 524288, hermesContextEngine: 'lcm' })
+  const yaml = 'model:\n'
+  assert.equal(renderHermesProfileMetadata(yaml, { hermesContextEngine: null }), yaml)
+  assert.match(renderHermesProfileMetadata(yaml, info), /# hermesRuntimeCapacity: 524288/)
+  assert.match(renderHermesProfileMetadata(yaml, info), /# hermesContextEngine: lcm/)
+})
+
 
 // --- Unit tests: pure decision functions, no subprocess ---
 
@@ -256,6 +276,30 @@ test('a failing writer is surfaced as this process\'s own non-zero exit code', (
   })
   assert.notEqual(status, 0, 'connect.ts refuses invalid JSON and exits 1 — setup.ts must not swallow that')
 })
+test('--harness=hermes annotates generated config with existing profile metadata', () => {
+  const dir = workspace()
+  const sourceHome = path.join(dir, 'existing-hermes')
+  const home = path.join(dir, 'generated-hermes')
+  mkdirSync(sourceHome, { recursive: true })
+  writeFileSync(path.join(sourceHome, 'config.yaml'), [
+    'model:',
+    '  context_length: &context 524288',
+    'context:',
+    '  engine: lcm',
+    '',
+  ].join('\n'))
+
+  const { status } = run(['--harness=hermes', `--hermes-home=${home}`, '--no-jev'], {
+    HERMES_HOME: sourceHome,
+    SABI_CONFIG: tempSabiConfig(),
+  })
+  assert.equal(status, 0)
+  const yaml = readFileSync(path.join(home, 'config.yaml'), 'utf8')
+  assert.match(yaml, /# hermesRuntimeCapacity: 524288/)
+  assert.match(yaml, /# hermesContextEngine: lcm/)
+  assert.match(yaml, /context_length: &context 65536/)
+})
+
 
 test('--harness=hermes creates an isolated profile with the plugin and Sabi config', () => {
   const dir = workspace()

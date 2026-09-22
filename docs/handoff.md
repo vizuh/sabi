@@ -1007,3 +1007,20 @@ properties.
 This is not a claim of live quality improvement or automatic learned routing. Live provider
 receipts, external harness capsule consumption, durable profile learning, candidate promotion,
 and deployment remain follow-up work tracked in GitHub issues from the review PR.
+
+## Hermes setup metadata annotation — 2026-09-22
+
+The Hermes setup wizard now inspects an existing `HERMES_HOME/config.yaml`
+(and the conventional `~/.hermes/config.yaml`) for numeric
+`context_length`/`context_window` capacity and `lcm` context-engine signals,
+then writes those observations as informational comments in the newly generated
+isolated `config.yaml`. Comments preserve Hermes' schema and do not turn local
+profile observations into routing, entitlement or quality evidence.
+
+Added unit and end-to-end setup coverage for anchored capacity, LCM metadata and
+generated-profile annotation. This PR is intentionally based on `origin/main`;
+the unrelated closed PR #92 branch history is not included.
+
+Validation: focused setup tests and the full repository suite pass with
+`TMPDIR=/tmp`; `npm run typecheck` and `git diff --check` pass. No credentials,
+live provider request, user profile mutation, deployment, commit or push.
