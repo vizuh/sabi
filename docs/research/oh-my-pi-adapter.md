@@ -44,9 +44,10 @@ existing bounded metadata; no prompt, tool output or credential is copied into t
 
 ## Configuration and rollback
 
-The adapter is side-effect-free. Load it explicitly with `--extension`, or copy the extension file to
-OMP's user extension directory. It does not overwrite OMP settings, credentials or profiles. Rollback
-is removing the copied extension or omitting the `--extension` argument.
+The adapter is side-effect-free. Load the checked-in `.mjs` explicitly with `--extension`, or copy
+it as `sabi.ts` into OMP's user extension directory; OMP 18.2.8 auto-discovers `.ts` and `.js`
+there, not `.mjs`. It does not overwrite OMP settings, credentials or profiles. Rollback is
+removing the copied extension or omitting the `--extension` argument.
 
 Environment overrides:
 

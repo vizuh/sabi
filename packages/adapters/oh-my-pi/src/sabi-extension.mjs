@@ -1,7 +1,7 @@
 const DEFAULT_BASE_URL = "http://127.0.0.1:8787/v1";
 const DEFAULT_CONTEXT_WINDOW = 1_000_000;
 const DEFAULT_MAX_TOKENS = 128_000;
-const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+const LOCAL_HOSTS = { "127.0.0.1": true, localhost: true, "[::1]": true, "::1": true };
 const EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"];
 
 function positiveInteger(value, fallback, name) {
@@ -27,7 +27,7 @@ export function resolveBaseUrl(env = process.env) {
   if (parsed.protocol !== "http:") {
     throw new Error("Sabi OMP base URL must use http://");
   }
-  if (!LOCAL_HOSTS.has(parsed.hostname)) {
+  if (!LOCAL_HOSTS[parsed.hostname]) {
     throw new Error("Sabi OMP base URL must target the local Sabi server");
   }
   if (parsed.username || parsed.password || parsed.search || parsed.hash) {

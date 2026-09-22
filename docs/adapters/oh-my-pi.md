@@ -26,17 +26,19 @@ omp \
   --model sabi/sabi-code
 ~~~
 
-To make the extension available to all OMP sessions, copy it into the user extension directory:
+For automatic discovery in OMP 18.2.8, copy the extension with a `.ts` or `.js` suffix. OMP's
+configured-directory scanner does not auto-discover `.mjs`; explicit `--extension` loading above
+does support the checked-in `.mjs` file.
 
 ~~~bash
 install -Dm0644 \
   packages/adapters/oh-my-pi/src/sabi-extension.mjs \
-  ~/.omp/agent/extensions/sabi.mjs
+  ~/.omp/agent/extensions/sabi.ts
 omp --model sabi/sabi-code
 ~~~
 
-The copy is the only user configuration mutation. Remove `~/.omp/agent/extensions/sabi.mjs` to
-roll back the integration; the adapter never edits OMP settings or credentials.
+The copy is the only user configuration mutation. Remove `~/.omp/agent/extensions/sabi.ts` to roll
+back the integration; the adapter never edits OMP settings or credentials.
 
 ## Endpoint overrides
 
