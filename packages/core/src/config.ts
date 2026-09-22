@@ -273,6 +273,11 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
     if (upstream.enabled !== undefined && typeof upstream.enabled !== 'boolean') {
       throw new Error(`Sabi config ${source}: upstream '${name}'.enabled must be a boolean`)
     }
+    // A stringified `"false"` reads as truthy, which would silently re-enable spend on an
+    // upstream the operator meant to make free-only — the one mistake this flag exists to stop.
+    if (upstream.paidModelsAllowed !== undefined && typeof upstream.paidModelsAllowed !== 'boolean') {
+      throw new Error(`Sabi config ${source}: upstream '${name}'.paidModelsAllowed must be a boolean`)
+    }
   }
 
   if (!Object.keys(models).length) throw new Error(`Sabi config ${source}: no models declared`)

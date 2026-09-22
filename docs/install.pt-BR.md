@@ -245,6 +245,20 @@ Cada entrada em `upstreams` aceita `"enabled": false` como um interruptor perman
 `connect:command-code` não registra nenhum alias que dependa dele, e o proxy recusa despachar para
 ele mesmo que algo mais ainda aponte para lá.
 
+Uma entrada também aceita `"paidModelsAllowed": false` — uma regra de cobrança, não um interruptor.
+Só modelos com preço zero podem rotear ou despachar para esse upstream: um id com a variante
+`:free` da OpenRouter, ou um `"cost": { "input": 0, "output": 0 }` explícito. Qualquer outra coisa é
+recusada antes de a requisição sair do processo, então um id pago adicionado a esse upstream por
+engano falha alto em vez de gastar:
+
+```
+{"error":{"message":"incompatible route 'mid': upstream 'openrouter' is free-models-only and 'openai/gpt-5-mini' is not zero-priced", ...}}
+```
+
+Um preço não declarado é tratado como desconhecido, e desconhecido não é gratuito. Use isso para
+manter uma chave OpenRouter compartilhada em modo somente gratuito, enquanto o Jev (TypeSafe) e
+qualquer upstream local sem chave seguem inafetados.
+
 O caso 4 é o que faz um clone novo funcionar: rodando do checkout, a config que veio com ele é
 encontrada. Para uma configuração pessoal que sobrevive a mover o clone, copie o arquivo para
 `~/.config/sabi/`. Para trabalhar em um projeto só, coloque uma config nesse projeto.
@@ -285,14 +299,17 @@ O Sabi se recusa a enviar mídia para um modelo que não consegue lê-la. Declar
 ```json
 "mid": {
   "upstream": "openrouter",
-  "model": "openai/gpt-5.6-luna",
-  "capabilities": { "inputModalities": ["text", "image", "file"] }
+  "model": "dots-studio/dots-3-note-preview:free",
+  "capabilities": { "inputModalities": ["text", "image"] }
 }
 ```
 
+Esse é o nível `mid` que acompanha o repositório. Num upstream somente gratuito, o id e o preço
+precisam concordar com a regra — veja `paidModelsAllowed` acima.
+
 - Uma rodada adaptativa (`sabi-code`) que carrega uma imagem é atendida pelo primeiro nível, na ordem de configuração, que declara `image` — a ordem dos níveis é a ordem de preferência, então liste cheap antes de strong. A decisão registra `rule: capability` com um motivo que nomeia os dois níveis.
 - Um alias fixo (`sabi-cheap`) é recusado com `400 incompatible route 'cheap': input modality 'image' is not supported`, porque um alias de baseline é uma escolha explícita. Use `sabi-code` quando a sessão puder conter capturas de tela.
-- Nada declarado significa desconhecido, e o Sabi encaminha como antes — declarar modalidades é o que liga a restrição. Verifique por id de modelo no upstream: na OpenRouter, `deepseek/deepseek-v4-flash-0731` é só texto enquanto `deepseek/deepseek-v4-flash-vision-exp` aceita imagens.
+- Nada declarado significa desconhecido, e o Sabi encaminha como antes — declarar modalidades é o que liga a restrição. Verifique por id de modelo no upstream: na OpenRouter, `poolside/laguna-s-2.1:free` é só texto enquanto `dots-studio/dots-3-note-preview:free` declara imagem.
 - O caminho do mod lê a mesma ideia de `harness.tiers[].inputModalities` e varre o transcript em busca de mídia. Ele não consegue corrigir um modelo que o host já escolheu: se nenhum nível consegue ler a imagem, a rodada fica no modelo da sessão em vez de ser roteada para um nível só-texto que teria a imagem removida em silêncio.
 - A mídia é cobrada na estimativa de contexto — 1500 tokens por imagem, o limite do próprio host — então uma captura de tela não parece uma rodada pequena para a regra de pressão de contexto.
 

@@ -1361,3 +1361,32 @@ instead of spending.
 rate-limits under load (one live probe returned 429) — that is the cost of free-only, and
 `transportFallback` stays `false` as shipped so the failure is visible rather than silently retried.
 No publication, no deployment.
+
+### [2026-09-22] review | three findings from the independent guard review
+
+An independent reviewer agent audited the diff above and returned one Critical and two Minor
+findings; all three are fixed here.
+
+- **Critical — the flag's own type was the hole.** `servesUpstreamBilling` restricted only on an
+  exact `false`, and `validateConfig` checked `upstream.enabled` as a boolean but never
+  `paidModelsAllowed`. A stringified `"paidModelsAllowed": "false"` therefore validated, read as
+  truthy, and silently re-enabled spend on an upstream the operator meant to make free-only —
+  reproduced against the pre-fix tree, where `route()` returned a priced tier with no refusal.
+  `validateConfig` now rejects any non-boolean value, with a test. Verified after the fix: the same
+  config is rejected with `upstream 'or'.paidModelsAllowed must be a boolean`.
+- **Minor — the judge path mislabelled the skip.** `retier` reported `rule: 'availability'` for a
+  billing skip, so the log could not distinguish it from a disabled upstream. It now reports
+  `rule: 'billing'` and names the free-models-only upstream, leaving the disabled and
+  modality wording byte-identical (an existing test pins that text; the behavior there did not
+  change, so the test was not rewritten).
+- **Minor — the pt-BR install guide was not mirrored.** `docs/install.pt-BR.md` still showed the
+  paid `mid` example that the new rule refuses, and documented no `paidModelsAllowed`. Mirrored.
+
+The reviewer also confirmed the parts that needed no change: every tier-selection and dispatch site
+applies the predicate (`route()` policy filter and its cheapest alternate, cache affinity, the
+fixed-alias path, `getFallbackChain` and its per-attempt revalidation, judge `retier` plus the
+unconditional post-judge check, and `callUpstream` as the only dispatch site); cost shapes cannot
+bypass (`undefined`/`{}`/negative/non-numeric are rejected, `isFreeModel` needs strict `=== 0`);
+`planRound` reads `harness.tiers` and cannot reach OpenRouter at all.
+
+Re-validated: `npm test` 576/576 (2 new tests), `npm run typecheck` clean, `git diff --check` clean.

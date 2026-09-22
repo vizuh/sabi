@@ -347,9 +347,14 @@ export function applyJudge(
     if (!servesRound(tier)) {
       const alternate = cheapestServingTier(config.models, (name) => servesRound(name))
       if (alternate) {
+        const skipped = config.models[tier]!
+        const upstream = config.upstreams[skipped.upstream]
+        const billing = isEnabledUpstream(upstream) && !servesUpstreamBilling(upstream, skipped)
         resolvedTier = alternate
-        resolvedRule = 'availability'
-        resolvedReason = `${reason} — but '${tier}' cannot serve this round; '${alternate}' can`
+        resolvedRule = billing ? 'billing' : 'availability'
+        resolvedReason = billing
+          ? `${reason} — but '${tier}' (${skipped.model}) is on a free-models-only upstream; '${alternate}' can`
+          : `${reason} — but '${tier}' cannot serve this round; '${alternate}' can`
       }
     }
     const model = config.models[resolvedTier]!

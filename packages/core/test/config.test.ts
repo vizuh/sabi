@@ -264,6 +264,19 @@ test('upstream.enabled is an optional boolean kill switch that never blocks conf
   }
 })
 
+test('upstream.paidModelsAllowed is an optional boolean, so a stringified false cannot re-enable spend', () => {
+  const permissive = validateConfig({ ...minimal, upstreams: { mock: { ...minimal.upstreams.mock, paidModelsAllowed: true } } })
+  assert.equal(permissive.upstreams.mock!.paidModelsAllowed, true)
+  const restricted = validateConfig({ ...minimal, upstreams: { mock: { ...minimal.upstreams.mock, paidModelsAllowed: false } } })
+  assert.equal(restricted.upstreams.mock!.paidModelsAllowed, false)
+  for (const paidModelsAllowed of ['false', 'true', 0, 1, null, []]) {
+    assert.throws(
+      () => validateConfig({ ...minimal, upstreams: { mock: { ...minimal.upstreams.mock, paidModelsAllowed } } }),
+      /paidModelsAllowed/,
+    )
+  }
+})
+
 test('model and policy dictionaries cannot resolve inherited properties', () => {
   assert.throws(() => validateConfig({ ...minimal, aliases: { bad: 'toString' } }), /unknown tier/)
   assert.throws(() => validateConfig({ ...minimal, policy: { unclassified: 'constructor' } }), /unknown tier/)
