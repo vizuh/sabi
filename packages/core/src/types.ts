@@ -279,6 +279,12 @@ export interface UpstreamEntry {
   streamUsage?: boolean
   /** Kill switch. Omitted or true: usable. False: schema stays valid, but nothing may route or dispatch to it. */
   enabled?: boolean
+  /**
+   * Operator billing rule. Omitted or true: any declared model may route here. False: only
+   * zero-priced models may route or dispatch to this upstream — a model whose price is unknown
+   * or non-zero is refused, so a config mistake cannot spend money on a free-only upstream.
+   */
+  paidModelsAllowed?: boolean
 }
 
 export interface JudgeThresholds {

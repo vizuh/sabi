@@ -238,6 +238,19 @@ Each entry in `upstreams` accepts `"enabled": false` as a persistent kill switch
 register any alias that needs it, and the proxy refuses to dispatch to it even if something else
 still points there.
 
+An entry also accepts `"paidModelsAllowed": false` — a billing rule, not a kill switch. Only
+zero-priced models may then route or dispatch to that upstream: an id carrying the OpenRouter
+`:free` variant, or an explicit `"cost": { "input": 0, "output": 0 }`. Anything else is refused
+before the request leaves the process, so a priced id added to that upstream by mistake fails
+loudly instead of spending:
+
+```
+{"error":{"message":"incompatible route 'mid': upstream 'openrouter' is free-models-only and 'openai/gpt-5-mini' is not zero-priced", ...}}
+```
+
+An undeclared price is treated as unknown, and unknown is not free. Use it to keep a shared
+OpenRouter key free-only while Jev (TypeSafe) and any keyless local upstream stay unaffected.
+
 Case 4 is what makes a fresh clone work: run from the checkout and the shipped config is found.
 For a personal setup that survives moving the clone, copy the file to `~/.config/sabi/`. To work on
 one project only, drop a config in that project.
@@ -278,10 +291,13 @@ router does the rest:
 ```json
 "mid": {
   "upstream": "openrouter",
-  "model": "openai/gpt-5.6-luna",
-  "capabilities": { "inputModalities": ["text", "image", "file"] }
+  "model": "dots-studio/dots-3-note-preview:free",
+  "capabilities": { "inputModalities": ["text", "image"] }
 }
 ```
+
+That is the shipped `mid` tier. On a free-only upstream the id and the price both have to agree
+with the rule — see `paidModelsAllowed` above.
 
 - An adaptive round (`sabi-code`) that carries an image is served by the first tier in
   configuration order that declares `image` — tier order is the preference order, so list cheap

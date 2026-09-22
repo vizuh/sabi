@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { cheapestServingTier, isEnabledUpstream, servesInputModalities } from './compatibility.ts'
+import { cheapestServingTier, isEnabledUpstream, servesInputModalities, servesUpstreamBilling } from './compatibility.ts'
 import { planRecovery, recoveryPlanFromCandidate } from './recovery-actions.ts'
 import { decideTier } from './policy.ts'
 import { hashIdentity } from './log.ts'
@@ -328,7 +328,10 @@ export function applyJudge(
   const required = decision.state.inputModalities ?? []
   const servesRound = (tier: string): boolean => {
     const model = config.models[tier]
-    return Boolean(model) && isEnabledUpstream(config.upstreams[model!.upstream]) && servesInputModalities(model!.capabilities?.inputModalities, required)
+    return Boolean(model) &&
+      isEnabledUpstream(config.upstreams[model!.upstream]) &&
+      servesUpstreamBilling(config.upstreams[model!.upstream], model!) &&
+      servesInputModalities(model!.capabilities?.inputModalities, required)
   }
 
   // A judge verdict is a tier name, not a route: it can still land on a disabled upstream or a

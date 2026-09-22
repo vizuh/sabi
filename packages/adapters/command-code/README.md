@@ -18,7 +18,9 @@ The two paths are independent:
 - The Command Code mod needs no Sabi provider key or proxy. It routes the subscription already
   available to Command Code.
 - The local proxy works with OpenCode, Hermes, Kilo, and other OpenAI-compatible clients. It uses
-  OpenRouter, Ollama, or another configured upstream.
+  OpenRouter, Ollama, or another configured upstream. In the shipped default the OpenRouter
+  upstream is **free-models-only** (`paidModelsAllowed: false`): a priced model id is refused
+  before the request leaves the process, so the proxy cannot spend on its own.
 
 For the proxy, Sabi loads only the credential names referenced by `sabi.config.json`. Existing
 environment variables win, followed by `SABI_SECRETS_FILE`, the nearest workspace `secrets/.env`,

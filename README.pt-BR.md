@@ -66,19 +66,23 @@ Mídia é uma restrição de roteamento, não uma preferência decidida depois d
 
 | Nível | Proxy (`models`) | Mod (`harness.tiers`) |
 |---|---|---|
-| cheap | `deepseek/deepseek-v4-flash-0731` — só texto | `deepseek/deepseek-v4-flash` — só texto |
-| mid | `openai/gpt-5.6-luna` — texto, imagem, arquivo | `gpt-5.6-luna` — texto, imagem |
-| strong | `anthropic/claude-sonnet-5` — texto, imagem, arquivo | `zai-org/glm-5.3` — só texto |
+| cheap | `poolside/laguna-s-2.1:free` — só texto | `deepseek/deepseek-v4-flash` — só texto |
+| mid | `dots-studio/dots-3-note-preview:free` — texto, imagem | `gpt-5.6-luna` — texto, imagem |
+| strong | `nvidia/nemotron-3-ultra-550b-a55b:free` — só texto | `zai-org/glm-5.3` — só texto |
+
+A coluna do proxy é **somente modelos gratuitos**: o upstream `openrouter` declara
+`paidModelsAllowed: false`, então um id pago é recusado antes de sair do processo. Ids, janelas,
+limites de saída e preço zero verificados ao vivo em 2026-09-22.
 
 O que acontece quando nada consegue atender a rodada:
 
-- **Alias adaptativo (`sabi-code`)** — a rodada vai para um nível que consegue lê-la. Verificado ao vivo: uma rodada de exploração carregando uma imagem, planejada para o nível cheap (só texto), foi atendida por `openai/gpt-5.6-luna` (`rule: capability`), em vez de falhar no upstream com `404 No endpoints found that support image input`.
+- **Alias adaptativo (`sabi-code`)** — a rodada vai para um nível que consegue lê-la. Verificado ao vivo: uma rodada de exploração carregando uma imagem, planejada para o nível cheap (só texto), foi atendida pelo nível `mid` (`rule: capability`) em vez de falhar no upstream com `404 No endpoints found that support image input` — em 2026-09-18 por `openai/gpt-5.6-luna`, hoje por `dots-studio/dots-3-note-preview:free`.
 - **Alias fixo (`sabi-cheap`)** — recusada, com `400 incompatible route 'cheap': input modality 'image' is not supported`. Um alias de baseline é uma escolha explícita de modelo e não sobe de nível em silêncio.
 - **Nenhum nível** — recusada no proxy; no caminho do mod, a rodada fica no modelo da sessão, porque o host remove imagens para um modelo só-texto e rotear para lá responderia às cegas.
 
 A mídia também é cobrada na estimativa de contexto: cada imagem custa 1500 tokens (o limite do próprio host, não o tamanho em base64, que não diz nada sobre tokens de imagem) e as outras mídias são cobradas pelo tamanho do payload, então uma rodada com captura de tela não parece mais minúscula para a regra de pressão de contexto. `contextChars` continua só texto; `state.inputModalities` e `state.mediaCounts` são gravados em cada decisão.
 
-As modalidades declaradas precisam ser verificadas por id de modelo, não inferidas pela família: na OpenRouter, `deepseek/deepseek-v4-flash-0731` é só texto enquanto `deepseek/deepseek-v4-flash-vision-exp` aceita imagens; no catálogo do Command Code, `gpt-5.6-luna` aceita imagens enquanto `zai-org/GLM-5.3` não.
+As modalidades declaradas precisam ser verificadas por id de modelo, não inferidas pela família: na OpenRouter, `poolside/laguna-s-2.1:free` é só texto enquanto `dots-studio/dots-3-note-preview:free` declara imagem; no catálogo do Command Code, `gpt-5.6-luna` aceita imagens enquanto `zai-org/GLM-5.3` não.
 
 ## Integração opcional — mod nativo do Command Code
 

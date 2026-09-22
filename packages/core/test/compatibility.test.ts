@@ -387,6 +387,38 @@ test('malformed stream options cannot be normalized into a valid envelope', () =
   }
 })
 
+test('a free-models-only upstream refuses a priced model and reroutes to a zero-priced one', () => {
+  const free = { baseURL: 'http://127.0.0.1:1/v1', apiKey: '$KEY', paidModelsAllowed: false }
+  const settings = validateConfig({
+    upstreams: { free, open: { baseURL: 'http://127.0.0.1:2/v1', apiKey: '$KEY' } },
+    models: {
+      cheap: catalog({ upstream: 'free', model: 'some/model:free', cost: { input: 0, output: 0 } }),
+      strong: catalog({ upstream: 'free', model: 'some/paid-model', cost: { input: 0.5, output: 1 } }),
+      unpriced: catalog({ upstream: 'free', model: 'some/unpriced-model' }),
+      open: catalog({ upstream: 'open', model: 'some/paid-model' }),
+    },
+    aliases: {
+      'sabi-code': 'auto', 'sabi-strong': 'strong', 'sabi-unpriced': 'unpriced', 'sabi-open': 'open',
+    },
+    policy: { 'first-turn': 'strong', unclassified: 'strong' },
+    compatibility: { mode: 'strict' },
+  })
+
+  // The rule is a hard constraint, not a preference: the priced policy tier is skipped for the
+  // cheapest zero-priced tier that can still serve the round, and the decision names why.
+  const decision = route(body(), settings)
+  assert.equal(decision.tier, 'cheap')
+  assert.equal(decision.rule, 'billing')
+  assert.match(decision.reason, /free-models-only/)
+
+  // A fixed alias names its backend explicitly: it refuses instead of silently downgrading.
+  rejected(body({ model: 'sabi-strong' }), settings, /free-models-only and 'some\/paid-model' is not zero-priced/)
+  // An undeclared price is unknown, and unknown is not free.
+  rejected(body({ model: 'sabi-unpriced' }), settings, /is not zero-priced/)
+  // An upstream that does not declare the rule is unaffected.
+  assert.equal(route(body({ model: 'sabi-open' }), settings).tier, 'open')
+})
+
 test('a disabled upstream is rejected before dispatch, independent of compatibility mode', () => {
   for (const mode of ['strict', 'legacy'] as const) {
     const settings = config()
