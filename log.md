@@ -1309,3 +1309,15 @@ coverage. No credentials or provider claims are inferred from these observations
 Verification is run with `TMPDIR=/tmp`: focused setup tests, the full repository
 suite, `npm run typecheck` and `git diff --check` pass. No live provider request,
 user profile mutation, deployment or publication.
+## [2026-09-22] change | Oh My Pi inference adapter
+
+Added `packages/adapters/oh-my-pi`, a side-effect-free Oh My Pi 18.2.8 extension using the
+installed `pi.registerProvider()` seam. It registers `sabi/sabi-code` against the local
+OpenAI-compatible proxy, advertises text/image input and generic reasoning effort, keeps OMP's
+native loop/tool ownership, and rejects non-loopback endpoints. `SABI_OMP_BASE_URL` overrides the
+endpoint; `SABI_BASE_URL` remains the fallback.
+
+Added the compatibility proposal, user-facing adapter page, English/Portuguese capability rows and
+four contract tests. Installed OMP smoke completed one streamed text turn against a loopback mock
+with `OMP_SABI_SMOKE_OK`; no upstream credential or paid request was used. Full `npm test` passed
+572/572, `npm run -s typecheck` passed and `git diff --check` passed. No publication or deployment.

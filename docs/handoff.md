@@ -1,4 +1,16 @@
 # Handoff Notes
+## Oh My Pi provider adapter — 2026-09-22
+
+Added `packages/adapters/oh-my-pi`, a side-effect-free Oh My Pi 18.2.8 extension that registers the
+local Sabi OpenAI-compatible proxy as `sabi/sabi-code`. OMP keeps its native loop, history, tools,
+approvals, compaction, cancellation and retries; Sabi chooses the upstream model behind the stable
+alias. The adapter rejects non-loopback endpoints and never copies provider credentials into OMP.
+
+The compatibility proposal is `docs/research/oh-my-pi-adapter.md`; user instructions are in
+`docs/adapters/oh-my-pi.md`. Evidence is source review, four contract tests, and an installed OMP
+18.2.8 non-interactive streaming smoke against a loopback mock (`OMP_SABI_SMOKE_OK`). Full
+`npm test` passed 572/572, `npm run -s typecheck` passed, and `git diff --check` passed. No real
+upstream request, user configuration, credential, deployment or publication was used.
 
 ## Cache-aware model continuity + structured fallback handoff — 2026-09-21
 
