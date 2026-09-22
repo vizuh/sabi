@@ -1,4 +1,32 @@
 # Handoff Notes
+## OpenRouter free-models-only rule, enforced — 2026-09-22
+
+Hugo's standing rule — the OpenRouter upstream serves free models and Jev only — was being
+violated in production. `.sabi/decisions.jsonl` records 242 rounds on `openai/gpt-5-mini`, 161 on
+`openai/gpt-5.6-luna`, 18 on `anthropic/claude-sonnet-5` and 483 on the priced
+`deepseek/deepseek-v4-flash-0731`, all `upstream: openrouter`. The config was corrected, and the
+rule is now a hard constraint in code rather than a property of one config file:
+`UpstreamEntry.paidModelsAllowed` plus `isFreeModel`/`servesUpstreamBilling` in
+`packages/core/src/compatibility.ts`, enforced at `ensureRouteCompatible` and in every tier
+candidate filter (`route()`, `getFallbackChain`, judge `retier`), with `rule: 'billing'` naming
+the reason.
+
+`sabi.config.json` now maps cheap/mid/strong to `:free` OpenRouter ids verified live by a real
+completion on 2026-09-22 (`poolside/laguna-s-2.1:free`, `dots-studio/dots-3-note-preview:free`,
+`nvidia/nemotron-3-ultra-550b-a55b:free`), keeps Ollama as the keyless local tier, and leaves Jev
+on TypeSafe. `docs/install.md` documents the new key; rationale in `docs/decisions.md` and
+`log.md`.
+
+Validation: `npm test` 575/575 (1 new guard test), `npm run typecheck` clean. Live:
+`sabi-proxy.service` restarted on the new config, all four aliases returned HTTP 200, and the four
+new decision rows are all `:free` models. A throwaway proxy with `mid` repointed to
+`openai/gpt-5-mini` returned HTTP 400
+`upstream 'openrouter' is free-models-only and 'openai/gpt-5-mini' is not zero-priced`, and its
+adaptive round rerouted to the free cheap tier — no spend. Known tradeoff: the shared free pool
+rate-limits under load (one probe answered 429); `transportFallback` stays `false` so that is
+visible. Not verified: OMP-native per-round behaviour on the new tiers, and free-tier throughput
+under a long session. No commit, push, deployment or publication.
+
 ## Oh My Pi provider adapter — 2026-09-22
 
 Added `packages/adapters/oh-my-pi`, a side-effect-free Oh My Pi 18.2.8 extension that registers the

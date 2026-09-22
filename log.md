@@ -1321,3 +1321,72 @@ Added the compatibility proposal, user-facing adapter page, English/Portuguese c
 four contract tests. Installed OMP smoke completed one streamed text turn against a loopback mock
 with `OMP_SABI_SMOKE_OK`; no upstream credential or paid request was used. Full `npm test` passed
 572/572, `npm run -s typecheck` passed and `git diff --check` passed. No publication or deployment.
+
+## [2026-09-22] change | Operator billing rule: OpenRouter is free-models-only
+
+Hugo's standing rule: the OpenRouter upstream may serve free models and Jev only — no paid
+OpenRouter model, ever. The shipped config had violated it in production: `.sabi/decisions.jsonl`
+recorded 242 rounds served by `openai/gpt-5-mini`, 161 by `openai/gpt-5.6-luna`, 18 by
+`anthropic/claude-sonnet-5` and 483 by the priced `deepseek/deepseek-v4-flash-0731`, all through
+`upstream: openrouter`. Config alone was not enforcement, so this change makes the rule a hard
+constraint in code.
+
+`UpstreamEntry.paidModelsAllowed` (omitted/`true` = unchanged behavior) plus two predicates in
+`packages/core/src/compatibility.ts`: `isFreeModel` (OpenRouter `:free` id variant, or declared
+`cost.input === 0 && cost.output === 0` — an undeclared price is unknown, and unknown is not free)
+and `servesUpstreamBilling`. Enforced at the dispatch choke point in `ensureRouteCompatible`, and
+in every candidate filter that could otherwise route around it: `route()`'s `servesRound`,
+`getFallbackChain`, and the judge's `retier` filter. `route()` now names `rule: 'billing'` when a
+free-only upstream is why a policy tier was skipped, instead of reporting `capability`.
+
+`sabi.config.json` now has one keyed `openrouter` upstream with `paidModelsAllowed: false` and four
+zero-priced tiers, every id verified live on 2026-09-22 by a real completion against
+`https://openrouter.ai/api/v1` — cheap `poolside/laguna-s-2.1:free` (262144 ctx, 32768 out, text),
+mid `dots-studio/dots-3-note-preview:free` (512000, 460800, text+image), strong
+`nvidia/nemotron-3-ultra-550b-a55b:free` (1000000, 65536, text), local Ollama `qwen2.5-coder:7b`.
+Probing also rejected `thinkingmachines/inkling:free` (403, agentic harnesses only) and several
+429-limited ids, so they were left out rather than declared.
+
+Validation: `npm test` 575/575 (1 new test in `packages/core/test/compatibility.test.ts` covering the
+refusal, the billing reroute, the unknown-price case and a non-declaring upstream), `npm run
+typecheck` clean. Live: `sabi-proxy.service` restarted on the new config; all four aliases answered
+HTTP 200 and the four new decision rows read `poolside/laguna-s-2.1:free`,
+`dots-studio/dots-3-note-preview:free` (×2) and `nvidia/nemotron-3-ultra-550b-a55b:free` — no priced
+model. A throwaway proxy on the same config with `mid` repointed to `openai/gpt-5-mini` returned
+HTTP 400 `incompatible route 'mid': upstream 'openrouter' is free-models-only and
+'openai/gpt-5-mini' is not zero-priced`, and its adaptive round rerouted to the free cheap tier
+instead of spending.
+
+`docs/install.md` documents the new key. Known tradeoff: OpenRouter's free pool is shared and
+rate-limits under load (one live probe returned 429) — that is the cost of free-only, and
+`transportFallback` stays `false` as shipped so the failure is visible rather than silently retried.
+No publication, no deployment.
+
+### [2026-09-22] review | three findings from the independent guard review
+
+An independent reviewer agent audited the diff above and returned one Critical and two Minor
+findings; all three are fixed here.
+
+- **Critical — the flag's own type was the hole.** `servesUpstreamBilling` restricted only on an
+  exact `false`, and `validateConfig` checked `upstream.enabled` as a boolean but never
+  `paidModelsAllowed`. A stringified `"paidModelsAllowed": "false"` therefore validated, read as
+  truthy, and silently re-enabled spend on an upstream the operator meant to make free-only —
+  reproduced against the pre-fix tree, where `route()` returned a priced tier with no refusal.
+  `validateConfig` now rejects any non-boolean value, with a test. Verified after the fix: the same
+  config is rejected with `upstream 'or'.paidModelsAllowed must be a boolean`.
+- **Minor — the judge path mislabelled the skip.** `retier` reported `rule: 'availability'` for a
+  billing skip, so the log could not distinguish it from a disabled upstream. It now reports
+  `rule: 'billing'` and names the free-models-only upstream, leaving the disabled and
+  modality wording byte-identical (an existing test pins that text; the behavior there did not
+  change, so the test was not rewritten).
+- **Minor — the pt-BR install guide was not mirrored.** `docs/install.pt-BR.md` still showed the
+  paid `mid` example that the new rule refuses, and documented no `paidModelsAllowed`. Mirrored.
+
+The reviewer also confirmed the parts that needed no change: every tier-selection and dispatch site
+applies the predicate (`route()` policy filter and its cheapest alternate, cache affinity, the
+fixed-alias path, `getFallbackChain` and its per-attempt revalidation, judge `retier` plus the
+unconditional post-judge check, and `callUpstream` as the only dispatch site); cost shapes cannot
+bypass (`undefined`/`{}`/negative/non-numeric are rejected, `isFreeModel` needs strict `=== 0`);
+`planRound` reads `harness.tiers` and cannot reach OpenRouter at all.
+
+Re-validated: `npm test` 576/576 (2 new tests), `npm run typecheck` clean, `git diff --check` clean.

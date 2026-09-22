@@ -84,6 +84,26 @@ export function isEnabledUpstream(upstream: UpstreamEntry | undefined): boolean 
   return upstream !== undefined && upstream.enabled !== false
 }
 
+/**
+ * Zero-priced by declaration. Two independent signals, either sufficient: an OpenRouter `:free`
+ * id variant, or a declared cost of exactly zero on both sides. An undeclared price is *not*
+ * free — unknown must never be read as "safe to spend".
+ */
+export function isFreeModel(model: Pick<ModelEntry, 'model' | 'cost'> | undefined): boolean {
+  if (!model) return false
+  if (model.model.endsWith(':free')) return true
+  return model.cost?.input === 0 && model.cost?.output === 0
+}
+
+/**
+ * Whether `model` may be dispatched to `upstream`. Only an upstream that declares
+ * `paidModelsAllowed: false` restricts anything; every other upstream keeps the previous
+ * behavior, so this rule cannot change routing for operators who never opt in.
+ */
+export function servesUpstreamBilling(upstream: UpstreamEntry | undefined, model: Pick<ModelEntry, 'model' | 'cost'> | undefined): boolean {
+  return upstream?.paidModelsAllowed !== false || isFreeModel(model)
+}
+
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
@@ -119,6 +139,9 @@ export function ensureRouteCompatible(body: ChatRequestBody, config: SabiConfig,
   if (!model) return
   if (!isEnabledUpstream(config.upstreams[model.upstream])) {
     fail(`upstream '${model.upstream}' is disabled`)
+  }
+  if (!servesUpstreamBilling(config.upstreams[model.upstream], model)) {
+    fail(`upstream '${model.upstream}' is free-models-only and '${model.model}' is not zero-priced`)
   }
   if (body.stream_options !== undefined && !object(body.stream_options)) fail('stream_options must be an object')
   if (body.stream_options?.include_usage !== undefined && typeof body.stream_options.include_usage !== 'boolean') {

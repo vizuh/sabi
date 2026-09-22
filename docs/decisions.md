@@ -1312,3 +1312,60 @@ inventing quality gains for a stronger model.
 
 Add measured per-task quality utility to the switch decision when enough verified trajectory data
 exists; add provider-specific handoff metadata only when a native provider contract accepts it.
+
+## [2026-09-22] OpenRouter spend rule is enforced in code, not only in config
+
+### Decision
+
+The OpenRouter upstream is **free-models-only**. `UpstreamEntry` gains `paidModelsAllowed`
+(omitted or `true` keeps every existing behavior). When an upstream declares
+`paidModelsAllowed: false`, only zero-priced models may route or dispatch to it: an OpenRouter
+`:free` id variant, or an explicit `cost.input === 0 && cost.output === 0`. An undeclared price
+counts as unknown, and unknown is not free. The check lives in `servesUpstreamBilling` and runs at
+the dispatch choke point (`ensureRouteCompatible`), in `route()`'s tier filter, in
+`getFallbackChain`, and in the judge's `retier` filter — everywhere a tier could be selected.
+
+The shipped `sabi.config.json` routes cheap/mid/strong to `:free` OpenRouter ids; Ollama stays the
+keyless local tier; Jev stays on TypeSafe.
+
+### Why
+
+Hugo's rule predates the config that violated it, and the violation was measurable: 242 rounds
+served by `openai/gpt-5-mini`, 161 by `openai/gpt-5.6-luna`, 18 by `anthropic/claude-sonnet-5` and
+483 by the priced `deepseek/deepseek-v4-flash-0731` are recorded in `.sabi/decisions.jsonl`. A
+config-only fix would have been the same class of change that failed: correct on the day it was
+written, silently wrong after the next edit. `enabled: false` was not reusable either — it kills an
+upstream outright, and OpenRouter must keep serving free models.
+
+Enforcing at dispatch means the failure mode inverts: a priced model id added to a free-only
+upstream by mistake produces a loud 400 before the request leaves the process, instead of a
+successful request that spends money.
+
+### Alternatives considered
+
+- **Keyless upstream (`apiKey: false`)** — probed live and rejected for this config: OpenRouter
+  answered `HTTP 401` for a keyed model id without a key, so keyless is not a workable free lane
+  here, and it silently converts a config mistake into an authentication error rather than a
+  routing refusal. It also cannot distinguish "no key" from "no billing" for a non-OpenRouter
+  upstream.
+- **Config-only free ids** — rejected, see above.
+- **A separate `openrouter-free` upstream alongside a disabled `openrouter-paid`** — rejected as
+  the primary mechanism. It duplicates the endpoint and headers, and it only stops spend while the
+  paid entry stays disabled; the billing rule refuses the request regardless of what the entry is
+  named.
+- **Filtering in the `/v1/models` handler only** — rejected: it changes what a client sees, not
+  what Sabi may dispatch.
+
+### Tradeoffs
+
+The free pool is shared and rate-limits under load: one live probe of the shipped cheap tier
+returned `429 ... upstream_provider_shared_pool`. That is the real cost of free-only — availability
+instead of quality — and it is visible in the decision log rather than hidden behind a paid
+fallback. `transportFallback` therefore stays `false` as shipped; enabling it would retry the next
+free tier instead of surfacing the 429.
+
+### Revisit later?
+
+If free-tier availability proves too disruptive, revisit in this order: enable
+`transportFallback`, then add a second free upstream entry, then reconsider a paid OpenRouter
+allowlist with an explicit per-model `paidModelsAllowed` carve-out. Do not weaken the default.

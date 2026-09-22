@@ -64,19 +64,21 @@ controller 包通过 `controller-v*` 标签单独发布。如果 npm 上还没�
 
 | 层级 | 代理（`models`） | mod（`harness.tiers`） |
 |---|---|---|
-| cheap | `deepseek/deepseek-v4-flash-0731` — 仅文本 | `deepseek/deepseek-v4-flash` — 仅文本 |
-| mid | `openai/gpt-5.6-luna` — 文本、图片、文件 | `gpt-5.6-luna` — 文本、图片 |
-| strong | `anthropic/claude-sonnet-5` — 文本、图片、文件 | `zai-org/glm-5.3` — 仅文本 |
+| cheap | `poolside/laguna-s-2.1:free` — 仅文本 | `deepseek/deepseek-v4-flash` — 仅文本 |
+| mid | `dots-studio/dots-3-note-preview:free` — 文本、图片 | `gpt-5.6-luna` — 文本、图片 |
+| strong | `nvidia/nemotron-3-ultra-550b-a55b:free` — 仅文本 | `zai-org/glm-5.3` — 仅文本 |
+
+代理列**只用免费模型**：`openrouter` upstream 声明 `paidModelsAllowed: false`，付费 id 会在请求离开进程之前被拒绝。id、上下文窗口、输出上限与零价格均于 2026-09-22 实测。
 
 当没有任何层级能服务该轮时：
 
-- **自适应别名（`sabi-code`）** — 该轮转到能读取它的层级。已实测：一个携带图片、本计划发给仅文本 cheap 层级的研究轮次，由 `openai/gpt-5.6-luna` 服务（`rule: capability`），而不是在上游以 `404 No endpoints found that support image input` 失败。
+- **自适应别名（`sabi-code`）** — 该轮转到能读取它的层级。已实测：一个携带图片、本计划发给仅文本 cheap 层级的轮次，由 `mid` 层级服务（`rule: capability`）——2026-09-18 为 `openai/gpt-5.6-luna`，现为 `dots-studio/dots-3-note-preview:free`——而不是在上游以 `404 No endpoints found that support image input` 失败。
 - **固定别名（`sabi-cheap`）** — 直接拒绝，返回 `400 incompatible route 'cheap': input modality 'image' is not supported`。基线别名是显式的模型选择，不会静默升级。
 - **没有任何层级** — 代理拒绝；在 mod 路径上该轮保留在会话模型上，因为宿主会为仅文本模型剥离图片，路由到那里等于盲目作答。
 
 媒体同样计入上下文估计：每张图片按 1500 token 计费（宿主自己的上限，而不是 base64 长度，后者与图片 token 无关），其他媒体按载荷大小计费，因此带截图的轮次不再对上下文压力规则显得微不足道。`contextChars` 仍只统计文本；`state.inputModalities` 与 `state.mediaCounts` 记录在每一次决策上。
 
-声明的模态必须按模型 id 逐一核实，不能由系列推断：在 OpenRouter 上 `deepseek/deepseek-v4-flash-0731` 仅文本，而 `deepseek/deepseek-v4-flash-vision-exp` 接受图片；在 Command Code 目录中 `gpt-5.6-luna` 接受图片，而 `zai-org/GLM-5.3` 不接受。
+声明的模态必须按模型 id 逐一核实，不能由系列推断：在 OpenRouter 上 `poolside/laguna-s-2.1:free` 仅文本，而 `dots-studio/dots-3-note-preview:free` 声明支持图片；在 Command Code 目录中 `gpt-5.6-luna` 接受图片，而 `zai-org/GLM-5.3` 不接受。
 
 ## 可选集成 — Command Code 原生 mod
 

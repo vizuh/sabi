@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { cheapestServingTier, isEnabledUpstream, servesInputModalities } from './compatibility.ts'
+import { cheapestServingTier, isEnabledUpstream, servesInputModalities, servesUpstreamBilling } from './compatibility.ts'
 import { planRecovery, recoveryPlanFromCandidate } from './recovery-actions.ts'
 import { decideTier } from './policy.ts'
 import { hashIdentity } from './log.ts'
@@ -328,7 +328,10 @@ export function applyJudge(
   const required = decision.state.inputModalities ?? []
   const servesRound = (tier: string): boolean => {
     const model = config.models[tier]
-    return Boolean(model) && isEnabledUpstream(config.upstreams[model!.upstream]) && servesInputModalities(model!.capabilities?.inputModalities, required)
+    return Boolean(model) &&
+      isEnabledUpstream(config.upstreams[model!.upstream]) &&
+      servesUpstreamBilling(config.upstreams[model!.upstream], model!) &&
+      servesInputModalities(model!.capabilities?.inputModalities, required)
   }
 
   // A judge verdict is a tier name, not a route: it can still land on a disabled upstream or a
@@ -344,9 +347,14 @@ export function applyJudge(
     if (!servesRound(tier)) {
       const alternate = cheapestServingTier(config.models, (name) => servesRound(name))
       if (alternate) {
+        const skipped = config.models[tier]!
+        const upstream = config.upstreams[skipped.upstream]
+        const billing = isEnabledUpstream(upstream) && !servesUpstreamBilling(upstream, skipped)
         resolvedTier = alternate
-        resolvedRule = 'availability'
-        resolvedReason = `${reason} — but '${tier}' cannot serve this round; '${alternate}' can`
+        resolvedRule = billing ? 'billing' : 'availability'
+        resolvedReason = billing
+          ? `${reason} — but '${tier}' (${skipped.model}) is on a free-models-only upstream; '${alternate}' can`
+          : `${reason} — but '${tier}' cannot serve this round; '${alternate}' can`
       }
     }
     const model = config.models[resolvedTier]!
