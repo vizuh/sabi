@@ -47,6 +47,7 @@
       "upstream": "ollama",
       "model": "qwen2.5-coder:7b",
       "contextWindow": 32768,
+      "maxOutputTokens": 32768,
       "capabilities": { "inputModalities": ["text"] },
       "cost": { "input": 0, "output": 0 }
     }
