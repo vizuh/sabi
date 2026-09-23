@@ -61,7 +61,7 @@ Use isto apenas se quiser roteamento por rodada de modelo e esforço de raciocí
 ### Mod publicado
 
 ~~~bash
-cmd mods add -g npm:@vizuh/sabi
+cmd mods add -g npm:@vizuh/sabi-commandcode
 cmd mods list
 ~~~
 
@@ -495,6 +495,6 @@ O juiz precisa de uma chave da TypeSafe: exporte `TYPESAFE_API_KEY`, ou ponha `j
 cd /caminho/para/sabi && git pull && npm install
 ```
 
-Nada mais a fazer no caminho A (o mod é referenciado no lugar). Para a instalação via npm (`cmd mods add -g npm:@vizuh/sabi`), atualize com `cmd mods update`, que reinstala a versão publicada mais nova. No caminho B, reinicie o proxy.
+Nada mais a fazer no caminho A (o mod é referenciado no lugar). Para a instalação via npm (`cmd mods add -g npm:@vizuh/sabi-commandcode`), atualize com `cmd mods update`, que reinstala a versão publicada mais nova. No caminho B, reinicie o proxy.
 Se algum id de modelo ou preço mudou, reconfira no upstream antes de confiar no relatório de custo —
 veja as notas de procedência em `sabi.config.json`.

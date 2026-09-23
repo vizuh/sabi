@@ -99,7 +99,7 @@ cmd mods list                                                  # → sabi · pro
 或者不克隆直接安装同一个 mod —— 它以打包好的 npm 包发布，运行时零依赖（仅 mod；下面的代理路径仍需克隆）：
 
 ```bash
-cmd mods add -g npm:@vizuh/sabi                                # user scope; update later with `cmd mods update`
+cmd mods add -g npm:@vizuh/sabi-commandcode                                # user scope; update later with `cmd mods update`
 ```
 
 mod 会在该项目里你的下一次会话加载（第一次会话还会要求你信任该 workspace，这是项目级 mod 的前提）。此后 Sabi 会规划每一个后续轮次；第 1 轮始终运行在会话模型上，因为 `prepareNextTurn` 从第二轮起才触发。

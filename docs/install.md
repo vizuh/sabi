@@ -63,7 +63,7 @@ Use this only when you specifically want per-round model and reasoning-effort ro
 ### Published mod
 
 ~~~bash
-cmd mods add -g npm:@vizuh/sabi
+cmd mods add -g npm:@vizuh/sabi-commandcode
 cmd mods list
 ~~~
 
@@ -543,6 +543,6 @@ harness — authentication, authorization, encryption, audit logging, and incide
 cd /path/to/sabi && git pull && npm install
 ```
 
-Nothing else to do for path A (the mod is referenced in place). For the npm install (`cmd mods add -g npm:@vizuh/sabi`), update with `cmd mods update`, which reinstalls the newest published version. For path B, restart the proxy.
+Nothing else to do for path A (the mod is referenced in place). For the npm install (`cmd mods add -g npm:@vizuh/sabi-commandcode`), update with `cmd mods update`, which reinstalls the newest published version. For path B, restart the proxy.
 If a model id or price has drifted, re-check upstream before trusting the cost report — see the
 provenance notes in `sabi.config.json`.

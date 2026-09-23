@@ -1,9 +1,9 @@
 {
   "name": "@sabi/adapter-command-code",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
-  "description": "Adaptive model, reasoning-effort and provider routing for coding-agent trajectories, across Claude Code, Codex, OpenCode, Oh My Pi, Hermes, Command Code and Orca. Installs Sabi's Command Code mod.",
+  "description": "Sabi for Command Code: adaptive model, reasoning-effort and provider routing inside a Command Code trajectory, from the engine at @vizuh/sabi-router. One Sabi surface; the routing layer is the product.",
   "type": "module",
   "repository": {
     "type": "git",

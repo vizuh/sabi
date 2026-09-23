@@ -131,7 +131,7 @@ Current evidence and limitations live in [Harness compatibility](docs/harnesses.
 Use the published mod only if you want Sabi to change the model and reasoning effort inside a Command Code trajectory:
 
 ~~~bash
-cmd mods add -g npm:@vizuh/sabi
+cmd mods add -g npm:@vizuh/sabi-commandcode
 cmd mods list
 ~~~
 

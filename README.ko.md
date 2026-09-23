@@ -108,7 +108,7 @@ Sabi에는 현재 두 제품 계열이 있습니다:
 Command Code 궤적 안에서 모델과 reasoning effort를 바꾸고 싶을 때만 게시된 mod를 사용하세요:
 
 ~~~bash
-cmd mods add -g npm:@vizuh/sabi
+cmd mods add -g npm:@vizuh/sabi-commandcode
 cmd mods list
 ~~~
 

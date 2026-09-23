@@ -1,4 +1,7 @@
-# @vizuh/sabi: Adaptive model, reasoning-effort and provider routing for coding agents
+# @vizuh/sabi-commandcode: Sabi for Command Code
+
+This is the **Command Code satellite** of Sabi. The routing layer is the product:
+`@vizuh/sabi-router`.
 
 Sabi is harness-independent adaptive inference scheduling for coding-agent trajectories:
 per-round routing of model, effort and provider from trajectory evidence, while each host
@@ -13,7 +16,7 @@ evidence boundaries.
 | --- | --- | --- |
 | Claude Code | Controller hooks (task/session, fail-open) | `npm install --global @vizuh/sabi-controller` then `sabi setup` |
 | Codex | Controller hooks (task/session, fail-open) | `npm install --global @vizuh/sabi-controller` then `sabi setup` |
-| Command Code | This package: in-process mod, per-round model + reasoning effort | `cmd mods add -g npm:@vizuh/sabi` |
+| Command Code | This package: in-process mod, per-round model + reasoning effort | `cmd mods add -g npm:@vizuh/sabi-commandcode` |
 | Hermes | Local proxy + native `llm_request` middleware | Checkout-based setup in [the install guide](../../../docs/install.md) |
 | Oh My Pi | Local proxy via OpenAI-compatible extension provider | Checkout: `omp --extension packages/adapters/oh-my-pi/src/sabi-extension.mjs --model sabi/sabi-code` |
 | OpenCode | Local proxy, plus optional controller hook | Checkout-based proxy (`npm start` + `npm run connect:opencode`); hooks via `@vizuh/sabi-controller` |
@@ -47,7 +50,7 @@ secrets/.env, that source file is already in the worktree: keep it out of versio
 ## Install
 
 ```bash
-cmd mods add -g npm:@vizuh/sabi
+cmd mods add -g npm:@vizuh/sabi-commandcode
 ```
 
 ## Update
