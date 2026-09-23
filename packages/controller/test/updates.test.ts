@@ -237,24 +237,29 @@ test('the scheduler ticks without a wall clock, and has an off switch', async ()
   try {
     const stateDir = path.join(root, 'state')
     const env = isolatedEnv(root)
-    const reached = Promise.withResolvers<void>()
+    let reached = false
     const calls = registry('0.2.0')
-    const signalling = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      reached.resolve()
-      return calls.fetchImpl(input as never, init as never)
-    }) as unknown as typeof fetch
+    const signalling = (async (...args: Parameters<typeof fetch>) => {
+      reached = true
+      return calls.fetchImpl(...args)
+    }) as typeof fetch
+    // A macrotask boundary, not a duration: the tick starts an async chain and this lets its
+    // microtasks settle before the assertion. `setImmediate` is not one of the mocked APIs.
+    const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
     mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
     try {
       const stop = startUpdateRefresh({ stateDir, env, installedVersion: '0.1.0', fetchImpl: signalling, firstDelayMs: 5, intervalMs: 10 })
       mock.timers.tick(5)
-      await reached.promise
+      await settle()
       stop()
-      assert.equal(calls.calls(), 1, 'the first delay reached the registry')
+      assert.equal(reached, true, 'the first delay reached the registry')
+      assert.equal(calls.calls(), 1)
 
       const quiet = registry('0.3.0')
       const stopQuiet = startUpdateRefresh({ stateDir, env: { ...env, SABI_UPDATE_CHECK: 'off' }, installedVersion: '0.1.0', fetchImpl: quiet.fetchImpl, firstDelayMs: 5, intervalMs: 10 })
       mock.timers.tick(1_000)
+      await settle()
       stopQuiet()
       assert.equal(quiet.calls(), 0, 'the off switch makes no request at all')
     } finally {
