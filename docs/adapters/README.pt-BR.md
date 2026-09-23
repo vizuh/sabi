@@ -30,7 +30,7 @@ limite, mas o adaptador não deve alegar troca nativa de modelo que o host não 
 
 | Adaptador | Forma | Status atual | Entrada opcional |
 | --- | --- | --- | --- |
-| [Command Code](command-code.md) | Mod em processo | Roteamento publicado de modelo + esforço por rodada | `cmd mods add -g npm:@vizuh/sabi` |
+| [Command Code](command-code.md) | Mod em processo | Roteamento publicado de modelo + esforço por rodada | `cmd mods add -g npm:@vizuh/sabi-commandcode` |
 | [OpenCode](opencode.md) | Proxy local + hook opcional do controller | Proxy testado por protocolo; controller parcial | `npm start` + `npm run connect:opencode` |
 | [Hermes](hermes.pt-BR.md) | Middleware nativo `llm_request` + proxy | Caminho Hermes 0.21.3 fixado e testado; caminhos auxiliares separados | Perfil isolado |
 | [Oh My Pi](oh-my-pi.md) | Provider de extensão compatível com OpenAI | Contrato de fonte + fixture + smoke no OMP 18.2.8 instalado testados | `omp --extension ... --model sabi/sabi-code` |

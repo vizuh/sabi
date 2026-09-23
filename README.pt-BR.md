@@ -103,7 +103,7 @@ cmd mods list                                                  # → sabi · pro
 Ou instale o mesmo mod sem clonar — ele é publicado como um pacote npm empacotado, sem dependências de runtime (só o mod; o caminho do proxy abaixo ainda precisa do clone):
 
 ```bash
-cmd mods add -g npm:@vizuh/sabi                                # escopo de usuário; atualize depois com `cmd mods update`
+cmd mods add -g npm:@vizuh/sabi-commandcode                                # escopo de usuário; atualize depois com `cmd mods update`
 ```
 
 O mod carrega na sua próxima sessão nesse projeto (a primeira sessão também pede para confiar no workspace, o que mods de projeto exigem). A partir daí o Sabi planeja cada rodada seguinte; a rodada 1 sempre roda no modelo da sessão, porque `prepareNextTurn` só dispara da segunda rodada em diante.

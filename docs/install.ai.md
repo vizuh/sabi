@@ -58,7 +58,7 @@ The host AI should use the command matching the confirmed harness:
 
 | Harness | First action | Credential asked by Sabi |
 |---|---|---|
-| Command Code | `cmd mods add -g npm:@vizuh/sabi@0.1.3` | none for the native mod |
+| Command Code | `cmd mods add -g npm:@vizuh/sabi-commandcode@0.1.3` | none for the native mod |
 | OpenCode | `npm run setup -- --harness=opencode --no-jev` | OpenRouter only |
 | Hermes | `npm run setup -- --harness=hermes --upstream=openrouter --hermes-home="$HOME/.config/sabi/hermes" --no-jev` | OpenRouter only |
 | Claude Code | `sabi setup` | none for the controller hook |

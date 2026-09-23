@@ -108,7 +108,7 @@ Sabi には現在2つの製品系列があります：
 Command Code の軌跡内でモデルと推論 effort を変えたい場合だけ、公開済み mod を使います：
 
 ~~~bash
-cmd mods add -g npm:@vizuh/sabi
+cmd mods add -g npm:@vizuh/sabi-commandcode
 cmd mods list
 ~~~
 

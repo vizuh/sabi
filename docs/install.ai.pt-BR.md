@@ -61,7 +61,7 @@ O AI deve usar o comando correspondente ao harness confirmado:
 
 | Harness | Primeira ação | Credencial que o Sabi pede |
 |---|---|---|
-| Command Code | `cmd mods add -g npm:@vizuh/sabi@0.1.3` | nenhuma para o mod nativo |
+| Command Code | `cmd mods add -g npm:@vizuh/sabi-commandcode@0.1.3` | nenhuma para o mod nativo |
 | OpenCode | `npm run setup -- --harness=opencode --no-jev` | somente OpenRouter |
 | Hermes | `npm run setup -- --harness=hermes --upstream=openrouter --hermes-home="$HOME/.config/sabi/hermes" --no-jev` | somente OpenRouter |
 | Claude Code | `sabi setup` | nenhuma para o hook do controller |

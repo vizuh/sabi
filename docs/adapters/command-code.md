@@ -8,7 +8,7 @@ the Command Code loop, and chooses a model and reasoning effort for continuing r
 Published package:
 
 ~~~bash
-cmd mods add -g npm:@vizuh/sabi
+cmd mods add -g npm:@vizuh/sabi-commandcode
 cmd mods update
 ~~~
 

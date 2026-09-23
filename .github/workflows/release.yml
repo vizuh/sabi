@@ -5,7 +5,10 @@ name: release
 #
 # The tag is the version — pack.mjs stamps it into the published manifest (the `v` is stripped) —
 # so bump `packages/adapters/command-code/package.json` and merge before tagging. This job publishes
-# only the packaged Command Code adapter as @vizuh/sabi; the root controller and other private
+# only the packaged Command Code satellite as @vizuh/sabi-commandcode. The routing layer has
+# its own router-v* lane (@vizuh/sabi-router) and the controller its own controller-v* lane; the short
+# `@vizuh/sabi` name was claimed by this mod before the layer was published and npm never releases
+# a name, so the satellites carry suffixed names and @vizuh/sabi is left as a deprecation pointer.
 # adapters remain source-only. It typechecks, runs the suite, publishes with provenance, and opens
 # a GitHub Release carrying generated notes and the exact tarball npm serves.
 #
@@ -49,9 +52,9 @@ jobs:
         id: publish
         run: |
           version="${GITHUB_REF_NAME#v}"
-          if npm view "@vizuh/sabi@$version" version >/dev/null 2>&1; then
+          if npm view "@vizuh/sabi-commandcode@$version" version >/dev/null 2>&1; then
             echo "state=already" >> "$GITHUB_OUTPUT"
-            echo "@vizuh/sabi@$version is already on the registry — skipping the publish."
+            echo "@vizuh/sabi-commandcode@$version is already on the registry — skipping the publish."
           else
             npm publish ./packages/adapters/command-code/pkg --provenance
             echo "state=fresh" >> "$GITHUB_OUTPUT"
@@ -64,7 +67,7 @@ jobs:
           if [ "${{ steps.publish.outputs.state }}" = "fresh" ]; then
             npm pack ./packages/adapters/command-code/pkg --pack-destination dist
           else
-            npm pack "@vizuh/sabi@${GITHUB_REF_NAME#v}" --pack-destination dist
+            npm pack "@vizuh/sabi-commandcode@${GITHUB_REF_NAME#v}" --pack-destination dist
           fi
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
             gh release create "$GITHUB_REF_NAME" dist/*.tgz --generate-notes --title "$GITHUB_REF_NAME"
