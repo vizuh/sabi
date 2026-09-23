@@ -659,3 +659,34 @@ test('a single small request sharing a session identity is not a compaction', as
   assert.equal(thirdRecord.state.contextKnown, true)
   assert.equal((lastJudgeState?.round as Record<string, unknown> | undefined)?.context_generation, 0)
 })
+
+test('a client-supplied reasoning effort is recorded on the decision and forwarded untouched', async () => {
+  const before = (await readDecisions()).length
+  const response = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'sabi/sabi-cheap', stream: false, reasoning_effort: 'high', messages: [system, user] }),
+  })
+  assert.equal(response.status, 200)
+  await response.json()
+  const record = (await waitForDecision(before + 1)).at(-1)!
+  assert.equal(record.mode, 'fixed')
+  assert.equal(record.effort, 'high')
+  assert.equal(record.effortSource, 'client')
+  // Observation only: Sabi never injects or rewrites the control, it passes through.
+  assert.equal(mockBodies[mockBodies.length - 1]?.reasoning_effort, 'high')
+})
+
+test('a round without reasoning controls records unspecified effort', async () => {
+  const before = (await readDecisions()).length
+  const response = await fetch(`http://127.0.0.1:${sabiPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'sabi/sabi-cheap', stream: false, messages: [system, user] }),
+  })
+  assert.equal(response.status, 200)
+  await response.json()
+  const record = (await waitForDecision(before + 1)).at(-1)!
+  assert.equal(record.effort, undefined)
+  assert.equal(record.effortSource, 'unspecified')
+})

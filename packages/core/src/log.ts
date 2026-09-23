@@ -235,6 +235,11 @@ export function sanitizeDecisionRecord(record: DecisionRecord, config?: Telemetr
     state,
     cache: record.cache,
     judge: record.judge,
+    // Effort labels are short provider-declared strings, never transcript text; still bounded.
+    ...(typeof record.effort === 'string' && record.effort.trim() ? { effort: record.effort.trim().slice(0, 64) } : {}),
+    ...(record.effortSource === 'client' || record.effortSource === 'scheduled' || record.effortSource === 'unspecified'
+      ? { effortSource: record.effortSource }
+      : {}),
     usage: record.usage,
     cost: record.cost,
     latencyMs: record.latencyMs,

@@ -117,3 +117,13 @@ test('report keeps observational and replayed recovery evidence separate', () =>
   ])
   assert.deepEqual(out.recoveryEvidenceGrades, { observed: 1, matched: 1, replayed: 1 })
 })
+
+test('report aggregates recorded effort without inventing it for legacy rows', () => {
+  const out = report([
+    { ...row, effort: 'high', effortSource: 'client' },
+    { ...row, effort: 'high', effortSource: 'client' },
+    { ...row },
+  ])
+  assert.deepEqual(out.byEffort, { high: 2 })
+  assert.equal(out.unspecifiedEffort, 1)
+})
