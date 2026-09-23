@@ -51,7 +51,8 @@ After installation, open your normal harness. Choose an optional integration onl
 
 ## Use with a host AI or agent
 
-Give the installing agent [SKILL.md](SKILL.md) and the [machine index](llms.txt). The canonical [host-AI flow](docs/install.ai.md) asks for the harness and route explicitly and collects only an OpenRouter key on proxy paths. Setup accepts `--language=en|pt-BR|zh-CN|ja|ko`; prompts outside EN/PT-BR fall back to English. JA/KO READMEs are full mirrors; English is canonical for rates and support claims.
+Install the skill with the open skills CLI — `npx skills add vizuh/sabi --skill sabi` — or hand the
+installing agent [SKILL.md](SKILL.md) and the [machine index](llms.txt) directly. The canonical [host-AI flow](docs/install.ai.md) asks for the harness and route explicitly and collects only an OpenRouter key on proxy paths. Setup accepts `--language=en|pt-BR|zh-CN|ja|ko`; prompts outside EN/PT-BR fall back to English. JA/KO READMEs are full mirrors; English is canonical for rates and support claims.
 
 ## Choose an optional integration
 
