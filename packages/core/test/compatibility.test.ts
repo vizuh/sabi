@@ -163,6 +163,29 @@ test('media routing takes the first tier in configuration order that can accept 
   // A fixed alias is an explicit choice: it does not silently upgrade, it refuses.
   rejected({ ...image, model: 'sabi-fixed' }, settings, /input modality .* is not supported/)
 })
+test('a tier with no declared output ceiling cannot win an output-capacity promotion', () => {
+  // The real configuration this was reported against: `local` declares no ceiling, `mid` does.
+  // Undeclared capacity must not outrank a tier that proves it can serve the requested output.
+  const undeclared = (model: string): ModelEntry => {
+    const { maxOutputTokens: _ceiling, ...rest } = catalog({ model })
+    return rest
+  }
+  const settings = config({ maxOutputTokens: 100 })
+  settings.models.local = undeclared('synthetic-local')
+  settings.models.other = catalog({ model: 'synthetic-other', maxOutputTokens: 400 })
+  const request = body({ model: 'sabi-fixed', max_tokens: 300 })
+  const decision = route(request, settings)
+  assert.equal(decision.tier, 'other')
+  assert.equal(decision.rule, 'output-capacity')
+
+  // With no tier that declares enough output, the alias keeps its tier and the request fails
+  // where it should: a clear incompatibility, not a silent hop to an unknown-capacity backend.
+  const undeclaredOnly = config({ maxOutputTokens: 100 })
+  delete undeclaredOnly.models.other
+  undeclaredOnly.models.local = undeclared('synthetic-local')
+  rejected(body({ model: 'sabi-fixed', max_tokens: 300 }), undeclaredOnly, /output token limit exceeds maxOutputTokens/)
+})
+
 test('fixed aliases promote only when the requested output exceeds the selected tier', () => {
   const settings = config({ maxOutputTokens: 100 })
   settings.models.other = catalog({ model: 'synthetic-other', maxOutputTokens: 400 })

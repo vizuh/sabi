@@ -1445,3 +1445,57 @@ No repository code, config or test changed. `docs/submission-awesome-jev.md` rec
 ## [2026-09-23] fix | Free-only OpenRouter rule extended to every shipped adapter profile
 
 Both Hermes example profiles still declared a bare `openrouter` upstream with paid model ids, and `scripts/setup.ts --harness=hermes --upstream=openrouter` copies that file verbatim — a fresh Hermes install would have spent paid credits the root `sabi.config.json` gate closed on 2026-09-22. Both examples now declare `paidModelsAllowed: false` and map every OpenRouter tier to the verified `:free` set with `cost 0` (cheap `poolside/laguna-s-2.1:free`, mid `dots-studio/dots-3-note-preview:free`, strong `nvidia/nemotron-3-ultra-550b-a55b:free`); the `nous-free` cheap tier stays on the Hermes-managed Nous proxy. `docs/context.md` stale paid-tiers line corrected. New guard `packages/core/test/openrouter-free-only.test.ts` asserts the flag plus `isFreeModel`/`servesUpstreamBilling` on every shipped profile. Validation: `npm test` 580/580, `npm run typecheck` clean. No commit, push, deployment or publication.
+
+## [2026-09-23] change | Proxy effort observability, record-only (no scheduling yet)
+
+First slice of the effort-routing 10-mark partial, deliberately avoiding `router.ts`/`compatibility.ts` (active output-capacity workstream there): `observeEffort` (`packages/core/src/telemetry.ts`) records the client-supplied reasoning effort per round as `client` or `unspecified`; `DecisionRecord` gains optional `effort`/`effortSource` (`scheduled` reserved, never written); the server sets both at record creation; `sanitizeDecisionRecord` persists them bounded; `npm run report` shows `by effort` + unspecified count. Sabi still never injects or rewrites reasoning controls — scheduling is a follow-up after the router work lands, with live free-tier verification. Validation: `npm test` 597/597 (7 new), `npm run typecheck` clean. No commit, push, deployment or publication.
+
+## [2026-09-23] fix | output-capacity routing, and a pre-upgrade check an agent can run
+
+OMP asks Sabi for `max_completion_tokens: 64000` on every round, and the adaptive alias landed on
+`cheap` (declared `maxOutputTokens: 32768`), so Sabi answered
+`400 incompatible route 'cheap': output token limit exceeds maxOutputTokens` and the OMP session
+stalled on every turn (two captured bodies under `~/.omp/logs/http-400-requests/`). Requested
+output is now a hard constraint alongside modality and upstream availability: a planned tier that
+cannot serve it is skipped for the cheapest tier that can (`rule: output-capacity`), and
+`ensureRouteCompatible` accepts that single promotion on a fixed alias. A substitute has to
+*declare* the capacity it is chosen for — an undeclared ceiling still serves the tier the policy
+itself picked (legacy metadata omissions), but cannot win a promotion. That distinction is load
+bearing: without it the promotion went to `local`, which declares no ceiling and sorts first.
+
+`sabi updates [--check] [--json]` is the pre-upgrade check an agent can run: installed versus
+last-known npm version for `@vizuh/sabi-controller`, plus a preflight of the Node version the
+package declares (`>=22.6`), the project config the server would load, and installed hook paths.
+The default read is cache-only and offline; `--check` is the only path that contacts the registry,
+one answer covers 24 hours, and an unreachable or erroring registry is recorded as `unavailable`
+with its message rather than thrown. When the registry is ahead, the result carries the warning
+that an upgrade can change hook wiring, adapter contracts, config handling and local project logic.
+
+Validation: `npm test` 590/590, `npm run typecheck` clean, `git diff --check` clean. Both captured
+OMP bodies replay to `mid` / `output-capacity` against the checked-in config. The live server
+predated the fix, so it was restarted; the exact rejected body then returned HTTP 200 and the
+decision log recorded `rule: output-capacity, tier: mid`. The first live `sabi updates` run found a
+real stale hook: the installed Claude hook still points at the deleted
+`worktrees/sabi/release-free-first` checkout. The installed OMP extension at
+`~/.omp/agent/extensions/sabi.ts` was an older snapshot that accepted any `Object.prototype` key as
+a loopback hostname; it now matches `packages/adapters/oh-my-pi/src/sabi-extension.mjs`.
+
+Boundary: this routes the round, it is not evidence about the quality of `dots-studio/dots-3-note-preview`.
+No paid request, no credential, no deployment, no publication; the controller package version is
+unchanged, so `sabi updates` still compares against the published `@vizuh/sabi-controller@0.1.0`.
+
+### [2026-09-23] correction | `f4e1d44`'s message does not describe its contents
+
+`f4e1d44` ("docs: record the Awesome Jev Projects outcome") ends with "Docs only. No code, config
+or test change." and carries four code files: `packages/controller/src/updates.ts` (new),
+`packages/core/src/router.ts`, `packages/core/src/compatibility.ts` and
+`packages/core/test/compatibility.test.ts`. That was uncommitted work-in-progress sitting in the
+same worktree and it was swept into the docs commit; the commit is on `main` through #106 and its
+message is wrong. Published history is not rewritten — the same work is described truthfully by the
+follow-up commit that finishes and validates it. Read `f4e1d44` as "docs plus in-flight routing
+work", not as docs only.
+
+The same change declares `models.local.maxOutputTokens: 32768`, matching the `qwen2.context_length`
+ollama reports for `qwen2.5-coder:7b` (`/api/show`, no `num_predict` override) and the tier's own
+`contextWindow`. The tier had no ceiling, which is what let the first cut of the output-capacity
+promotion choose it over `mid`.

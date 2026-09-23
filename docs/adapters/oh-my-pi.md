@@ -53,6 +53,12 @@ omp --extension packages/adapters/oh-my-pi/src/sabi-extension.mjs \
 fragments, remote hosts and other paths are rejected. `SABI_OMP_CONTEXT_WINDOW` and
 `SABI_OMP_MAX_TOKENS` override the model metadata OMP uses for compaction and output limits.
 
+`SABI_OMP_MAX_TOKENS` is the output ceiling OMP asks Sabi for on every round. Sabi routes on that
+number: a tier whose declared `maxOutputTokens` is smaller is skipped for the cheapest tier that
+declares enough (rule `output-capacity`), and a round whose requested output no configured tier can
+serve fails as an explicit incompatibility instead of silently running on an unknown-capacity
+backend. Keep the ceiling inside what at least one configured tier declares.
+
 ## Support boundary
 
 This is inference-only provider routing. It does not change OMP's selected upstream model natively;

@@ -24,11 +24,12 @@ import { installUserService, restartUserService, type UserServiceResult } from '
 import { uninstallController, upgradeController } from './lifecycle.ts'
 import { checkHookHealth, installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
 import { runSurplusReview } from './surplus.ts'
+import { checkForUpdate } from './updates.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'upgrade' | 'uninstall'
+type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'updates' | 'upgrade' | 'uninstall'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'upgrade', 'uninstall'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'updates', 'upgrade', 'uninstall'])
 const CLI_VERSION = process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
 
 function flagValue(argv: string[], name: string): string | undefined {
@@ -80,6 +81,7 @@ function printHelp(): void {
   sabi surplus [inventory|review|history] [--cwd=<path>] [--intent=bug-hunt|test-gap|api-contract] [--alias=<alias>] [--json]
   sabi council [history|record|pregate|plan] [--harness=<id>] [--runtime-version=<version>] [--provider=<id>] [--model=<id>] [--seat=<id>] [--task-key=<key>] [--stage=<stage>] [--mode=<mode>] [--intent=<intent>] [--status=<status>] [--evidence=<level>] [--source=<source>] [--independence=<full|reduced>] [--plan-reason=<reason>] [--claims=<n>] [--verified-claims=<n>] [--input-tokens=<n>] [--output-tokens=<n>] [--latency-ms=<n>] [--http-status=<n>] [--input-sha256=<sha>] [--output-sha256=<sha>] [--error-code=<code>] [--max-calls=<n>] [--cwd=<path>] [--json]
   sabi integrations [list|repair] [--json]
+  sabi updates [--check] [--json]
   sabi upgrade [--version=<semver>|latest] [--json]
   sabi uninstall [--keep-config] [--json]
   sabi daemon [--status|--stop|--foreground] [--json]
@@ -531,6 +533,37 @@ async function runIntegrations(argv: string[]): Promise<void> {
   }
 }
 
+/**
+ * Pre-upgrade preflight an agent can run. The cached read is the default so a routine
+ * `sabi updates` is offline and instant; `--check` is the only path that talks to npm, and it
+ * rewrites the cache the next 24h of calls read.
+ */
+async function runUpdates(argv: string[]): Promise<void> {
+  const result = await checkForUpdate({ refresh: argv.includes('--check'), cwd: resolvedCwd(argv) })
+  if (jsonRequested(argv)) {
+    console.log(JSON.stringify(result, null, 2))
+    if (!result.compatibility.ok) process.exitCode = 1
+    return
+  }
+  console.log('Sabi updates')
+  console.log(`package: ${result.packageName}`)
+  console.log(`installed: ${result.installedVersion}`)
+  console.log(`latest: ${result.latestVersion ?? 'unknown'}`)
+  console.log(`status: ${result.status}`)
+  if (result.checkedAt) {
+    console.log(`checked: ${new Date(result.checkedAt).toISOString()}${result.error ? ` (${result.error})` : ''}`)
+  } else if (result.error) {
+    console.log(`checked: never (${result.error})`)
+  }
+  if (result.checkedAt && result.stale) console.log('note: cached check is stale; run `sabi updates --check`')
+  if (result.warning) console.log(`warning: ${result.warning}`)
+  console.log('compatibility')
+  for (const check of result.compatibility.checks) {
+    console.log(`  ${check.ok ? '✓' : '✗'} ${check.name}: ${check.detail}`)
+  }
+  if (!result.compatibility.ok) process.exitCode = 1
+}
+
 async function runUpgrade(argv: string[]): Promise<void> {
   const version = flagValue(argv, '--version') ?? 'latest'
   const result = upgradeController(version)
@@ -710,6 +743,7 @@ async function main(): Promise<void> {
   if (command === 'daemon') return runDaemon(args)
   if (command === 'hooks') return runHooks(args)
   if (command === 'hook') return runHook(args)
+  if (command === 'updates') return runUpdates(args)
   if (command === 'upgrade') return runUpgrade(args)
   if (command === 'uninstall') return runUninstall(args)
   await runRoute(args)

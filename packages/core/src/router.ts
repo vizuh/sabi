@@ -133,6 +133,12 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
     servesUpstreamBilling(config.upstreams[entry.upstream], entry) &&
     servesInputModalities(entry.capabilities?.inputModalities, required) &&
     outputFits(entry, requestedOutput)
+  // A substitute has to *declare* the capacity it is being chosen for. An undeclared ceiling still
+  // serves the tier the policy itself picked (legacy metadata omissions), but it must never win a
+  // promotion: unknown capacity would otherwise beat a tier that proves it can serve, and hand a
+  // 64k-output round to whichever tier happens to sort first.
+  const servesAsSubstitute = (entry: (typeof config.models)[string]): boolean =>
+    servesRound(entry) && (requestedOutput === undefined || entry.maxOutputTokens !== undefined)
   const outputCapacityReason = (from: string, entry: (typeof config.models)[string], to: string): string =>
     `requested output ${requestedOutput?.toLocaleString()} exceeds '${from}' maxOutputTokens ${entry.maxOutputTokens?.toLocaleString()}; '${to}' can serve`
 
@@ -140,7 +146,7 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
     const model = Object.hasOwn(config.models, target) ? config.models[target] : undefined
     if (!model) throw new SabiRouteError(`alias '${alias}' targets unknown tier '${target}'`, 500)
     if (!outputFits(model, requestedOutput)) {
-      const alternate = cheapestServingTier(config.models, (_name, entry) => servesRound(entry))
+      const alternate = cheapestServingTier(config.models, (_name, entry) => servesAsSubstitute(entry))
       if (alternate && alternate !== target) {
         const promoted = config.models[alternate]!
         const decision: RouteDecision = {
@@ -185,7 +191,7 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
     const disabled = !isEnabledUpstream(config.upstreams[planned.upstream])
     const priced = !servesUpstreamBilling(config.upstreams[planned.upstream], planned)
     const outputLimited = !outputFits(planned, requestedOutput)
-    const alternate = cheapestServingTier(config.models, (_name, entry) => servesRound(entry))
+    const alternate = cheapestServingTier(config.models, (_name, entry) => servesAsSubstitute(entry))
     if (alternate) {
       rule = outputLimited ? 'output-capacity' : disabled ? 'availability' : priced ? 'billing' : 'capability'
       reason = outputLimited

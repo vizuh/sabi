@@ -1087,3 +1087,22 @@ the unrelated closed PR #92 branch history is not included.
 Validation: focused setup tests and the full repository suite pass with
 `TMPDIR=/tmp`; `npm run typecheck` and `git diff --check` pass. No credentials,
 live provider request, user profile mutation, deployment, commit or push.
+
+## OMP output ceiling, and the pre-upgrade check — 2026-09-23
+
+OMP requests `max_completion_tokens: 64000` per round; the adaptive alias planned `cheap`
+(`maxOutputTokens: 32768`) and Sabi returned `400 incompatible route 'cheap': output token limit
+exceeds maxOutputTokens`, stalling the OMP session. Requested output is now a hard constraint: the
+planned tier is skipped for the cheapest tier that declares enough (`rule: output-capacity`), and a
+substitute must *declare* that capacity, so an undeclared ceiling cannot win the promotion.
+
+`sabi updates [--check] [--json]` is the new pre-upgrade check: npm version for
+`@vizuh/sabi-controller` (24h-cached, offline unless `--check`) plus a preflight of Node, project
+config and installed hook paths, with the upgrade warning attached when the registry is ahead.
+
+Validated: full suite 590/590, typecheck clean; both captured OMP bodies replay to `mid`; the live
+server was restarted (it predated the fix) and the exact rejected body now returns 200 with
+`rule: output-capacity, tier: mid` in the decision log. `sabi updates` found a real stale Claude
+hook pointing at the deleted `worktrees/sabi/release-free-first` checkout — repair with
+`sabi hooks install`. The installed `~/.omp/agent/extensions/sabi.ts` was resynced from the repo
+source. Not pushed: the work is in the working tree only.
