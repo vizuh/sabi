@@ -29,6 +29,7 @@ export type EvidenceCode =
   | 'rate-limited'
   | 'quota-exceeded'
   | 'timeout'
+  | 'connection-closed'
   | 'mutation'
   | 'verification-receipt'
   | 'summary-claim'

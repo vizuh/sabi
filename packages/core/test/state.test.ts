@@ -232,6 +232,41 @@ test('measured context tokens come from billed usage only, and unknown usage sta
   assert.equal(measuredContextTokens(undefined), undefined)
 })
 
+test('a dropped connection is transport, not a task failure', () => {
+  // The wording a client prints after Sabi's own transport deadline ends a stream. Before this it
+  // carried no transport evidence, so the next round read as a task failure and escalated straight
+  // back to the tier that had just timed out — ten consecutive 120s rounds in one real session.
+  const drops = [
+    'Error: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()',
+    'Error: socket hang up',
+    'Error: read ECONNRESET',
+    '{"error":{"message":"other side closed","type":"sabi_error","code":504}}',
+    'fetch failed: connection reset by peer',
+  ]
+  for (const content of drops) {
+    const state = extractTrajectoryState(
+      body([system, { role: 'user', content: 'continue' }, { role: 'tool', content }]),
+    )
+    assert.equal(state.failure, 'transport', content)
+    assert.ok(state.failureEvidence.length > 0, content)
+  }
+
+  // The deliberate trade-off of ranking named conditions above the hard patterns: a blob reporting
+  // both a task failure and a dropped connection reads as transport, exactly like one reporting a
+  // failure and a session limit. That can miss an escalation in a rare mixed case; the alternative
+  // was a loop that re-escalated to the tier that had just timed out.
+  const mixed = extractTrajectoryState(
+    body([system, { role: 'tool', content: 'AssertionError: expected 2 to equal 3\nError: read ECONNRESET' }]),
+  )
+  assert.equal(mixed.failure, 'transport')
+
+  // A task failure with no transport wording in it is still hard.
+  const plainFailure = extractTrajectoryState(
+    body([system, { role: 'tool', content: 'AssertionError: expected 2 to equal 3\n    at Test.<anonymous> (test.mjs:12:9)' }]),
+  )
+  assert.equal(plainFailure.failure, 'hard')
+})
+
 test('provider and subscription limits are transport, not task failures', () => {
   // The exact phrasings a harness emits when a plan runs out; before this, three of them carried
   // no evidence at all and the round fell to `unclassified` — the rule the proxy consults Jev on.

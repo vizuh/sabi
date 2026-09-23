@@ -72,11 +72,12 @@ const SOFT_PATTERNS: Array<{ re: RegExp; label: EvidenceCode }> = [
 ]
 
 /**
- * Named transport conditions: a text that states a provider or subscription limit is describing
- * the provider or the plan, not the task — so it is checked BEFORE the hard patterns, even when
- * the same line also looks like an error ("Error: You've hit your session limit"). A plan wall is
- * not a reasoning failure: escalating to a stronger tier hits the same wall and spends more for it,
- * and a round whose only evidence is a limit must never reach the judge as "unclassified".
+ * Named transport conditions: a text that states the provider, the plan or the connection failed is
+ * describing the transport, not the task — so it is checked BEFORE the hard patterns, even when the
+ * same line also looks like an error ("Error: You've hit your session limit", "Error: The socket
+ * connection was closed unexpectedly"). A plan wall or a dropped socket is not a reasoning failure:
+ * escalating to a stronger tier hits the same wall and spends more for it, and a round whose only
+ * evidence is one of these must never reach the judge as "unclassified".
  *
  * Wording is what makes a signal strong. Status codes stay in TRANSPORT_PATTERNS below: a failing
  * test that happens to print "429", or a test that timed out, is a genuine task failure, so those
@@ -88,6 +89,10 @@ const TRANSPORT_LIMIT_PATTERNS: Array<{ re: RegExp; label: EvidenceCode }> = [
   { re: /\b(?:session|usage|weekly|monthly|daily|hourly|subscription|plan)\s+limit\b/i, label: 'quota-exceeded' },
   { re: /quota[- ]?exceeded/i, label: 'quota-exceeded' },
   { re: /insufficient_quota|insufficient quota/i, label: 'quota-exceeded' },
+  // A dropped connection is the transport failing. Without this, the wording a client prints after
+  // a transport deadline reads as a task failure and the next round escalates straight back to the
+  // tier that just timed out — ten consecutive 120s rounds in one real session.
+  { re: /socket (?:connection )?(?:was )?closed|socket hang up|ECONNRESET|other side closed|connection reset/i, label: 'connection-closed' },
 ]
 
 /**

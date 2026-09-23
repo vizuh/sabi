@@ -1549,3 +1549,31 @@ Validation: `npm test` 607/607, `npm run typecheck` clean, `loadConfig` accepts 
 
 Boundary: this says nothing about the proxy path, which stays free-models-only, or about the
 Command Code subscription catalog, which carries its own rule in the `harness` block.
+
+### [2026-09-23] fix | a transport deadline ended the stream silently, and the silence escalated
+
+An OMP session stalled for ten consecutive rounds of exactly 120s. The server log names it:
+`sabi-code -> strong (failure) -> nvidia/nemotron-3-ultra-550b-a55b:free · 120085ms · transport`,
+ten times. Three defects stacked:
+
+1. A failure round routes to `strong`, which the operator config points at a 550B model on
+   OpenRouter's free lane; with a 60k–250k token context it produces no first token inside the 120s
+   `requestTimeoutMs` deadline.
+2. On a deadline *after* headers, `handleChat` called `res.destroy()` — the one mid-stream failure
+   that did not get the explicit SSE error frame its sibling path already writes. The client sees a
+   dropped socket and nothing else: `The socket connection was closed unexpectedly`.
+3. That text is part of the next request, and the transport classifier knew `429`, `rate limit`,
+   `quota` and `timeout` but not a dropped connection — so the round read as a task failure, the
+   policy chose `strong` again, and the loop sustained itself.
+
+Fixes: the deadline path writes the same SSE error frame as every other mid-stream failure, so a
+client can classify a transport timeout as transport; and a dropped connection is a named transport
+condition ranked above the hard patterns, the same way a plan limit is. The trade-off is pinned in
+the test: a blob reporting both a task failure and a reset now reads as transport.
+
+Validation: `state.test.ts` and `proxy-contract.test.ts` 45/45, including a case that reproduced the
+classifier gap before the fix. Full suite 610/611, the only failure being a concurrent session's
+in-flight free-catalog test.
+
+Boundary: this makes the failure legible and stops the loop. It does not make a 550B free model
+answer inside 120s — the `strong` tier and the deadline are operator configuration.

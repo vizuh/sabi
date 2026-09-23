@@ -1140,3 +1140,13 @@ and Sabi never writes a provider base URL, an API key or a model override into e
 rule already held (no shipped code writes those variables; the installed Claude Code has no `env`
 override and Codex declares no `base_url`), so nothing changed at runtime — the guard tests in
 `packages/controller/test/hooks.test.ts` now fail if that ever drifts.
+
+## Transport deadline no longer ends a stream silently — 2026-09-23
+
+A deadline after headers called `res.destroy()` instead of writing the SSE error frame every other
+mid-stream failure writes, so the client saw only "socket connection was closed unexpectedly". That
+text was not a known transport condition, so the round read as a task failure and re-escalated to
+the tier that had just timed out — ten 120s rounds in one session. Both ends fixed: the deadline
+writes the frame, and a dropped connection is a named transport condition. The remaining lever is
+configuration: `strong` points at a 550B model on a free lane, which cannot answer a 60k+ context
+inside 120s.

@@ -734,23 +734,19 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       if (aborted) {
         res.destroy()
       } else if (res.headersSent) {
-        if (deadline) {
-          // A transport timeout mid-stream cannot become a status code; terminate the stream
-          // and let the transport record carry the 504.
+        // The status line is already committed (HTTP 200), so no failure can become a status code —
+        // including a deadline. A destroyed socket leaves the client with "socket connection was
+        // closed unexpectedly" and no error object; that text then reads as a task failure on the
+        // next round and escalates to the tier that just timed out. The explicit SSE error frame is
+        // what lets a client classify a transport timeout as transport, so it is written here too.
+        try {
+          const frameMessage = error instanceof UpstreamStreamError
+            ? sanitizeError(error.providerMessage)
+            : message
+          res.write(`data: ${JSON.stringify({ error: { message: frameMessage, type: 'sabi_error', code: status } })}\n\n`)
+          res.end()
+        } catch {
           res.destroy()
-        } else {
-          // The status line is already committed (HTTP 200), so the failure cannot become a
-          // status code. End the stream with an explicit SSE error frame (OpenAI shape) instead
-          // of a silent truncation the client cannot distinguish from an early finish.
-          try {
-            const frameMessage = error instanceof UpstreamStreamError
-              ? sanitizeError(error.providerMessage)
-              : message
-            res.write(`data: ${JSON.stringify({ error: { message: frameMessage, type: 'sabi_error', code: status } })}\n\n`)
-            res.end()
-          } catch {
-            res.destroy()
-          }
         }
       } else {
         // An incomplete upload must not outlive its failed request budget.
