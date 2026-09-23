@@ -8,23 +8,29 @@ import { fileURLToPath } from 'node:url'
 /**
  * One install, every host.
  *
- * Sabi ships its own host integrations, so setup should install the files it already has rather
- * than asking people to copy paths out of a checkout. The resolution order is deliberate and total:
+ * Sabi ships its own host integrations, so setup installs the files it already has rather than
+ * asking people to copy paths out of a checkout. The order is deliberate and total, and it applies
+ * uniformly — a step that ships nothing for a given host is simply absent for that host:
  *
- *   1. `SABI_PACKAGE_DIR` — an explicit directory, for tests and for anyone vendoring the package.
- *   2. the installed `@vizuh/sabi` — the product, which carries every host.
- *   3. the installed `@vizuh/sabi-commandcode` — the stand-alone mod slice.
- *   4. this checkout — so a clone keeps working, which is how the repository's own tests run.
+ *   1. an explicit override — `SABI_OPENCODE_HOOK_SOURCE`, then `SABI_PACKAGE_DIR`; tests and
+ *      anyone vendoring the package.
+ *   2. the controller's own bundled `resources/` — it leads the package steps because this file is
+ *      loaded by the controller that shipped it, so the bundled copy is the one whose protocol
+ *      matches the daemon it will talk to. A checkout has no `resources/`, so in development this
+ *      step is absent.
+ *   3. the installed `@vizuh/sabi` — the product, which carries every host.
+ *   4. the installed `@vizuh/sabi-commandcode` — the stand-alone mod slice.
+ *   5. this checkout — so a clone keeps working, which is how the repository's own tests run.
  *
- * Each artifact is read from the package's own manifest, so a published package that forgets a host
- * resolves to nothing for that host rather than quietly installing something older.
+ * Every artifact is read from the declaring package's own manifest, so a published package that
+ * forgets a host resolves to nothing for that host rather than quietly installing something older.
  */
 
-export type SabiHost = 'command-code' | 'oh-my-pi'
+export type SabiHost = 'command-code' | 'oh-my-pi' | 'opencode' | 'orca'
 
 export interface ResolvedArtifact {
   host: SabiHost
-  source: 'override' | 'package' | 'slice' | 'checkout'
+  source: 'override' | 'bundled' | 'package' | 'slice' | 'checkout'
   file: string
   version?: string
 }
@@ -61,14 +67,41 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 /** The path a package declares for this host, read from that package's own manifest. */
+function stringAt(value: Record<string, unknown> | undefined, key: string): string | undefined {
+  const found = value?.[key]
+  return typeof found === 'string' ? found : undefined
+}
+
 function declaredPath(manifest: Record<string, unknown>, host: SabiHost): string | undefined {
   if (host === 'command-code') {
     const mods = record(manifest.commandcode)?.mods
     const first = Array.isArray(mods) ? mods[0] : undefined
     return typeof first === 'string' ? first : undefined
   }
-  const extension = record(manifest.omi)?.extension
-  return typeof extension === 'string' ? extension : undefined
+  if (host === 'oh-my-pi') return stringAt(record(manifest.omi), 'extension')
+  if (host === 'opencode') return stringAt(record(manifest.opencode), 'plugin')
+  return stringAt(record(manifest.orca), 'plugin')
+}
+
+/**
+ * The controller's own copy of a host artifact. Leading the package steps is the point: see the
+ * order in the module comment. Only the hosts the controller pack actually ships appear here.
+ */
+function fromBundled(host: SabiHost): ResolvedArtifact | undefined {
+  const shipped: Record<SabiHost, string[]> = {
+    'command-code': [],
+    'oh-my-pi': [],
+    opencode: ['opencode/sabi-hook.mjs'],
+    orca: ['orca/orca-plugin.json'],
+  }
+  const dir = moduleDir()
+  for (const relative of shipped[host]) {
+    for (const base of [path.resolve(dir, '..'), dir]) {
+      const file = path.join(base, 'resources', relative)
+      if (existsSync(file)) return { host, source: 'bundled', file }
+    }
+  }
+  return undefined
 }
 
 function fromPackage(name: string, host: SabiHost, source: ResolvedArtifact['source']): ResolvedArtifact | undefined {
@@ -91,16 +124,28 @@ function fromPackage(name: string, host: SabiHost, source: ResolvedArtifact['sou
 
 function fromCheckout(host: SabiHost): ResolvedArtifact | undefined {
   const root = checkoutRoot()
-  const candidates = host === 'command-code'
+  const candidates: Record<SabiHost, string[]> = {
     // The built mod first: it is what a packaged install has, and it is what `cmd mods add` is given.
-    ? [path.join(root, 'packages/adapters/command-code/pkg/mod/sabi.mjs'), path.join(root, 'packages/adapters/command-code/mod/sabi.ts')]
-    : [path.join(root, 'packages/adapters/oh-my-pi/src/sabi-extension.mjs')]
-  const file = candidates.find((candidate) => existsSync(candidate))
+    'command-code': [
+      path.join(root, 'packages/adapters/command-code/pkg/mod/sabi.mjs'),
+      path.join(root, 'packages/adapters/command-code/mod/sabi.ts'),
+    ],
+    'oh-my-pi': [path.join(root, 'packages/adapters/oh-my-pi/src/sabi-extension.mjs')],
+    opencode: [path.join(root, 'packages/adapters/opencode/src/sabi-hook.mjs')],
+    orca: [path.join(root, 'packages/adapters/orca/orca-plugin.json')],
+  }
+  const file = candidates[host].find((candidate) => existsSync(candidate))
   return file ? { host, source: 'checkout', file } : undefined
 }
 
 /** Where this host's integration comes from, in the order documented above. */
 export function resolveHostArtifact(host: SabiHost, env: NodeJS.ProcessEnv = process.env): ResolvedArtifact | undefined {
+  // Kept for compatibility: it predates the shared order and names a concrete file, so it stays
+  // authoritative and unchecked — the caller reports a path that is not there.
+  if (host === 'opencode') {
+    const direct = env.SABI_OPENCODE_HOOK_SOURCE?.trim()
+    if (direct) return { host, source: 'override', file: path.resolve(direct) }
+  }
   const override = env.SABI_PACKAGE_DIR?.trim()
   if (override) {
     const dir = path.resolve(override)
@@ -114,7 +159,8 @@ export function resolveHostArtifact(host: SabiHost, env: NodeJS.ProcessEnv = pro
       }
     }
   }
-  return fromPackage(PRODUCT, host, 'package')
+  return fromBundled(host)
+    ?? fromPackage(PRODUCT, host, 'package')
     ?? fromPackage(SLICE, host, 'slice')
     ?? fromCheckout(host)
 }

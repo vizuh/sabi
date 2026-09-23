@@ -61,25 +61,31 @@ test('controller bundle installs and runs from a clean npm prefix', () => {
     const codexHooks = path.join(tempRoot, 'codex', 'hooks.json')
     const openCodeConfig = path.join(tempRoot, 'opencode', 'opencode.json')
     const harnessPath = fakeHarnessPath(tempRoot, ['claude', 'codex', 'opencode'])
-    execFileSync(process.execPath, [installedCli, 'setup', '--no-start', '--hooks', '--json'], {
-      cwd: tempRoot,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        SABI_CONTROLLER_HOME: controllerHome,
-        SABI_CLAUDE_SETTINGS: claudeSettings,
-        SABI_CODEX_HOOKS: codexHooks,
-        SABI_OPENCODE_CONFIG: openCodeConfig,
-        PATH: harnessPath,
-        SABI_CONTROLLER_HARNESSES: 'claude,codex,opencode',
-        ORCA_CLI_COMMAND: path.join(tempRoot, 'missing-orca'),
-      },
-    })
+    const setupJson = JSON.parse(
+      execFileSync(process.execPath, [installedCli, 'setup', '--no-start', '--hooks', '--json'], {
+        cwd: tempRoot,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          SABI_CONTROLLER_HOME: controllerHome,
+          SABI_CLAUDE_SETTINGS: claudeSettings,
+          SABI_CODEX_HOOKS: codexHooks,
+          SABI_OPENCODE_CONFIG: openCodeConfig,
+          PATH: harnessPath,
+          SABI_CONTROLLER_HARNESSES: 'claude,codex,opencode',
+          ORCA_CLI_COMMAND: path.join(tempRoot, 'missing-orca'),
+        },
+      }),
+    ) as { hooks?: Array<{ harness: string; source?: string; plugin?: string }> }
     const installedClaude = JSON.parse(readFileSync(claudeSettings, 'utf8')) as { hooks: { UserPromptSubmit: Array<{ hooks: Array<{ command: string }> }> } }
     assert.match(installedClaude.hooks.UserPromptSubmit[0]!.hooks[0]!.command, new RegExp(installedCli.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
     const installedOpenCode = JSON.parse(readFileSync(openCodeConfig, 'utf8')) as { plugin: string[] }
     assert.equal(existsSync(installedOpenCode.plugin[0]!), true)
     assert.match(readFileSync(installedOpenCode.plugin[0]!, 'utf8'), /chat\.message/)
+    // The hook must come from the controller's own bundle: this install has no checkout and no
+    // `@vizuh/sabi` beside it, so anything else means the resolution reached outside the package.
+    const openCodeInstall = setupJson.hooks?.find((hook) => hook.harness === 'opencode')
+    assert.equal(openCodeInstall?.source, 'bundled', 'the installed controller installs its bundled hook, not a checkout path')
 
     const doctor = JSON.parse(
       execFileSync(process.execPath, [installedCli, 'doctor', '--json'], {

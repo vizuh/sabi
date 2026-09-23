@@ -8,7 +8,7 @@ import {
   requestControllerDaemon,
   startControllerDaemon,
 } from './daemon.ts'
-import { installCommandCode, installOhMyPi } from './host-install.ts'
+import { installCommandCode, installOhMyPi, resolveHostArtifact, type ResolvedArtifact } from './host-install.ts'
 
 export type HookHarness = 'claude' | 'codex'
 export type InstalledHook = 'claude' | 'codex' | 'opencode'
@@ -18,8 +18,10 @@ export type InstallableHost = InstalledHook | 'oh-my-pi' | 'command-code'
 export interface HookInstallResult {
   harness: InstallableHost
   path: string
-  /** The command actually written (claude/codex); opencode installs a plugin path instead. */
+  /** The command actually written (claude/codex); the other hosts install a file instead. */
   command?: string
+  /** Which step of the documented order supplied this host's file — see `host-install.ts`. */
+  source?: ResolvedArtifact['source']
   backup?: string
   plugin?: string
 }
@@ -253,16 +255,8 @@ function isStaleSabiPluginEntry(entry: unknown): boolean {
   return isSabiOpenCodePluginEntry(entry) && (isEphemeralPath(entry) || !existsSync(entry))
 }
 
-function openCodeSourcePath(env: NodeJS.ProcessEnv): string {
-  if (env.SABI_OPENCODE_HOOK_SOURCE?.trim()) return env.SABI_OPENCODE_HOOK_SOURCE.trim()
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url))
-  for (const bundled of [
-    path.resolve(moduleDir, '../resources/opencode/sabi-hook.mjs'),
-    path.resolve(moduleDir, 'resources/opencode/sabi-hook.mjs'),
-  ]) {
-    if (existsSync(bundled)) return bundled
-  }
-  return path.resolve(moduleDir, '../../adapters/opencode/src/sabi-hook.mjs')
+function openCodeSourcePath(env: NodeJS.ProcessEnv): { file: string; source: ResolvedArtifact['source'] } | undefined {
+  return resolveHostArtifact('opencode', env)
 }
 
 function installClaude(env: NodeJS.ProcessEnv): HookInstallResult {
@@ -286,8 +280,11 @@ function installCodex(env: NodeJS.ProcessEnv): HookInstallResult {
 }
 
 function installOpenCode(env: NodeJS.ProcessEnv, stateDir: string): HookInstallResult {
-  const source = openCodeSourcePath(env)
-  if (!existsSync(source)) throw new Error(`OpenCode hook source not found: ${source}`)
+  const resolved = openCodeSourcePath(env)
+  if (!resolved || !existsSync(resolved.file)) {
+    throw new Error(`OpenCode hook source not found: ${resolved?.file ?? '(unresolved)'}`)
+  }
+  const source = resolved.file
   const plugin = path.join(stateDir, 'hooks', 'opencode.mjs')
   const file = openCodeConfigPath(env)
   // An ephemeral state home (a test temp dir) must never be registered in a real
@@ -308,7 +305,7 @@ function installOpenCode(env: NodeJS.ProcessEnv, stateDir: string): HookInstallR
   // installs before registering the current plugin path.
   const plugins = ((current as unknown[] | undefined) ?? []).filter((entry) => !isStaleSabiPluginEntry(entry))
   config.plugin = plugins.includes(plugin) ? plugins : [...plugins, plugin]
-  return { harness: 'opencode', path: file, plugin, backup: writeObject(file, config) }
+  return { harness: 'opencode', path: file, plugin, source: resolved.source, backup: writeObject(file, config) }
 }
 
 export function installHooks(options: { harnesses?: InstallableHost[]; stateDir?: string; env?: NodeJS.ProcessEnv } = {}): HookInstallResult[] {
@@ -321,11 +318,11 @@ export function installHooks(options: { harnesses?: InstallableHost[]; stateDir?
     // These two ship a file rather than a config entry, so their result is a copy outcome.
     if (harness === 'oh-my-pi') {
       const result = installOhMyPi(env)
-      return { harness, path: result.path ?? '', ...(result.source ? { command: `from ${result.source}` } : {}) }
+      return { harness, path: result.path ?? '', ...(result.source ? { source: result.source } : {}) }
     }
     if (harness === 'command-code') {
       const result = installCommandCode(env)
-      return { harness, path: result.path ?? result.detail, ...(result.source ? { command: `from ${result.source}` } : {}) }
+      return { harness, path: result.path ?? result.detail, ...(result.source ? { source: result.source } : {}) }
     }
     return installOpenCode(env, stateDir)
   })

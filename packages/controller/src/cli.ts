@@ -262,7 +262,7 @@ async function runSetup(argv: string[]): Promise<void> {
       installed: hooks.map(({ harness }) => harness),
       unsupported: detected.map(({ agent }) => agent).filter((agent) => !hookTargets.includes(agent as InstalledHook)),
     },
-    hooks: hooks.map(({ harness, path: file }) => ({ harness, path: file })),
+    hooks: hooks.map(({ harness, path: file, plugin, source }) => ({ harness, path: file, ...(plugin ? { plugin } : {}), ...(source ? { source } : {}) })),
     ...(quality ? { freeQuality: quality } : {}),
   }
   if (jsonRequested(argv)) {
@@ -277,7 +277,9 @@ async function runSetup(argv: string[]): Promise<void> {
   console.log(`decision engines: rules ✓ · Jev ${result.decisionEngines.jev} · Laya not-configured`)
   if (quality) console.log(`free quality: ${quality.model} · verification → quality · catalog ${quality.observedAt}`)
   console.log(`harnesses: ${detected.length ? detected.map(({ agent }) => `${agent} ✓`).join(' · ') : 'none detected'}`)
-  console.log(hooks.length ? `hooks: installed — ${hooks.map(({ harness }) => harness).join(', ')}` : 'hooks: not installed — no supported harness detected or disabled with --no-hooks')
+  console.log(hooks.length
+    ? `hooks: installed — ${hooks.map(({ harness, source }) => `${harness}${source ? ` (${source})` : ''}`).join(', ')}`
+    : 'hooks: not installed — no supported harness detected or disabled with --no-hooks')
   console.log(`preferences: ${preferencesPath}`)
 }
 
@@ -644,6 +646,7 @@ async function runHooks(argv: string[]): Promise<void> {
   for (const result of installed) {
     console.log(`✓ ${result.harness}: ${result.path}${result.plugin ? ` (plugin ${result.plugin})` : ''}`)
     if (result.command) console.log(`    runs: ${result.command}`)
+    if (result.source) console.log(`    source: ${result.source}`)
   }
 }
 
