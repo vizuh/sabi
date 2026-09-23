@@ -10,7 +10,7 @@ Canonical docs first; localized READMEs defer to English for verified claims.
 - Maintainer contract: docs/maintainers.md
 - Estimates and accounting: docs/estimates.md
 - Decisions and boundaries: docs/decisions.md
-- Agent skill: SKILL.md (installable with `npx skills add vizuh/sabi --skill sabi`)
+- Agent skill: skills/sabi/SKILL.md (installable with `npx skills add vizuh/sabi --skill sabi`)
 - Repository: https://github.com/vizuh/sabi
 - Packages: https://www.npmjs.com/package/@vizuh/sabi
 

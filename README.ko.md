@@ -13,7 +13,7 @@ Sabi는 호스트에 구애받지 않는 라우팅 계층이며, 또 다른 에�
 
 [English](README.md) · [Português (BR)](README.pt-BR.md) · [中文](README.zh-CN.md) · [日本語](README.ja.md) · **한국어**
 
-[설치](docs/install.md) · [통합](docs/adapters/README.md) · [증거](docs/harnesses.md) · [Agent 스킬](SKILL.md) · [머신 인덱스](llms.txt)
+[설치](docs/install.md) · [통합](docs/adapters/README.md) · [증거](docs/harnesses.md) · [Agent 스킬](skills/sabi/SKILL.md) · [머신 인덱스](llms.txt)
 
 > [!TIP]
 > Sabi에는 두 경계가 있습니다: 추론 라우팅(라운드별 모델/제공자 선택)과 controller 핸드오프(계속/위임/생성). hook 설치는 모델 전환의 증거가 아니고, 카탈로그 게시는 요금제 권한의 증거가 아니며, mock 통과는 절감 벤치마크가 아닙니다.
@@ -42,7 +42,7 @@ sabi doctor
 
 ## 호스트 AI 또는 에이전트와 사용
 
-설치하는 에이전트에게 [SKILL.md](SKILL.md)와 [머신 인덱스](llms.txt)를 전달하세요. 정본 [호스트 AI 플로](docs/install.ai.md)는 하네스와 경로를 명시적으로 묻고, 프록시 경로의 OpenRouter 키만 수집합니다. 설정은 `--language=en|pt-BR|zh-CN|ja|ko`를 받습니다. EN/PT-BR 이외의 대화형 프롬프트는 영어로 폴백합니다.
+설치하는 에이전트에게 [SKILL.md](skills/sabi/SKILL.md)와 [머신 인덱스](llms.txt)를 전달하세요. 정본 [호스트 AI 플로](docs/install.ai.md)는 하네스와 경로를 명시적으로 묻고, 프록시 경로의 OpenRouter 키만 수집합니다. 설정은 `--language=en|pt-BR|zh-CN|ja|ko`를 받습니다. EN/PT-BR 이외의 대화형 프롬프트는 영어로 폴백합니다.
 
 ## 선택적 통합 고르기
 

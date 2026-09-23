@@ -16,7 +16,7 @@ Sabi is a host-agnostic routing layer, not another agent harness or editor. Adap
 
 **English** · [Português (BR)](README.pt-BR.md) · [中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-[Install](docs/install.md) · [Integrations](docs/adapters/README.md) · [Evidence](docs/harnesses.md) · [Agent skill](SKILL.md) · [Machine index](llms.txt)
+[Install](docs/install.md) · [Integrations](docs/adapters/README.md) · [Evidence](docs/harnesses.md) · [Agent skill](skills/sabi/SKILL.md) · [Machine index](llms.txt)
 
 > [!TIP]
 > Sabi has two boundaries: inference routing (model/provider per round) and controller handoffs (continue/delegate/spawn). A hook install is not model switching; a catalog listing is not plan entitlement; a mock pass is not a savings benchmark.
@@ -52,7 +52,7 @@ After installation, open your normal harness. Choose an optional integration onl
 ## Use with a host AI or agent
 
 Install the skill with the open skills CLI — `npx skills add vizuh/sabi --skill sabi` — or hand the
-installing agent [SKILL.md](SKILL.md) and the [machine index](llms.txt) directly. The canonical [host-AI flow](docs/install.ai.md) asks for the harness and route explicitly and collects only an OpenRouter key on proxy paths. Setup accepts `--language=en|pt-BR|zh-CN|ja|ko`; prompts outside EN/PT-BR fall back to English. JA/KO READMEs are full mirrors; English is canonical for rates and support claims.
+installing agent [SKILL.md](skills/sabi/SKILL.md) and the [machine index](llms.txt) directly. The canonical [host-AI flow](docs/install.ai.md) asks for the harness and route explicitly and collects only an OpenRouter key on proxy paths. Setup accepts `--language=en|pt-BR|zh-CN|ja|ko`; prompts outside EN/PT-BR fall back to English. JA/KO READMEs are full mirrors; English is canonical for rates and support claims.
 
 ## Choose an optional integration
 
