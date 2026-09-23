@@ -68,6 +68,53 @@ test('a host resolves from the package manifest, and a package that omits a host
     rmSync(root, { recursive: true, force: true })
   }
 })
+test('the product manifest\'s opencode and orca declarations are read, not guessed', () => {
+  const root = workspace()
+  try {
+    // These two keys have been in packages/core/pack.mjs since the product carried every host;
+    // reading them is the point — a layout guess would install the wrong file.
+    const dir = path.join(root, 'pkg')
+    mkdirSync(path.join(dir, 'plugins/opencode'), { recursive: true })
+    mkdirSync(path.join(dir, 'plugins/orca'), { recursive: true })
+    writeFileSync(path.join(dir, 'plugins/opencode/sabi-hook.mjs'), 'export const hook = true\n')
+    writeFileSync(path.join(dir, 'plugins/orca/orca-plugin.json'), '{"name":"sabi"}\n')
+    writeFileSync(path.join(dir, 'package.json'), JSON.stringify({
+      name: '@vizuh/sabi',
+      version: '1.2.3',
+      opencode: { plugin: './plugins/opencode/sabi-hook.mjs' },
+      orca: { plugin: './plugins/orca/orca-plugin.json', main: './plugins/orca/main.mjs' },
+    }))
+
+    const opencode = resolveHostArtifact('opencode', { SABI_PACKAGE_DIR: dir })
+    assert.equal(opencode?.source, 'override')
+    assert.equal(opencode?.file, path.join(dir, 'plugins/opencode/sabi-hook.mjs'))
+    assert.equal(opencode?.version, '1.2.3')
+
+    // The plugin manifest is the artifact; `main` is the code it points at, a sibling key rather
+    // than a nested path.
+    const orca = resolveHostArtifact('orca', { SABI_PACKAGE_DIR: dir })
+    assert.equal(orca?.file, path.join(dir, 'plugins/orca/orca-plugin.json'))
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('SABI_OPENCODE_HOOK_SOURCE still outranks everything, unresolved so the caller can report it', () => {
+  const explicit = path.join(workspace(), 'my-hook.mjs')
+  const resolved = resolveHostArtifact('opencode', { SABI_OPENCODE_HOOK_SOURCE: explicit })
+  assert.equal(resolved?.source, 'override')
+  assert.equal(resolved?.file, explicit)
+  assert.equal(existsSync(explicit), false, 'an override naming a file that is not there stays authoritative; installOpenCode reports it')
+})
+
+test('OpenCode and Orca fall back to the checkout when nothing is installed', () => {
+  // Runs inside the repository, so the last step is the one that answers.
+  for (const host of ['opencode', 'orca'] as const) {
+    const resolved = resolveHostArtifact(host, {})
+    assert.equal(resolved?.source, 'checkout', `${host} should resolve from this checkout`)
+    assert.equal(existsSync(resolved?.file ?? ''), true)
+  }
+})
 
 test('the Oh My Pi extension installs where OMP discovers it, and nothing is left half-written', () => {
   const root = workspace()
