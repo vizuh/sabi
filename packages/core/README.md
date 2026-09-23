@@ -41,15 +41,24 @@ client reached a Sabi endpoint; a live smoke shows an authenticated upstream was
 evaluation measures quality and cost against a baseline. A catalog entry, a mock pass, or a hook
 install proves none of those.
 
-## Around it
+## Surfaces it carries
 
-| Package | What it is |
-|---|---|
-| `@vizuh/sabi-controller` | The CLI around this layer: `sabi setup`, `sabi serve`, `sabi doctor`, `sabi updates` |
+The layer is the product; the host integrations are files in this package, one per host, so installing
+Sabi is installing all of it:
 
-This package also carries Sabi's Command Code mod at `mod/sabi.mjs`, so `cmd mods add -g npm:@vizuh/sabi` works from this package too.
-| `@vizuh/sabi-commandcode` | The stand-alone Command Code mod, if you want the mod without the layer |
-| host adapters | Claude Code, Codex, OpenCode, Oh My Pi, Hermes, Kilo, Cline, Prime Agent, Orca, DeepSeek Harness |
+| Host | Entry point in this package | How the host loads it |
+| --- | --- | --- |
+| Command Code | `mods/command-code/sabi.mjs` | `commandcode.mods`; `cmd mods add -g npm:@vizuh/sabi` |
+| Oh My Pi | `mods/oh-my-pi/sabi-extension.mjs` | `omi.extension`; `omp --extension …` or a user extension directory |
+| OpenCode | `plugins/opencode/sabi-hook.mjs` | `opencode.plugin`; the controller hook Sabi installs |
+| Orca | `plugins/orca/{orca-plugin.json,main.mjs}` | `orca.plugin`; the Orca plugin bridge |
+
+Claude Code and Codex have no file to carry: their integration is the `sabi` CLI, which installs and
+repairs their hooks (`sabi setup`, `sabi hooks install`).
+
+The per-host packages remain as optional slices for someone who wants one integration and nothing
+else — `@vizuh/sabi-commandcode` for the mod on its own. The routing layer is never split out of
+this name: `@vizuh/sabi` is Sabi.
 
 ## License
 
