@@ -1577,3 +1577,32 @@ in-flight free-catalog test.
 
 Boundary: this makes the failure legible and stops the loop. It does not make a 550B free model
 answer inside 120s — the `strong` tier and the deadline are operator configuration.
+### [2026-09-23] feat | Sabi keeps itself current, and says so where the user already is
+
+An update path existed but nobody would ever take it: `sabi updates` had to be remembered, `sabi
+upgrade` had to be typed, and the check itself was unreleased. Three changes close that.
+
+The daemon now owns the one outbound request Sabi makes on its own. `startUpdateRefresh` runs on the
+foreground daemon, checks the registry at most once per window, and writes the same cache every other
+surface reads offline — so a user who never runs a check still gets one. A registry that is down is
+recorded as `unavailable`, never thrown, and the timers are `unref`'d so a scheduler is not a reason
+for the process to stay alive. `SABI_UPDATE_CHECK=off` removes the request entirely.
+
+The notice reaches the user where they already are: the installed Claude and Codex hooks emit one
+line as `systemMessage` when the cache says an update is available, claimed once per window so it
+cannot become a per-prompt nag, and only when the hook has nothing else to say — a delegation message
+already explains itself, and the two never stack. `sabi status` reports the same fact.
+
+`sabi upgrade` now finishes the job it started. The controller bundle is replaced in place, but the
+OpenCode plugin is a copy inside the state directory and a hook can point at a path the upgrade
+moved, so a successful upgrade re-runs the installer for the detected harnesses — idempotent by
+design, and it repairs a stale hook rather than only refreshing a live one.
+
+Validation: `node --test packages/controller/test/updates.test.ts` 12/12, with the scheduler driven
+by `mock.timers` rather than wall-clock waits. End to end on the real machine: a `UserPromptSubmit`
+hook payload returned `{"systemMessage":"Sabi 0.1.0 is available (installed 0.0.0-dev) ..."}` on the
+first prompt and `{}` on the second, and `sabi status` printed the update line.
+
+Boundary: the daemon's check is a single GET to the public npm registry for a package the user
+already installed — no credentials, no telemetry, no project data. The mechanism is unreleased: npm
+still serves `@vizuh/sabi-controller@0.1.0`, so shipping it needs a `controller-v*` tag.

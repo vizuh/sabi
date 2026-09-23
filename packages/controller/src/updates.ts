@@ -25,6 +25,8 @@ export interface CachedUpdate {
   status: UpdateStatus
   checkedAt: number
   nextCheckAt: number
+  /** When a harness last showed the update notice, so one window produces one notice. */
+  notifiedAt?: number
   error?: string
 }
 
@@ -102,6 +104,7 @@ function readCache(file: string): CachedUpdate | undefined {
     return undefined
   }
   if (value.latestVersion !== undefined && typeof value.latestVersion !== 'string') return undefined
+  if (value.notifiedAt !== undefined && !Number.isSafeInteger(value.notifiedAt)) return undefined
   return value as CachedUpdate
 }
 
@@ -240,4 +243,75 @@ export async function checkForUpdate(options: UpdateCheckOptions = {}): Promise<
     ...(update.status === 'update-available' ? { warning: UPDATE_WARNING } : {}),
     compatibility: quickCompatibilityChecks({ cwd: options.cwd, env }),
   }
+}
+
+/**
+ * The tick the daemon runs: one registry check per window, never blocking, never throwing. The
+ * cache is what every other surface reads, so refreshing it here is what turns `sabi updates`
+ * from "a command you have to remember" into a fact the hooks can report on their own.
+ */
+export async function refreshIfStale(options: UpdateCheckOptions = {}): Promise<CachedUpdate | undefined> {
+  const env = options.env ?? process.env
+  const now = options.now ?? Date.now()
+  const stateDir = options.stateDir ?? controllerStateDir(env)
+  const cached = readCachedUpdate({ stateDir })
+  const installedVersion = options.installedVersion ?? env.SABI_BUILD_VERSION ?? '0.0.0-dev'
+  if (cached && cached.installedVersion === installedVersion && now < cached.nextCheckAt) return cached
+  const result = await checkForUpdate({ ...options, stateDir, env, now, refresh: true })
+  return result
+}
+
+/** Off switch for the one outbound request Sabi makes on its own. */
+function updateCheckDisabled(env: NodeJS.ProcessEnv): boolean {
+  return /^(?:0|false|off|no)$/i.test((env.SABI_UPDATE_CHECK ?? '').trim())
+}
+
+export function startUpdateRefresh(options: UpdateCheckOptions & {
+  intervalMs?: number
+  firstDelayMs?: number
+} = {}): () => void {
+  const env = options.env ?? process.env
+  if (updateCheckDisabled(env)) return () => {}
+  const stateDir = options.stateDir ?? controllerStateDir(env)
+  const tick = (): void => {
+    void refreshIfStale({ ...options, stateDir, env }).catch(() => {
+      // A daemon must not die because a registry lookup did.
+    })
+  }
+  // `unref` on both: a scheduler is not a reason for the process to stay alive.
+  const first = setTimeout(tick, options.firstDelayMs ?? 15_000)
+  first.unref()
+  const repeating = setInterval(tick, options.intervalMs ?? 60 * 60 * 1_000)
+  repeating.unref()
+  return () => {
+    clearTimeout(first)
+    clearInterval(repeating)
+  }
+}
+
+/**
+ * Take the one-line notice for a harness to show, once per check window. Reading and claiming are
+ * the same call on purpose: the caller is a fail-open hook that runs on every prompt, and a notice
+ * that repeats every turn is worse than no notice. A lost claim (two hooks racing) costs one
+ * duplicate line, never a missed update, because the next window re-arms it.
+ */
+export function takeUpdateNotice(options: {
+  stateDir?: string
+  env?: NodeJS.ProcessEnv
+  now?: number
+} = {}): string | undefined {
+  const env = options.env ?? process.env
+  const now = options.now ?? Date.now()
+  const stateDir = options.stateDir ?? controllerStateDir(env)
+  const file = path.join(stateDir, CACHE_FILE)
+  const cached = readCache(file)
+  if (!cached || cached.status !== 'update-available') return undefined
+  if (cached.notifiedAt !== undefined && now - cached.notifiedAt < UPDATE_INTERVAL_MS) return undefined
+  const notice = `Sabi ${cached.latestVersion} is available (installed ${cached.installedVersion}). ${UPDATE_WARNING}`
+  try {
+    writeCache(file, { ...cached, notifiedAt: now })
+  } catch {
+    // Best effort: failing to record the claim only risks a repeat, and the cache may be read-only.
+  }
+  return notice
 }

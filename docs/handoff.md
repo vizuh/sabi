@@ -1150,3 +1150,14 @@ the tier that had just timed out — ten 120s rounds in one session. Both ends f
 writes the frame, and a dropped connection is a named transport condition. The remaining lever is
 configuration: `strong` points at a 550B model on a free lane, which cannot answer a 60k+ context
 inside 120s.
+## Sabi keeps itself current — 2026-09-23
+
+The daemon makes one registry check per day into the cache every other surface reads offline
+(`SABI_UPDATE_CHECK=off` disables it); the installed Claude and Codex hooks surface an available
+update once per window as a `systemMessage`; `sabi status` reports it; and `sabi upgrade` now also
+refreshes the adapter copies it owns instead of only replacing the bundle. Validated 12/12 in
+`updates.test.ts` plus a live hook smoke test.
+
+Unreleased: npm serves `@vizuh/sabi-controller@0.1.0`, so none of the controller work from
+2026-09-23 reaches users until a `controller-v*` tag is pushed (see
+`.github/workflows/controller-release.yml`).

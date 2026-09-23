@@ -1,9 +1,9 @@
-import test from 'node:test'
+import test, { mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { UPDATE_WARNING, checkForUpdate, latestVersionUrl, quickCompatibilityChecks, readCachedUpdate } from '../src/updates.ts'
+import { UPDATE_WARNING, checkForUpdate, latestVersionUrl, quickCompatibilityChecks, readCachedUpdate, refreshIfStale, startUpdateRefresh, takeUpdateNotice } from '../src/updates.ts'
 
 const NOW = 1_760_000_000_000
 
@@ -200,6 +200,88 @@ test('the preflight fails when an installed hook no longer resolves', () => {
     const hooks = result.checks.find(({ name }) => name === 'hooks')
     assert.equal(hooks?.ok, false)
     assert.match(hooks?.detail ?? '', /run sabi hooks install to repair/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a stale cache is refreshed once, and a fresh one is not touched again', async () => {
+  const root = workspace()
+  try {
+    const stateDir = path.join(root, 'state')
+    const env = isolatedEnv(root)
+    const calls = registry('0.2.0')
+
+    const first = await refreshIfStale({ stateDir, env, now: NOW, installedVersion: '0.1.0', fetchImpl: calls.fetchImpl })
+    assert.equal(calls.calls(), 1)
+    assert.equal(first?.status, 'update-available')
+
+    const second = await refreshIfStale({ stateDir, env, now: NOW + 60_000, installedVersion: '0.1.0', fetchImpl: calls.fetchImpl })
+    assert.equal(calls.calls(), 1, 'inside the window the daemon stays off the network')
+    assert.equal(second?.latestVersion, '0.2.0')
+
+    const third = await refreshIfStale({ stateDir, env, now: NOW + 24 * 60 * 60 * 1_000, installedVersion: '0.1.0', fetchImpl: calls.fetchImpl })
+    assert.equal(calls.calls(), 2, 'past the window it checks again')
+
+    // A registry that is down must not take the daemon with it.
+    const failing = (async () => { throw new Error('ENOTFOUND') }) as unknown as typeof fetch
+    const degraded = await refreshIfStale({ stateDir, env, now: NOW, installedVersion: '0.9.0', fetchImpl: failing })
+    assert.equal(degraded?.status, 'unavailable')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the scheduler ticks without a wall clock, and has an off switch', async () => {
+  const root = workspace()
+  try {
+    const stateDir = path.join(root, 'state')
+    const env = isolatedEnv(root)
+    const reached = Promise.withResolvers<void>()
+    const calls = registry('0.2.0')
+    const signalling = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      reached.resolve()
+      return calls.fetchImpl(input as never, init as never)
+    }) as unknown as typeof fetch
+
+    mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+    try {
+      const stop = startUpdateRefresh({ stateDir, env, installedVersion: '0.1.0', fetchImpl: signalling, firstDelayMs: 5, intervalMs: 10 })
+      mock.timers.tick(5)
+      await reached.promise
+      stop()
+      assert.equal(calls.calls(), 1, 'the first delay reached the registry')
+
+      const quiet = registry('0.3.0')
+      const stopQuiet = startUpdateRefresh({ stateDir, env: { ...env, SABI_UPDATE_CHECK: 'off' }, installedVersion: '0.1.0', fetchImpl: quiet.fetchImpl, firstDelayMs: 5, intervalMs: 10 })
+      mock.timers.tick(1_000)
+      stopQuiet()
+      assert.equal(quiet.calls(), 0, 'the off switch makes no request at all')
+    } finally {
+      mock.timers.reset()
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the harness notice appears once per window, and only when an update exists', async () => {
+  const root = workspace()
+  try {
+    const stateDir = path.join(root, 'state')
+    const env = isolatedEnv(root)
+
+    assert.equal(takeUpdateNotice({ stateDir, env, now: NOW }), undefined, 'nothing cached, nothing claimed')
+
+    await checkForUpdate({ stateDir, env, now: NOW, installedVersion: '0.2.0', refresh: true, fetchImpl: registry('0.2.0').fetchImpl })
+    assert.equal(takeUpdateNotice({ stateDir, env, now: NOW }), undefined, 'up to date is not a notice')
+
+    await checkForUpdate({ stateDir, env, now: NOW, installedVersion: '0.1.0', refresh: true, fetchImpl: registry('0.2.0').fetchImpl })
+    const first = takeUpdateNotice({ stateDir, env, now: NOW })
+    assert.match(first ?? '', /Sabi 0\.2\.0 is available \(installed 0\.1\.0\)/)
+    assert.match(first ?? '', /sabi hooks install/, 'the notice carries the upgrade warning')
+    assert.equal(takeUpdateNotice({ stateDir, env, now: NOW + 60_000 }), undefined, 'the same window does not repeat')
+    assert.match(takeUpdateNotice({ stateDir, env, now: NOW + 24 * 60 * 60 * 1_000 }) ?? '', /Sabi 0\.2\.0 is available/, 'the next window re-arms it')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
