@@ -627,7 +627,15 @@ export async function routeHookPrompt(
   }
 }
 
-export async function runHookCommand(harness: HookHarness, event = 'UserPromptSubmit'): Promise<void> {
+/**
+ * `notice` is injected rather than imported: `updates.ts` already imports this module, so reading
+ * the cache from here would close a cycle. The CLI owns both sides.
+ */
+export async function runHookCommand(
+  harness: HookHarness,
+  event = 'UserPromptSubmit',
+  options: { notice?: () => string | undefined } = {},
+): Promise<void> {
   let input = ''
   await new Promise<void>((resolve) => {
     let settled = false
@@ -647,7 +655,11 @@ export async function runHookCommand(harness: HookHarness, event = 'UserPromptSu
   })
   try {
     const parsed = input.trim() ? objectValue(JSON.parse(input.replace(/^\uFEFF/, '')), 'hook input') : {}
-    console.log(JSON.stringify(await routeHookPrompt(harness, event, parsed)))
+    const output = await routeHookPrompt(harness, event, parsed)
+    // A delegation message already tells the user what happened; the update notice only fills the
+    // silent case, so the two never stack into one wall of text.
+    const notice = Object.keys(output).length ? undefined : options.notice?.()
+    console.log(JSON.stringify(notice ? { systemMessage: notice } : output))
   } catch {
     console.log('{}')
   }

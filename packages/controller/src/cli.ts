@@ -24,7 +24,7 @@ import { installUserService, restartUserService, type UserServiceResult } from '
 import { uninstallController, upgradeController } from './lifecycle.ts'
 import { checkHookHealth, installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
 import { runSurplusReview } from './surplus.ts'
-import { checkForUpdate } from './updates.ts'
+import { checkForUpdate, readCachedUpdate, startUpdateRefresh, takeUpdateNotice } from './updates.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
 type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'updates' | 'upgrade' | 'uninstall'
@@ -65,6 +65,10 @@ function printStatus(snapshot: Record<string, unknown>, heading = 'Sabi status')
   console.log(`sessions: ${sessions.length ? sessions.map((session) => `${session.agent}=${session.available ? session.lifecycle ?? 'available' : 'unavailable'}`).join(', ') : 'none'}`)
   if (registered) console.log(`registered adapters: ${registered.length}`)
   console.log(`spawn candidates: ${candidates.length ? candidates.map((candidate) => `${candidate.agent}${candidate.available ? '' : ' (unavailable)'}`).join(', ') : 'none'}`)
+  const update = snapshot.update as { status?: string; installedVersion?: string; latestVersion?: string } | undefined
+  if (update?.status === 'update-available') {
+    console.log(`Sabi update: ${update.latestVersion} available (installed ${update.installedVersion}) — run \`sabi updates\`, then \`sabi upgrade\``)
+  }
 }
 
 function printHelp(): void {
@@ -151,6 +155,8 @@ async function runStatus(command: 'status' | 'agents', argv: string[]): Promise<
   const snapshot = {
     ...(remote ?? inventorySnapshot(cwd, { mode: 'local-cli', daemon: daemon.state })),
     registeredSessions: readSessionRegistry(controllerStateDir()),
+    // Cache-only: `sabi status` is a read and stays offline. The daemon keeps this warm.
+    update: readCachedUpdate() ?? { status: 'unavailable' as const, error: 'not checked yet; run `sabi updates --check`' },
   }
   if (jsonRequested(argv)) console.log(JSON.stringify(snapshot, null, 2))
   else printStatus(snapshot, command === 'agents' ? 'Sabi agents' : 'Sabi status')
@@ -569,6 +575,22 @@ async function runUpgrade(argv: string[]): Promise<void> {
   const result = upgradeController(version)
   if (result.status === 0 && hasControllerPreferences()) {
     const stateDir = controllerStateDir()
+    // The controller bundle is replaced in place, but the OpenCode plugin is a *copy* into the
+    // state directory and a hook can point at a path the upgrade moved. Re-running the installer
+    // refreshes the copy and repairs a stale hook; it is idempotent and leaves a resolving hook
+    // exactly as it is.
+    const selected = (['claude', 'codex', 'opencode'] as InstalledHook[]).filter((harness) => argv.includes(`--${harness}`))
+    const detected = configuredHarnesses()
+      .map(({ agent }) => agent)
+      .filter((agent): agent is InstalledHook => agent === 'claude' || agent === 'codex' || agent === 'opencode')
+    const harnesses = selected.length ? selected : detected
+    if (harnesses.length) {
+      try {
+        result.refreshed = installHooks({ harnesses, stateDir }).map(({ harness }) => harness)
+      } catch (error) {
+        result.error = `package upgraded but adapter refresh failed: ${(error as Error).message}`
+      }
+    }
     const service = restartUserService({ stateDir })
     if (service.installed) {
       if (service.running) result.restarted = true
@@ -584,7 +606,10 @@ async function runUpgrade(argv: string[]): Promise<void> {
     }
   }
   if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
-  else console.log(result.status === 0 ? `Sabi upgraded to ${result.version}${result.restarted ? ' and daemon restarted' : ''}` : `Sabi upgrade failed (${result.status})`)
+  else {
+    console.log(result.status === 0 ? `Sabi upgraded to ${result.version}${result.restarted ? ' and daemon restarted' : ''}` : `Sabi upgrade failed (${result.status})`)
+    if (result.refreshed?.length) console.log(`adapters refreshed: ${result.refreshed.join(', ')}`)
+  }
   if (result.status !== 0 || result.error) process.exitCode = 1
 }
 
@@ -621,7 +646,7 @@ async function runHooks(argv: string[]): Promise<void> {
 async function runHook(argv: string[]): Promise<void> {
   const harness = argv.find((arg) => !arg.startsWith('--'))
   if (harness !== 'claude' && harness !== 'codex') throw new Error('hook harness must be claude or codex')
-  await runHookCommand(harness, flagValue(argv, '--event') ?? 'UserPromptSubmit')
+  await runHookCommand(harness, flagValue(argv, '--event') ?? 'UserPromptSubmit', { notice: () => takeUpdateNotice() })
 }
 
 /** The daemon token is a live IPC credential (packages/controller/src/daemon.ts:152) — it stays
@@ -635,7 +660,14 @@ function withoutToken(info: ControllerDaemonInfo | undefined): Omit<ControllerDa
 async function runDaemon(argv: string[]): Promise<void> {
   const stateDir = controllerStateDir()
   if (argv.includes('--foreground')) {
-    await runForegroundControllerDaemon({ stateDir })
+    // The daemon is the only always-on part of Sabi, so it owns the one outbound check Sabi makes
+    // on its own. Every other surface reads the cache this keeps warm.
+    const stopRefresh = startUpdateRefresh({ stateDir })
+    try {
+      await runForegroundControllerDaemon({ stateDir })
+    } finally {
+      stopRefresh()
+    }
     return
   }
   if (argv.includes('--stop')) {

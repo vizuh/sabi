@@ -173,6 +173,14 @@ the last npm answer, and preflights the Node version, the project config and ins
 The cached read is offline; only `sabi updates --check` contacts the registry, and one check covers
 the next 24 hours. `--json` is available for scripts.
 
+Keeping Sabi current is the daemon's job rather than the user's memory. The daemon makes at most one
+registry check per day and writes the answer to a cache every other surface reads offline;
+`SABI_UPDATE_CHECK=off` turns that one request off entirely. When the registry is ahead, the
+installed Claude and Codex hooks show a single line once per check window and `sabi status` reports
+it. `sabi upgrade` then installs the new controller, verifies the registry signatures, refreshes the
+adapter copies it owns — the OpenCode plugin is a copy in the state directory, not a link into the
+bundle — and restarts the daemon.
+
 ## Routing logic
 
 The deterministic policy classifies the current state first, then applies hard constraints before
