@@ -26,11 +26,12 @@ omp \
   --model sabi/sabi-code
 ~~~
 
-To make the extension available to all OMP sessions, copy it into the user extension directory with a
-`.ts` or `.js` suffix. OMP's directory scanner accepts only those two extensions
-(`isExtensionFile` in `extensibility/extensions/loader.ts`), so a copied `.mjs` is never
-auto-discovered — the explicit `--extension` form above is the only way to load the checked-in
-`.mjs` file.
+To make the extension available to all OMP sessions, `sabi setup` copies it into the user extension
+directory as `sabi.ts` — OMP's directory scanner accepts only `.ts` and `.js`
+(`isExtensionFile` in `extensibility/extensions/loader.ts`), so a copied `.mjs` there is never
+discovered. The copy comes from the installed `@vizuh/sabi` package
+(`mods/oh-my-pi/sabi-extension.mjs`); to take it from somewhere else, point `SABI_PACKAGE_DIR` at a
+package directory, or copy it by hand with a `.ts` or `.js` suffix as above.
 
 ~~~bash
 install -Dm0644 \
