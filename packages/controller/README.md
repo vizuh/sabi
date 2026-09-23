@@ -1,6 +1,6 @@
 # @vizuh/sabi-controller
 
-English is canonical. Entry points: [Português (BR)](../../README.pt-BR.md) · [中文](../../README.zh-CN.md) · [日本語](../../README.ja.md) · [한국어](../../README.ko.md). Agent entry: [SKILL.md](../../SKILL.md) · [machine index](../../llms.txt).
+English is canonical. Entry points: [Português (BR)](../../README.pt-BR.md) · [中文](../../README.zh-CN.md) · [日本語](../../README.ja.md) · [한국어](../../README.ko.md). Agent entry: [SKILL.md](../../skills/sabi/SKILL.md) · [machine index](../../llms.txt).
 
 Install Sabi once for the user, then use supported harnesses and Orca worktrees normally:
 
