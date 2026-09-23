@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { checkHookHealth, hookOutput, installHooks, restoreHookBackups, routeHookPrompt, validateHookCommand } from '../src/hooks.ts'
@@ -8,6 +8,75 @@ import { checkHookHealth, hookOutput, installHooks, restoreHookBackups, routeHoo
 function workspace(): string {
   return mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-hooks-'))
 }
+
+test('installHooks repairs a dead Sabi entry but never duplicates a working one', () => {
+  const root = workspace()
+  try {
+    const claude = path.join(root, 'claude', 'settings.json')
+    mkdirSync(path.dirname(claude), { recursive: true })
+    writeFileSync(claude, JSON.stringify({
+      hooks: {
+        UserPromptSubmit: [
+          { hooks: [{ type: 'command', command: `'/definitely/missing/node' '/also/missing/sabi.mjs' hook claude --event=UserPromptSubmit`, statusMessage: 'Sabi claude routing' }] },
+          { hooks: [{ type: 'command', command: 'user-owned-hook' }] },
+        ],
+      },
+    }))
+    const env = { ...process.env, HOME: root, SABI_CLAUDE_SETTINGS: claude, SABI_HOOK_COMMAND: 'sabi-test' }
+
+    // `sabi doctor` points a user with a stale hook at this install, so the dead entry is rewritten
+    // in place and the user's own neighbouring entry is untouched.
+    installHooks({ harnesses: ['claude'], stateDir: path.join(root, 'state'), env })
+    const repaired = JSON.parse(readFileSync(claude, 'utf8'))
+    assert.equal(repaired.hooks.UserPromptSubmit.length, 2)
+    assert.equal(repaired.hooks.UserPromptSubmit[0].hooks[0].command, 'sabi-test hook claude --event=UserPromptSubmit')
+    assert.equal(repaired.hooks.UserPromptSubmit[1].hooks[0].command, 'user-owned-hook')
+
+    // A Sabi entry that still resolves is left exactly as it is.
+    installHooks({ harnesses: ['claude'], stateDir: path.join(root, 'state'), env })
+    const unchanged = JSON.parse(readFileSync(claude, 'utf8'))
+    assert.equal(unchanged.hooks.UserPromptSubmit.length, 2)
+    assert.equal(unchanged.hooks.UserPromptSubmit[0].hooks[0].command, 'sabi-test hook claude --event=UserPromptSubmit')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('installHooks points at a real installed controller, and never at a dev shim', () => {
+  const root = workspace()
+  try {
+    const bin = path.join(root, 'bin')
+    const installed = path.join(root, 'lib', 'node_modules', '@vizuh', 'sabi-controller', 'dist', 'cli.mjs')
+    mkdirSync(bin, { recursive: true })
+    mkdirSync(path.dirname(installed), { recursive: true })
+    writeFileSync(installed, '#!/usr/bin/env node\n')
+    symlinkSync(installed, path.join(bin, 'sabi'))
+
+    // A real `npm install --global` is the durable target: the hook survives the checkout that
+    // installed it being deleted, which is how a hook rots into a dead worktrees/... path.
+    const [installedInstall] = installHooks({
+      harnesses: ['claude'],
+      stateDir: path.join(root, 'state'),
+      env: { ...process.env, HOME: root, PATH: bin, SABI_CLAUDE_SETTINGS: path.join(root, 'claude', 'settings.json') },
+    })
+    assert.match(installedInstall?.command ?? '', new RegExp(installed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+
+    // A dev shim on PATH is not an install: `node_modules/.bin/sabi` is what `npm test` puts there
+    // and it is not durable, so that case keeps the process-derived fallback.
+    const shimDir = path.join(root, 'shim-bin')
+    mkdirSync(shimDir, { recursive: true })
+    symlinkSync(path.resolve('packages/controller/src/cli.ts'), path.join(shimDir, 'sabi'))
+    const [shimInstall] = installHooks({
+      harnesses: ['claude'],
+      stateDir: path.join(root, 'state'),
+      env: { ...process.env, HOME: root, PATH: shimDir, SABI_CLAUDE_SETTINGS: path.join(root, 'shim', 'settings.json') },
+    })
+    assert.equal(shimInstall?.command?.includes('@vizuh/sabi-controller'), false)
+    assert.match(shimInstall?.command ?? '', / hook claude --event=UserPromptSubmit$/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
 
 test('installHooks merges Claude, Codex and OpenCode without replacing existing config', () => {
   const root = workspace()
