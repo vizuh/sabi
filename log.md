@@ -1390,3 +1390,26 @@ bypass (`undefined`/`{}`/negative/non-numeric are rejected, `isFreeModel` needs 
 `planRound` reads `harness.tiers` and cannot reach OpenRouter at all.
 
 Re-validated: `npm test` 576/576 (2 new tests), `npm run typecheck` clean, `git diff --check` clean.
+
+## [2026-09-23] docs | Awesome Jev Projects submission, verified against a pinned commit
+
+Prepared Sabi's entry for the Awesome Jev Projects directory at
+`docs/submission-awesome-jev.md`. Not submitted — posting the issue is an external publication and
+waits on Hugo's go-ahead.
+
+Every claim was checked against the pinned commit `7f626c3` rather than `main`, so the directory's
+source reviewer can verify exactly what was claimed. Verified: the repository is public and not a
+fork, `LICENSE` at the root is MIT, the TypeSafe client really posts `{ state, model, questions }`
+to `/systemone` (`packages/server/src/typesafe.ts:92`) and validates answer types, the only judge
+question types in the codebase are `noul` and `choice` (no `score` anywhere in the judge path), the
+controller action set is the closed union `CONTINUE | DELEGATE | SPAWN | ORCHESTRATE | ASK`, and
+`judge.callOn` is `["failure", "unclassified"]` — which is what makes the "deterministic policy
+first, Jev over the ambiguous remainder" positioning true rather than marketing.
+
+Two line ranges in the first draft were wrong and are corrected: `judge.ts#L285-L380` ends inside
+the ambiguous-band branch and does not contain the difficulty re-tier it was cited for, so it is
+replaced by the two exact branch ranges (`#L363-L374`, `#L410-L419`); the test range is
+`#L275-L292`, not `#L275-L294`. Sabi is not yet in the published catalog (`projects.json`, 555
+entries, checked 2026-09-23) — the only near-match is `nekowasabi/jev-routing`, a different project.
+
+Docs only: no runtime code, no config, no test change, no publication.
