@@ -1,5 +1,5 @@
 {
-  "name": "@sabi/prime-agent-probe",
+  "name": "@sabi/adapter-prime-agent",
   "version": "0.0.1",
   "private": true,
   "type": "module",

@@ -17,7 +17,7 @@ Sabi is a Vizuh product: adaptive inference scheduling for AI agents — per-rou
 - `docs/research/` — verified external research (prior art, harness capabilities)
 - `docs/research/public-installation-plan.md` — public CLI, daemon, host integration and release gates
 - `log.md` — append-only change log; one entry per meaningful change set
-- Current code groups: `packages/core`, `packages/server`, `packages/controller`, `packages/evals`, and `packages/adapters/{command-code,orca,opencode,prime-agent}`.
+- Current code groups: `packages/core`, `packages/server`, `packages/controller`, `packages/evals`, and `packages/adapters/{command-code,deepseek-harness,hermes,oh-my-pi,opencode,orca,prime-agent}`.
 
 ## Working rules
 
@@ -32,7 +32,7 @@ Sabi is a Vizuh product: adaptive inference scheduling for AI agents — per-rou
 
 - `sabi setup --hooks` and `sabi hooks install` install the experimental Claude, Codex and OpenCode controller bridges. They fail open when Sabi is unavailable and do not switch paid subscriptions or harness-selected models.
 - `sabi replay --last=<n>` is read-only telemetry aggregation; it does not re-run historical tasks or compile policy lessons.
-- The root controller remains a private monorepo workspace, while `npm run build:controller` produces the separate `@vizuh/sabi-controller` public-package staging artifact. The `@vizuh/sabi` tag release still publishes only the packaged Command Code adapter; do not claim the controller package is published until a `controller-v*` tag and registry proof exist.
+- The root controller remains a private monorepo workspace, while `npm run build:controller` produces the separate `@vizuh/sabi-controller` public-package staging artifact (published as 0.1.0 and 0.1.1 — verified via `npm view` 2026-09-23). The `@vizuh/sabi` (`v*`) tag release still publishes only the packaged Command Code adapter; controller changes ship via `controller-v*` tags and DSH via `dsh-v*` tags.
 - Report controller support as separate evidence layers: source/tests, merged GitHub state, installed-config mutation, live host activation, and real cross-terminal execution. Do not promote one layer into another.
 
 <!-- SPECKIT START -->
