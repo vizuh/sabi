@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" role="img" aria-labelledby="title desc">
+  <title id="title">One coding task routed across five rounds: cheap, mid, mid, strong, mid</title>
+  <desc id="desc">The harness keeps its loop while Sabi reads trajectory evidence each round: explore on cheap, implement and test on mid, failure on strong, verify back on mid.</desc>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 H0 V40" fill="none" stroke="#ffffff" stroke-opacity="0.05" stroke-width="1"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#5b6b7f"/>
+    </marker>
+    <style>
+      .sans { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    </style>
+  </defs>
+  <rect width="1200" height="600" fill="#0b0f14"/>
+  <rect width="1200" height="600" fill="url(#grid)"/>
+  <text class="sans" x="60" y="62" font-size="30" font-weight="800" fill="#f2f5f9">One coding task, five rounds</text>
+  <text class="sans" x="60" y="92" font-size="16" fill="#8b98a9">Sabi re-reads the trajectory every round — capacity follows evidence, not the first guess.</text>
+  <rect x="48" y="120" width="1104" height="58" rx="12" fill="#131b25" stroke="#2b3948" stroke-width="1.5"/>
+  <text class="sans" x="600" y="155" font-size="15" letter-spacing="2" fill="#c7d2de" text-anchor="middle">HARNESS KEEPS ITS LOOP · CLAUDE CODE / CODEX / OPENCODE / HERMES / COMMAND CODE / ORCA</text>
+  <path d="M152 178 V198" stroke="#5b6b7f" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M376 178 V198" stroke="#5b6b7f" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M600 178 V198" stroke="#5b6b7f" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M824 178 V198" stroke="#5b6b7f" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M1048 178 V198" stroke="#5b6b7f" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="mono" x="152" y="230" font-size="13" letter-spacing="2" fill="#7d8ea3" text-anchor="middle">ROUND 1</text>
+  <text class="sans" x="152" y="258" font-size="21" font-weight="800" fill="#f2f5f9" text-anchor="middle">Explore</text>
+  <text class="mono" x="376" y="230" font-size="13" letter-spacing="2" fill="#7d8ea3" text-anchor="middle">ROUND 2</text>
+  <text class="sans" x="376" y="258" font-size="21" font-weight="800" fill="#f2f5f9" text-anchor="middle">Implement</text>
+  <text class="mono" x="600" y="230" font-size="13" letter-spacing="2" fill="#7d8ea3" text-anchor="middle">ROUND 3</text>
+  <text class="sans" x="600" y="258" font-size="21" font-weight="800" fill="#f2f5f9" text-anchor="middle">Test</text>
+  <text class="mono" x="824" y="230" font-size="13" letter-spacing="2" fill="#7d8ea3" text-anchor="middle">ROUND 4</text>
+  <text class="sans" x="824" y="258" font-size="21" font-weight="800" fill="#f87171" text-anchor="middle">FAILURE</text>
+  <text class="mono" x="1048" y="230" font-size="13" letter-spacing="2" fill="#7d8ea3" text-anchor="middle">ROUND 5</text>
+  <text class="sans" x="1048" y="258" font-size="21" font-weight="800" fill="#f2f5f9" text-anchor="middle">Verify</text>
+  <rect x="87" y="276" width="130" height="30" rx="15" fill="#161e29" stroke="#2b3948"/>
+  <text class="mono" x="152" y="296" font-size="13" fill="#aeb9c7" text-anchor="middle">2 reads · grep</text>
+  <rect x="327" y="276" width="98" height="30" rx="15" fill="#161e29" stroke="#2b3948"/>
+  <text class="mono" x="376" y="296" font-size="13" fill="#aeb9c7" text-anchor="middle">edit_file</text>
+  <rect x="547" y="276" width="106" height="30" rx="15" fill="#161e29" stroke="#2b3948"/>
+  <text class="mono" x="600" y="296" font-size="13" fill="#aeb9c7" text-anchor="middle">tests pass</text>
+  <rect x="767" y="276" width="114" height="30" rx="15" fill="#2a1518" stroke="#7f3434"/>
+  <text class="mono" x="824" y="296" font-size="13" fill="#fca5a5" text-anchor="middle">test_failed</text>
+  <rect x="960" y="276" width="176" height="30" rx="15" fill="#161e29" stroke="#2b3948"/>
+  <text class="mono" x="1048" y="296" font-size="13" fill="#aeb9c7" text-anchor="middle">verification_passed</text>
+  <rect x="67" y="336" width="170" height="66" rx="14" fill="#0d1f18" stroke="#34d399" stroke-width="2"/>
+  <text class="sans" x="152" y="378" font-size="24" font-weight="800" fill="#34d399" text-anchor="middle">CHEAP</text>
+  <rect x="291" y="336" width="170" height="66" rx="14" fill="#0e1a2e" stroke="#60a5fa" stroke-width="2"/>
+  <text class="sans" x="376" y="378" font-size="24" font-weight="800" fill="#60a5fa" text-anchor="middle">MID</text>
+  <rect x="515" y="336" width="170" height="66" rx="14" fill="#0e1a2e" stroke="#60a5fa" stroke-width="2"/>
+  <text class="sans" x="600" y="378" font-size="24" font-weight="800" fill="#60a5fa" text-anchor="middle">MID</text>
+  <rect x="739" y="336" width="170" height="66" rx="14" fill="#231a0c" stroke="#fbbf24" stroke-width="2"/>
+  <text class="sans" x="824" y="378" font-size="24" font-weight="800" fill="#fbbf24" text-anchor="middle">STRONG</text>
+  <rect x="963" y="336" width="170" height="66" rx="14" fill="#0e1a2e" stroke="#60a5fa" stroke-width="2"/>
+  <text class="sans" x="1048" y="378" font-size="24" font-weight="800" fill="#60a5fa" text-anchor="middle">MID</text>
+  <path d="M237 369 H285" stroke="#5b6b7f" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M461 369 H509" stroke="#5b6b7f" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M685 369 H733" stroke="#5b6b7f" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M909 369 H957" stroke="#5b6b7f" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M152 402 V440" stroke="#2b3948" stroke-width="1.5" stroke-dasharray="5 5"/>
+  <path d="M376 402 V440" stroke="#2b3948" stroke-width="1.5" stroke-dasharray="5 5"/>
+  <path d="M600 402 V440" stroke="#2b3948" stroke-width="1.5" stroke-dasharray="5 5"/>
+  <path d="M824 402 V440" stroke="#2b3948" stroke-width="1.5" stroke-dasharray="5 5"/>
+  <path d="M1048 402 V440" stroke="#2b3948" stroke-width="1.5" stroke-dasharray="5 5"/>
+  <rect x="48" y="446" width="1104" height="46" rx="10" fill="#101720" stroke="#2b3948"/>
+  <text class="mono" x="600" y="475" font-size="15" letter-spacing="3" fill="#e8edf3" text-anchor="middle">SABI READS THE TRAJECTORY</text>
+  <text class="mono" x="600" y="534" font-size="15" fill="#8b98a9" text-anchor="middle">tools · results · failures · context · capabilities · provider state</text>
+</svg>

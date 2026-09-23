@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" role="img" aria-labelledby="title desc">
+  <title id="title">Fixed router decides once; Sabi decides every round</title>
+  <desc id="desc">A fixed router sends the whole task to one model. Sabi routes round one to cheap, rounds two and three to mid, failure and recovery to strong, and verification back to mid.</desc>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 H0 V40" fill="none" stroke="#ffffff" stroke-opacity="0.05" stroke-width="1"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#5b6b7f"/>
+    </marker>
+    <style>
+      .sans { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    </style>
+  </defs>
+  <rect width="1200" height="600" fill="#0b0f14"/>
+  <rect width="1200" height="600" fill="url(#grid)"/>
+  <text class="sans" x="60" y="62" font-size="30" font-weight="800" fill="#f2f5f9">Decided once, or decided every round</text>
+  <text class="sans" x="60" y="92" font-size="16" fill="#8b98a9">Most routers decide from the request. Sabi can decide from what actually happened.</text>
+  <rect x="48" y="124" width="512" height="416" rx="14" fill="#10161e" stroke="#2b3948"/>
+  <text class="mono" x="76" y="162" font-size="14" letter-spacing="2" fill="#8b98a9">FIXED ROUTER</text>
+  <rect x="124" y="190" width="360" height="54" rx="10" fill="#182130" stroke="#3b4c60" stroke-width="1.5"/>
+  <text class="sans" x="304" y="224" font-size="18" font-weight="700" fill="#e8edf3" text-anchor="middle">Task</text>
+  <path d="M304 244 V262" stroke="#5b6b7f" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <rect x="124" y="262" width="360" height="54" rx="10" fill="#182130" stroke="#3b4c60" stroke-width="1.5"/>
+  <text class="sans" x="304" y="296" font-size="18" font-weight="700" fill="#e8edf3" text-anchor="middle">Router</text>
+  <path d="M304 316 V334" stroke="#5b6b7f" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <rect x="124" y="334" width="360" height="168" rx="10" fill="#1a2230" stroke="#3b4c60" stroke-width="1.5"/>
+  <text class="sans" x="304" y="408" font-size="22" font-weight="800" fill="#e8edf3" text-anchor="middle">Model B</text>
+  <text class="sans" x="304" y="436" font-size="14" fill="#8b98a9" text-anchor="middle">serves the entire task</text>
+  <text class="mono" x="304" y="470" font-size="13" fill="#7d8ea3" text-anchor="middle">one choice · whole task</text>
+  <rect x="640" y="124" width="512" height="416" rx="14" fill="#10161e" stroke="#2b3948"/>
+  <text class="mono" x="668" y="162" font-size="14" letter-spacing="2" fill="#e8edf3">SABI — DECIDED EVERY ROUND</text>
+  <text class="sans" x="668" y="186" font-size="13" fill="#7d8ea3">one task, a decision every round</text>
+  <path d="M1060 210 V510" stroke="#2b3948" stroke-width="2"/>
+  <text class="mono" x="668" y="228" font-size="15" fill="#c7d2de">round 1 · explore</text>
+  <rect x="994" y="203" width="132" height="34" rx="17" fill="#0d1f18" stroke="#34d399" stroke-width="1.5"/>
+  <text class="sans" x="1060" y="226" font-size="14" font-weight="800" fill="#34d399" text-anchor="middle">CHEAP</text>
+  <text class="mono" x="668" y="284" font-size="15" fill="#c7d2de">round 2 · implement</text>
+  <rect x="994" y="259" width="132" height="34" rx="17" fill="#0e1a2e" stroke="#60a5fa" stroke-width="1.5"/>
+  <text class="sans" x="1060" y="282" font-size="14" font-weight="800" fill="#60a5fa" text-anchor="middle">MID</text>
+  <text class="mono" x="668" y="340" font-size="15" fill="#c7d2de">round 3 · test</text>
+  <rect x="994" y="315" width="132" height="34" rx="17" fill="#0e1a2e" stroke="#60a5fa" stroke-width="1.5"/>
+  <text class="sans" x="1060" y="338" font-size="14" font-weight="800" fill="#60a5fa" text-anchor="middle">MID</text>
+  <text class="mono" x="668" y="396" font-size="15" fill="#fca5a5">round 4 · failure</text>
+  <rect x="994" y="371" width="132" height="34" rx="17" fill="#231a0c" stroke="#fbbf24" stroke-width="1.5"/>
+  <text class="sans" x="1060" y="394" font-size="14" font-weight="800" fill="#fbbf24" text-anchor="middle">STRONG</text>
+  <text class="mono" x="668" y="452" font-size="15" fill="#c7d2de">recovery · retry</text>
+  <rect x="994" y="427" width="132" height="34" rx="17" fill="#231a0c" stroke="#fbbf24" stroke-width="1.5"/>
+  <text class="sans" x="1060" y="450" font-size="14" font-weight="800" fill="#fbbf24" text-anchor="middle">STRONG</text>
+  <text class="mono" x="668" y="508" font-size="15" fill="#c7d2de">verify · tests pass</text>
+  <rect x="994" y="483" width="132" height="34" rx="17" fill="#0e1a2e" stroke="#60a5fa" stroke-width="1.5"/>
+  <text class="sans" x="1060" y="506" font-size="14" font-weight="800" fill="#60a5fa" text-anchor="middle">MID</text>
+</svg>
