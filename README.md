@@ -144,6 +144,11 @@ diff or model claims. A claim is advisory until a deterministic verifier proves 
 
 The user-level controller installed above can coordinate supported Claude Code, Codex, OpenCode, and Orca workflows. It is a task/session surface, not a generic way to rewrite the model inside an existing host session. See [Adapters](docs/adapters/README.md) for the evidence and boundary of each host.
 
+Claude Code and Codex run on their own subscriptions: Sabi installs hooks into them and never
+writes a provider base URL, an API key or a model override into either harness. Delegating to them
+therefore costs nothing beyond the subscription already in place, and nothing Sabi does can turn
+either one into per-token API spend.
+
 `sabi updates` is the pre-upgrade check an agent can run: it reports the installed version against
 the last npm answer, and preflights the Node version, the project config and installed hook paths.
 The cached read is offline; only `sabi updates --check` contacts the registry, and one check covers

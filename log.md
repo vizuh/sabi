@@ -1526,3 +1526,26 @@ points at `www/products/sabi/packages/controller/src/cli.ts`. `sabi updates` rep
 Boundary: hook wiring, not routing. No credential file is read, and the harness gate stays
 presence-based (`which claude`), so Sabi still cannot tell a Claude subscription from an API-key
 login — and does not try to.
+
+### [2026-09-23] rule | Claude Code and Codex are held to their own subscriptions
+
+Operator rule (2026-09-23): those two harnesses are used through the subscriptions already paid
+for. Sabi installs hooks into them and never writes a provider base URL, an API key or a model
+override into either harness, so delegating to Claude or Codex costs nothing beyond the
+subscription in place and cannot become per-token API spend through Sabi. The rule already held —
+no shipped code writes `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `ANTHROPIC_API_KEY` or
+`OPENAI_API_KEY`; the installed Claude Code runs `model: sonnet` with no `env` override; the
+installed Codex config declares no `base_url` or `model_provider`. So this records and guards the
+rule rather than changing behavior.
+
+The guard is in `packages/controller/test/hooks.test.ts`. Wiring both harnesses into a Claude
+settings file that already carries a proxy base URL, a key and a model asserts that the only field
+Sabi adds is `hooks`, that `env` and `model` come back deep-equal, and that Codex's own
+`config.toml` is untouched. A second test pins the runtime side: a hook reply carries only
+`continue`, `stopReason` and `systemMessage`, never a model or provider field. The rule is recorded
+in `sabi.config.json` provenance and in the README controller-hooks section.
+
+Validation: `npm test` 607/607, `npm run typecheck` clean, `loadConfig` accepts the config.
+
+Boundary: this says nothing about the proxy path, which stays free-models-only, or about the
+Command Code subscription catalog, which carries its own rule in the `harness` block.
