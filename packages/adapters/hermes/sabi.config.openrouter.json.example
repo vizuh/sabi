@@ -1,11 +1,12 @@
 {
-  "provenance": "OpenRouter-backed Hermes profile. Model ids are a dated recommendation, not an entitlement check; refresh the OpenRouter catalog before relying on a tier.",
+  "provenance": "Operator rule (2026-09-22): OpenRouter may serve FREE models only. The openrouter upstream declares paidModelsAllowed:false, so any model whose price is unknown or non-zero is refused at dispatch (packages/core/src/compatibility.ts). Every openrouter model id below carries the :free variant and cost 0. Ids match the root sabi.config.json free tier set verified live 2026-09-22.",
   "server": { "host": "127.0.0.1", "port": 8787 },
   "upstreams": {
     "openrouter": {
       "baseURL": "https://openrouter.ai/api/v1",
       "apiKey": "$OPENROUTER_API_KEY",
       "streamUsage": true,
+      "paidModelsAllowed": false,
       "headers": {
         "HTTP-Referer": "https://github.com/vizuh/sabi",
         "X-Title": "Sabi"
@@ -15,24 +16,27 @@
   "models": {
     "cheap": {
       "upstream": "openrouter",
-      "model": "deepseek/deepseek-v4-flash-0731",
-      "contextWindow": 65536,
-      "maxOutputTokens": 8192,
-      "capabilities": { "inputModalities": ["text"] }
+      "model": "poolside/laguna-s-2.1:free",
+      "contextWindow": 262144,
+      "maxOutputTokens": 32768,
+      "capabilities": { "inputModalities": ["text"] },
+      "cost": { "input": 0, "output": 0 }
     },
     "mid": {
       "upstream": "openrouter",
-      "model": "openai/gpt-5.6-luna",
-      "contextWindow": 65536,
-      "maxOutputTokens": 8192,
-      "capabilities": { "inputModalities": ["text", "image", "file"] }
+      "model": "dots-studio/dots-3-note-preview:free",
+      "contextWindow": 512000,
+      "maxOutputTokens": 460800,
+      "capabilities": { "inputModalities": ["text", "image"] },
+      "cost": { "input": 0, "output": 0 }
     },
     "strong": {
       "upstream": "openrouter",
-      "model": "anthropic/claude-sonnet-5",
-      "contextWindow": 65536,
-      "maxOutputTokens": 8192,
-      "capabilities": { "inputModalities": ["text", "image", "file"] }
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "contextWindow": 1000000,
+      "maxOutputTokens": 65536,
+      "capabilities": { "inputModalities": ["text"] },
+      "cost": { "input": 0, "output": 0 }
     }
   },
   "aliases": {

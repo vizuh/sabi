@@ -49,8 +49,10 @@ A public DeepSeek Harness bundle adapter provides the same Sabi proxy boundary t
 live DSH boot/request/receipt probe is recorded; it does not add DSH lifecycle supervision.
 
 An explicit `--free-quality` setup refresh can add a current zero-priced, tool-capable OpenRouter
-model as the fixed `sabi-quality` lane for verification rounds. The paid tiers remain the normal
-route; catalog price/availability is recorded as provenance but is not a quality, entitlement or
+model as the fixed `sabi-quality` lane for verification rounds. Operator rule (2026-09-22):
+OpenRouter may serve FREE models only (`paidModelsAllowed: false`, enforced at dispatch in
+`packages/core/src/compatibility.ts`); Jev (TypeSafe judge) is a separate upstream and unaffected.
+Catalog price/availability is recorded as provenance but is not a quality, entitlement or
 privacy claim. Multi-model debate, learned quality profiles and automatic promotion remain future
 evaluation work.
 

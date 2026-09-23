@@ -1,4 +1,27 @@
 # Handoff Notes
+## Free-only across every adapter + 10-mark router gap-check — 2026-09-23
+
+Hugo's rule (OpenRouter serves free or Jev only) now holds across every shipped profile, not just
+the root config. Both Hermes examples carried a bare `openrouter` upstream with paid ids; both now
+declare `paidModelsAllowed: false` with `:free` ids + `cost 0`, and a new guard test
+(`packages/core/test/openrouter-free-only.test.ts`) fails `npm test` on the next paid-id edit.
+Other adapters (command-code, opencode, orca, oh-my-pi, prime-agent, deepseek-harness) declare no
+OpenRouter upstream — they inherit the proxy dispatch gate. Validation: `npm test` 580/580,
+`npm run typecheck` clean. Details in `docs/decisions.md` (2026-09-23 entry) and `log.md`.
+
+10-mark gap-check vs the 2026-09-22 router survey (trajectory routers: ACRouter, vLLM SAAR,
+BitRouter, Autohand Routes, pi-smart-router + verification/escalation mechanics): Sabi fully hits
+8 — trajectory-aware routing (`state.ts`/`policy.ts`/`router.ts` + `RouteContext`), harness-
+independent proxy execution, tool/failure/context signals, free-model QA (`--free-quality`,
+`sabi-quality`, surplus shadow reviews), independent Jev judge (bounded, fail-open) + council/
+surplus receipts, automatic escalation with billing/capability fallback, cache-aware switching
+(`cache-routing.ts`: same-tool-cycle pinning, switch economics, escalation override), per-route
+telemetry (`decisions.jsonl`, allowlist-only). Two deliberate partials: (1) reasoning-effort is
+scheduled only on the harness-native path (`harness.tiers[].effort`); the proxy validates and
+forwards `reasoning_effort` but does not schedule it per round. (2) Learning from verified
+outcomes is shadow/backtest-only by constitution (`profiler.ts`, fixture-only replay, no online
+promotion) — unlike ACRouter/BitRouter closed-loop policy updates. No commit, push, deployment
+or publication.
 ## OpenRouter free-models-only rule, enforced — 2026-09-22
 
 Hugo's standing rule — the OpenRouter upstream serves free models and Jev only — was being

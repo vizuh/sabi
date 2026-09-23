@@ -1,5 +1,5 @@
 {
-  "provenance": "Nous-first Hermes profile. Cheap tier is poolside/laguna-s-2.1:free (262144 context, verified live 2026-09-21 against the Nous inference catalog of 402 models) served through the Hermes-managed Nous proxy below, so Hermes holds its own OAuth and Sabi never sees it. transportFallback retries 429/402/403 adaptive rounds cost-ordered (free first). Mid/strong stay OpenRouter and fail until that balance is funded. Copy to $SABI_CONFIG; start the proxies first.",
+  "provenance": "Operator rule (2026-09-22): OpenRouter may serve FREE models only. Cheap tier is poolside/laguna-s-2.1:free (262144 context, verified live 2026-09-21 against the Nous inference catalog of 402 models) served through the Hermes-managed Nous proxy below, so Hermes holds its own OAuth and Sabi never sees it. transportFallback retries 429/402/403 adaptive rounds cost-ordered (free first). Mid/strong are free OpenRouter :free ids with cost 0 and the openrouter upstream declares paidModelsAllowed:false, so a priced model id is refused at dispatch. Jev (TypeSafe judge) is a separate upstream and unaffected. Copy to $SABI_CONFIG; start the proxies first.",
   "server": { "host": "127.0.0.1", "port": 8787 },
   "upstreams": {
     "nous-local": {
@@ -11,6 +11,7 @@
       "baseURL": "https://openrouter.ai/api/v1",
       "apiKey": "$OPENROUTER_API_KEY",
       "streamUsage": true,
+      "paidModelsAllowed": false,
       "headers": {
         "HTTP-Referer": "https://github.com/vizuh/sabi",
         "X-Title": "Sabi"
@@ -32,19 +33,19 @@
     },
     "mid": {
       "upstream": "openrouter",
-      "model": "openai/gpt-5.6-luna",
-      "contextWindow": 1050000,
-      "maxOutputTokens": 128000,
-      "capabilities": { "inputModalities": ["text", "image", "file"] },
-      "cost": { "input": 0.2, "output": 1.2, "cacheRead": 0.02 }
+      "model": "dots-studio/dots-3-note-preview:free",
+      "contextWindow": 512000,
+      "maxOutputTokens": 460800,
+      "capabilities": { "inputModalities": ["text", "image"] },
+      "cost": { "input": 0, "output": 0 }
     },
     "strong": {
       "upstream": "openrouter",
-      "model": "anthropic/claude-sonnet-5",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
       "contextWindow": 1000000,
-      "maxOutputTokens": 128000,
-      "capabilities": { "inputModalities": ["text", "image", "file"] },
-      "cost": { "input": 2, "output": 10, "cacheRead": 0.2 }
+      "maxOutputTokens": 65536,
+      "capabilities": { "inputModalities": ["text"] },
+      "cost": { "input": 0, "output": 0 }
     },
     "local": {
       "upstream": "ollama",

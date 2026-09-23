@@ -1369,3 +1369,43 @@ free tier instead of surfacing the 429.
 If free-tier availability proves too disruptive, revisit in this order: enable
 `transportFallback`, then add a second free upstream entry, then reconsider a paid OpenRouter
 allowlist with an explicit per-model `paidModelsAllowed` carve-out. Do not weaken the default.
+
+## 2026-09-23 — Free-only extended to every shipped adapter profile
+
+### Context
+
+The `paidModelsAllowed: false` dispatch gate shipped 2026-09-22, but only the root
+`sabi.config.json` carried it. Both Hermes example profiles still declared a bare `openrouter`
+upstream with paid model ids (`deepseek/deepseek-v4-flash-0731`, `openai/gpt-5.6-luna`,
+`anthropic/claude-sonnet-5` with non-zero cost) — `scripts/setup.ts --harness=hermes
+--upstream=openrouter` copies that file verbatim, so a fresh Hermes install would have routed
+paid spend through the same gate the root config closed. The `nous-free` example had the same
+hole on mid/strong. No other adapter ships an OpenRouter profile: command-code/opencode/orca/
+oh-my-pi/prime-agent/deepseek-harness all point at the local Sabi proxy or a host subscription
+catalog, so they inherit the proxy's gate rather than declaring their own upstream.
+
+### Decision
+
+Both Hermes examples now declare `paidModelsAllowed: false` on `openrouter` and map every
+OpenRouter tier to the root config's verified `:free` set with `cost 0`
+(`poolside/laguna-s-2.1:free`, `dots-studio/dots-3-note-preview:free`,
+`nvidia/nemotron-3-ultra-550b-a55b:free`). The `nous-free` cheap tier stays on the
+Hermes-managed Nous proxy (not OpenRouter, so the rule does not apply to it); its mid/strong
+move to the free OpenRouter ids. `docs/context.md` no longer says paid tiers are the normal
+route. A new guard test (`packages/core/test/openrouter-free-only.test.ts`) loads the root
+config plus both Hermes examples through `validateConfig` and asserts the upstream flag plus
+`isFreeModel`/`servesUpstreamBilling` on every `upstream: openrouter` tier — the next paid-id
+edit to any shipped profile fails `npm test` instead of spending money.
+
+### Why
+
+Hugo's rule is "OpenRouter serves free or Jev only, across every adapter" — a per-file config
+property cannot carry that; only the dispatch choke point plus a test over every shipped profile
+can. The hermes-nous-only example is intentionally untouched: it has no `openrouter` upstream,
+so there is nothing for the gate to refuse.
+
+### Tradeoffs
+
+Free-pool 429s remain the visible cost (see parent entry). Hermes `transportFallback: true` in
+the nous-free example retries cost-ordered, free-first, so it cannot escape to paid either —
+`getFallbackChain` applies the same billing filter.

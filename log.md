@@ -1441,3 +1441,7 @@ bearing: the cited `judge.ts#L285-L380` never contained the difficulty re-tier i
 that link was the submission's central claim.
 
 No repository code, config or test changed. `docs/submission-awesome-jev.md` records the outcome.
+
+## [2026-09-23] fix | Free-only OpenRouter rule extended to every shipped adapter profile
+
+Both Hermes example profiles still declared a bare `openrouter` upstream with paid model ids, and `scripts/setup.ts --harness=hermes --upstream=openrouter` copies that file verbatim — a fresh Hermes install would have spent paid credits the root `sabi.config.json` gate closed on 2026-09-22. Both examples now declare `paidModelsAllowed: false` and map every OpenRouter tier to the verified `:free` set with `cost 0` (cheap `poolside/laguna-s-2.1:free`, mid `dots-studio/dots-3-note-preview:free`, strong `nvidia/nemotron-3-ultra-550b-a55b:free`); the `nous-free` cheap tier stays on the Hermes-managed Nous proxy. `docs/context.md` stale paid-tiers line corrected. New guard `packages/core/test/openrouter-free-only.test.ts` asserts the flag plus `isFreeModel`/`servesUpstreamBilling` on every shipped profile. Validation: `npm test` 580/580, `npm run typecheck` clean. No commit, push, deployment or publication.
