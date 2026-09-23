@@ -1,0 +1,17 @@
+# Sabi — machine index
+
+Canonical docs first; localized READMEs defer to English for verified claims.
+
+- # Sabi: README.md
+- Install once: docs/install.md
+- Host-AI install flow: docs/install.ai.md
+- Adapter directory: docs/adapters/README.md
+- Harness evidence: docs/harnesses.md
+- Maintainer contract: docs/maintainers.md
+- Estimates and accounting: docs/estimates.md
+- Decisions and boundaries: docs/decisions.md
+- Agent skill: SKILL.md
+- Repository: https://github.com/vizuh/sabi
+- Packages: https://www.npmjs.com/package/@vizuh/sabi
+
+Languages: README.md (English, canonical) · README.pt-BR.md · README.zh-CN.md · README.ja.md (entry point) · README.ko.md (entry point).
