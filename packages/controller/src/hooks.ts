@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +15,8 @@ export type InstalledHook = 'claude' | 'codex' | 'opencode'
 export interface HookInstallResult {
   harness: InstalledHook
   path: string
+  /** The command actually written (claude/codex); opencode installs a plugin path instead. */
+  command?: string
   backup?: string
   plugin?: string
 }
@@ -104,6 +106,31 @@ function splitHookCommand(value: string): string[] {
   return tokens
 }
 
+/**
+ * A hook baked from the process that ran the install dies with that checkout — that is how a hook
+ * ends up pointing at a deleted `worktrees/...` path. When a controller is really installed
+ * (`npm install --global @vizuh/sabi-controller`, the documented install), its own bundle is the
+ * durable target: absolute, so `sabi doctor` can still verify it, and outside any disposable
+ * checkout. A bare `sabi` is deliberately not used — a dev shim on PATH (`node_modules/.bin/sabi`)
+ * is not durable, and a bare name cannot be verified for staleness at all.
+ */
+function installedSabiCli(env: NodeJS.ProcessEnv): string | undefined {
+  const searchPath = env.PATH ?? env.Path ?? ''
+  const extensions = process.platform === 'win32' ? (env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';') : ['']
+  for (const directory of searchPath.split(path.delimiter)) {
+    if (directory === '') continue
+    for (const extension of extensions) {
+      try {
+        const resolved = realpathSync(path.join(directory, `sabi${extension}`))
+        if (/[/\\]@vizuh[/\\]sabi-controller[/\\]dist[/\\]cli\.mjs$/.test(resolved)) return resolved
+      } catch {
+        // Not on PATH here, or not a link at all — the next directory decides.
+      }
+    }
+  }
+  return undefined
+}
+
 function commandFor(env: NodeJS.ProcessEnv, harness: HookHarness): string {
   const configured = env.SABI_HOOK_COMMAND?.trim()
   if (configured) validateHookCommand(configured)
@@ -113,9 +140,14 @@ function commandFor(env: NodeJS.ProcessEnv, harness: HookHarness): string {
   // Already validated metacharacter-free above (as executable + optional arguments) — quoting
   // it here would collapse a legitimate multi-token value (e.g. `node /path/to/sabi.mjs`) into
   // one argument and break it.
+  const installed = installedSabiCli(env)
   const executable = configured
-    ?? (process.argv[1] ? `${quote(process.execPath)} ${quote(path.resolve(process.argv[1]))}` : 'sabi')
+    ?? (installed ? `${quote(process.execPath)} ${quote(installed)}` : process.argv[1] ? `${quote(process.execPath)} ${quote(path.resolve(process.argv[1]))}` : 'sabi')
   return `${executable} hook ${harness}`
+}
+
+function hookCommand(env: NodeJS.ProcessEnv, harness: HookHarness, event: string): string {
+  return `${commandFor(env, harness)} --event=${event}`
 }
 
 function hookEntry(env: NodeJS.ProcessEnv, harness: HookHarness, event: string, matcher?: string): JsonObject {
@@ -123,7 +155,7 @@ function hookEntry(env: NodeJS.ProcessEnv, harness: HookHarness, event: string, 
     ...(matcher ? { matcher } : {}),
     hooks: [{
       type: 'command',
-      command: `${commandFor(env, harness)} --event=${event}`,
+      command: hookCommand(env, harness, event),
       timeout: HOOK_TIMEOUT_SECONDS,
       statusMessage: `Sabi ${harness} routing`,
     }],
@@ -142,11 +174,36 @@ function isSabiHookEntry(value: unknown, harness: HookHarness): boolean {
   })
 }
 
+function sabiEntryCommands(value: unknown): string[] {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return []
+  const list = (value as JsonObject).hooks
+  if (!Array.isArray(list)) return []
+  const commands: string[] = []
+  for (const hook of list) {
+    if (hook === null || typeof hook !== 'object' || Array.isArray(hook)) continue
+    const command = (hook as JsonObject).command
+    if (typeof command === 'string') commands.push(command)
+  }
+  return commands
+}
+
+/**
+ * `sabi doctor` tells a user with a stale hook to run this install to repair it, so repair has to
+ * mean rewrite. A Sabi entry whose baked absolute targets still resolve is left exactly as it is —
+ * only a dead one is replaced, which is the difference between repairing and churning host config.
+ */
 function appendEvent(container: JsonObject, event: string, entry: JsonObject, label: string, harness: HookHarness): void {
   const current = container[event]
   if (current !== undefined && !Array.isArray(current)) throw new Error(`${label}.${event} must be an array`)
   const entries = (current as unknown[] | undefined) ?? []
-  if (entries.some((item) => isSabiHookEntry(item, harness))) return
+  if (entries.some((item) => isSabiHookEntry(item, harness))) {
+    const staleIndex = entries.findIndex((item) =>
+      isSabiHookEntry(item, harness) &&
+      sabiEntryCommands(item).some((command) => missingAbsoluteTarget(hookExecutableTargets(command)) !== undefined))
+    // Replace in place: a repair must not reshuffle the user's other hooks in the same event.
+    if (staleIndex >= 0) container[event] = entries.map((item, index) => (index === staleIndex ? entry : item))
+    return
+  }
   container[event] = [...entries, entry]
 }
 
@@ -211,7 +268,7 @@ function installClaude(env: NodeJS.ProcessEnv): HookInstallResult {
   const hooks = objectValue(settings.hooks ?? {}, `${file}.hooks`)
   appendEvent(hooks, 'UserPromptSubmit', hookEntry(env, 'claude', 'UserPromptSubmit', '*'), `${file}.hooks`, 'claude')
   settings.hooks = hooks
-  return { harness: 'claude', path: file, backup: writeObject(file, settings) }
+  return { harness: 'claude', path: file, command: hookCommand(env, 'claude', 'UserPromptSubmit'), backup: writeObject(file, settings) }
 }
 
 function installCodex(env: NodeJS.ProcessEnv): HookInstallResult {
@@ -222,7 +279,7 @@ function installCodex(env: NodeJS.ProcessEnv): HookInstallResult {
   appendEvent(hooks, 'UserPromptSubmit', hookEntry(env, 'codex', 'UserPromptSubmit'), `${file}.hooks`, 'codex')
   appendEvent(hooks, 'SessionEnd', hookEntry(env, 'codex', 'SessionEnd'), `${file}.hooks`, 'codex')
   settings.hooks = hooks
-  return { harness: 'codex', path: file, backup: writeObject(file, settings) }
+  return { harness: 'codex', path: file, command: hookCommand(env, 'codex', 'UserPromptSubmit'), backup: writeObject(file, settings) }
 }
 
 function installOpenCode(env: NodeJS.ProcessEnv, stateDir: string): HookInstallResult {
