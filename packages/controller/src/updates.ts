@@ -1,24 +1,28 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs'
-import os from 'node:os'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { defaultConfigPath, loadConfig } from '@sabi/core'
 import { controllerStateDir } from './daemon.ts'
 import { checkHookHealth } from './hooks.ts'
 
+/** The package that ships the `sabi` binary — the thing a user is actually running. */
 export const SABI_PACKAGE_NAME = '@vizuh/sabi-controller'
+/** One registry check per day: cheap enough for an agent to call on every session. */
 export const UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1_000
-export const UPDATE_WARNING = 'Updating Sabi can change controller hooks, adapter contracts, config handling and local project logic; run `sabi updates --check` before `sabi upgrade`.'
-const REGISTRY_URL = `https://registry.npmjs.org/${encodeURIComponent(SABI_PACKAGE_NAME)}/latest`
+export const UPDATE_WARNING =
+  'upgrading Sabi can change hook wiring, adapter contracts, config handling and local project logic — re-run `sabi doctor` and `sabi hooks install` after an upgrade'
+const REGISTRY_ORIGIN = 'https://registry.npmjs.org'
 const CACHE_FILE = 'update-check.json'
 const FETCH_TIMEOUT_MS = 5_000
+/** packages/controller/pkg/package.json declares `engines.node: >=22.6`. */
+const MINIMUM_NODE = { major: 22, minor: 6 }
 
-type FetchLike = typeof fetch
+export type UpdateStatus = 'up-to-date' | 'update-available' | 'unavailable'
 
-type CachedUpdate = {
+export interface CachedUpdate {
   packageName: string
   installedVersion: string
   latestVersion?: string
-  status: 'up-to-date' | 'update-available' | 'unavailable'
+  status: UpdateStatus
   checkedAt: number
   nextCheckAt: number
   error?: string
@@ -31,12 +35,26 @@ export interface CompatibilityCheck {
 }
 
 export interface UpdateCheckResult extends CachedUpdate {
-  cached: boolean
+  /** The cached answer is past its window, so `--check` would tell you something new. */
+  stale: boolean
   warning?: string
-  compatibility?: {
-    ok: boolean
-    checks: CompatibilityCheck[]
-  }
+  compatibility: { ok: boolean; checks: CompatibilityCheck[] }
+}
+
+type FetchLike = typeof fetch
+
+export interface UpdateCheckOptions {
+  env?: NodeJS.ProcessEnv
+  stateDir?: string
+  installedVersion?: string
+  now?: number
+  cwd?: string
+  /**
+   * `true` contacts the npm registry and rewrites the cache. `false` (the default) only reads
+   * the cache: a plain `sabi updates` must never surprise a user with outbound traffic.
+   */
+  refresh?: boolean
+  fetchImpl?: FetchLike
 }
 
 function versionParts(value: string): [number, number, number] | undefined {
@@ -45,6 +63,7 @@ function versionParts(value: string): [number, number, number] | undefined {
   return [Number(match[1]), Number(match[2]), Number(match[3])]
 }
 
+/** Registry-order comparison of two release triples; unparseable versions compare equal. */
 function compareVersions(left: string, right: string): number {
   const a = versionParts(left)
   const b = versionParts(right)
@@ -55,41 +74,56 @@ function compareVersions(left: string, right: string): number {
   return 0
 }
 
-function cachePath(stateDir: string): string {
-  return path.join(stateDir, CACHE_FILE)
+/** Scoped names must be percent-encoded: `%40vizuh%2Fsabi-controller`. */
+export function latestVersionUrl(packageName = SABI_PACKAGE_NAME): string {
+  return `${REGISTRY_ORIGIN}/${encodeURIComponent(packageName)}/latest`
 }
 
-function readCache(stateDir: string): CachedUpdate | undefined {
+export function updateCachePath(env: NodeJS.ProcessEnv = process.env): string {
+  return path.join(controllerStateDir(env), CACHE_FILE)
+}
+
+function readCache(file: string): CachedUpdate | undefined {
+  let parsed: unknown
   try {
-    const value = JSON.parse(readFileSync(cachePath(stateDir), 'utf8')) as Partial<CachedUpdate>
-    if (value.packageName !== SABI_PACKAGE_NAME || typeof value.installedVersion !== 'string' ||
-        typeof value.status !== 'string' || !['up-to-date', 'update-available', 'unavailable'].includes(value.status) ||
-        !Number.isSafeInteger(value.checkedAt) || !Number.isSafeInteger(value.nextCheckAt)) return undefined
-    return value as CachedUpdate
+    parsed = JSON.parse(readFileSync(file, 'utf8'))
   } catch {
     return undefined
   }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+  const value = parsed as Partial<CachedUpdate>
+  if (
+    typeof value.packageName !== 'string' ||
+    typeof value.installedVersion !== 'string' ||
+    !['up-to-date', 'update-available', 'unavailable'].includes(String(value.status)) ||
+    !Number.isSafeInteger(value.checkedAt) ||
+    !Number.isSafeInteger(value.nextCheckAt)
+  ) {
+    return undefined
+  }
+  if (value.latestVersion !== undefined && typeof value.latestVersion !== 'string') return undefined
+  return value as CachedUpdate
 }
 
-function writeCache(stateDir: string, value: CachedUpdate): void {
-  mkdirSync(stateDir, { recursive: true, mode: 0o700 })
-  const temporary = `${cachePath(stateDir)}.tmp-${process.pid}`
+function writeCache(file: string, value: CachedUpdate): void {
+  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  const temporary = `${file}.tmp-${process.pid}`
   writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
-  renameSync(temporary, cachePath(stateDir))
+  renameSync(temporary, file)
 }
 
-async function fetchLatest(fetchImpl: FetchLike): Promise<string> {
+async function fetchLatestVersion(fetchImpl: FetchLike, packageName: string): Promise<string> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   try {
-    const response = await fetchImpl(REGISTRY_URL, {
+    const response = await fetchImpl(latestVersionUrl(packageName), {
       headers: { accept: 'application/json' },
       signal: controller.signal,
     })
     if (!response.ok) throw new Error(`npm registry returned HTTP ${response.status}`)
-    const payload = await response.json() as { version?: unknown }
+    const payload = (await response.json()) as { version?: unknown }
     if (typeof payload.version !== 'string' || !versionParts(payload.version)) {
-      throw new Error('npm registry returned an invalid latest version')
+      throw new Error('npm registry returned an unreadable latest version')
     }
     return payload.version
   } finally {
@@ -97,66 +131,77 @@ async function fetchLatest(fetchImpl: FetchLike): Promise<string> {
   }
 }
 
-export function quickCompatibilityChecks(options: {
-  cwd?: string
-  env?: NodeJS.ProcessEnv
-} = {}): { ok: boolean; checks: CompatibilityCheck[] } {
+/**
+ * Pre-upgrade preflight. Three cheap local facts decide whether an upgrade is safe to attempt
+ * unattended: the Node the package declares, the project config the running server would load,
+ * and whether installed hooks still resolve. It never mutates anything.
+ */
+export function quickCompatibilityChecks(options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): {
+  ok: boolean
+  checks: CompatibilityCheck[]
+} {
   const env = options.env ?? process.env
   const cwd = path.resolve(options.cwd ?? process.cwd())
-  const nodeMajor = Number(process.versions.node.split('.')[0])
+  const { major, minor } = process.versions.node ? splitNodeVersion(process.versions.node) : { major: 0, minor: 0 }
   const checks: CompatibilityCheck[] = [
     {
       name: 'node',
-      ok: nodeMajor >= 22,
-      detail: `${process.versions.node} (requires >=22)`,
+      ok: major > MINIMUM_NODE.major || (major === MINIMUM_NODE.major && minor >= MINIMUM_NODE.minor),
+      detail: `${process.versions.node} (requires >=${MINIMUM_NODE.major}.${MINIMUM_NODE.minor})`,
     },
   ]
 
   const configPath = defaultConfigPath({ cwd, env })
-  if (existsSync(configPath)) {
+  if (!existsSync(configPath)) {
+    checks.push({ name: 'config', ok: true, detail: 'no config in this project' })
+  } else {
     try {
       loadConfig(configPath)
       checks.push({ name: 'config', ok: true, detail: configPath })
     } catch (error) {
-      checks.push({ name: 'config', ok: false, detail: error instanceof Error ? error.message : 'invalid config' })
+      checks.push({
+        name: 'config',
+        ok: false,
+        detail: `${configPath} (${error instanceof Error ? error.message : 'invalid config'})`,
+      })
     }
-  } else {
-    checks.push({ name: 'config', ok: true, detail: 'not configured in this project' })
   }
 
   const hooks = checkHookHealth({ env })
-  const staleHooks = hooks.filter(({ stale }) => stale)
+  const stale = hooks.filter(({ stale: isStale }) => isStale)
   checks.push({
     name: 'hooks',
-    ok: staleHooks.length === 0,
-    detail: staleHooks.length ? staleHooks.map(({ harness, detail }) => `${harness} (${detail})`).join('; ') : 'no stale Sabi hooks',
+    ok: stale.length === 0,
+    detail: stale.length
+      ? stale.map(({ harness, detail }) => `${harness}: ${detail}`).join('; ')
+      : `${hooks.filter(({ installed }) => installed).length} harness hook(s) resolve`,
   })
 
   return { ok: checks.every(({ ok }) => ok), checks }
 }
 
-export async function checkForUpdate(options: {
-  env?: NodeJS.ProcessEnv
-  stateDir?: string
-  installedVersion?: string
-  now?: number
-  force?: boolean
-  cwd?: string
-  includeCompatibility?: boolean
-  fetchImpl?: FetchLike
-} = {}): Promise<UpdateCheckResult> {
+function splitNodeVersion(version: string): { major: number; minor: number } {
+  const [major, minor] = version.split('.')
+  return { major: Number(major) || 0, minor: Number(minor) || 0 }
+}
+
+/** Cache-only read: no network, no writes. */
+export function readCachedUpdate(options: { env?: NodeJS.ProcessEnv; stateDir?: string } = {}): CachedUpdate | undefined {
+  const stateDir = options.stateDir ?? controllerStateDir(options.env ?? process.env)
+  return readCache(path.join(stateDir, CACHE_FILE))
+}
+
+export async function checkForUpdate(options: UpdateCheckOptions = {}): Promise<UpdateCheckResult> {
   const env = options.env ?? process.env
   const now = options.now ?? Date.now()
   const stateDir = options.stateDir ?? controllerStateDir(env)
-  const installedVersion = options.installedVersion ?? process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
-  const cached = readCache(stateDir)
-  let update: CachedUpdate
+  const installedVersion = options.installedVersion ?? env.SABI_BUILD_VERSION ?? '0.0.0-dev'
+  const cached = readCache(path.join(stateDir, CACHE_FILE))
 
-  if (!options.force && cached && cached.installedVersion === installedVersion && now < cached.nextCheckAt) {
-    update = cached
-  } else {
+  let update: CachedUpdate
+  if (options.refresh) {
     try {
-      const latestVersion = await fetchLatest(options.fetchImpl ?? fetch)
+      const latestVersion = await fetchLatestVersion(options.fetchImpl ?? fetch, SABI_PACKAGE_NAME)
       update = {
         packageName: SABI_PACKAGE_NAME,
         installedVersion,
@@ -175,22 +220,24 @@ export async function checkForUpdate(options: {
         error: error instanceof Error ? error.message : 'npm registry check failed',
       }
     }
-    writeCache(stateDir, update)
+    writeCache(path.join(stateDir, CACHE_FILE), update)
+  } else if (cached && cached.installedVersion === installedVersion) {
+    update = cached
+  } else {
+    update = {
+      packageName: SABI_PACKAGE_NAME,
+      installedVersion,
+      status: 'unavailable',
+      checkedAt: 0,
+      nextCheckAt: 0,
+      error: 'no cached check for this version; run `sabi updates --check`',
+    }
   }
 
-  const compatibility = options.includeCompatibility === false ? undefined : quickCompatibilityChecks({ cwd: options.cwd, env })
   return {
     ...update,
-    cached: update === cached,
+    stale: now >= update.nextCheckAt,
     ...(update.status === 'update-available' ? { warning: UPDATE_WARNING } : {}),
-    ...(compatibility ? { compatibility } : {}),
+    compatibility: quickCompatibilityChecks({ cwd: options.cwd, env }),
   }
-}
-
-export function updateCachePath(env: NodeJS.ProcessEnv = process.env): string {
-  return cachePath(controllerStateDir(env))
-}
-
-export function updateHomeDir(): string {
-  return os.homedir()
 }

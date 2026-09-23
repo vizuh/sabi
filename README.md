@@ -144,6 +144,11 @@ diff or model claims. A claim is advisory until a deterministic verifier proves 
 
 The user-level controller installed above can coordinate supported Claude Code, Codex, OpenCode, and Orca workflows. It is a task/session surface, not a generic way to rewrite the model inside an existing host session. See [Adapters](docs/adapters/README.md) for the evidence and boundary of each host.
 
+`sabi updates` is the pre-upgrade check an agent can run: it reports the installed version against
+the last npm answer, and preflights the Node version, the project config and installed hook paths.
+The cached read is offline; only `sabi updates --check` contacts the registry, and one check covers
+the next 24 hours. `--json` is available for scripts.
+
 ## Routing logic
 
 The deterministic policy classifies the current state first, then applies hard constraints before
@@ -172,6 +177,7 @@ Default policy:
 | Stuck or context pressure | stuck / context-pressure | mid |
 | Rate limit, quota, timeout | transport | transport tier; never escalate because it looks scary |
 | Image/file input | capability | first configured tier that declares the modality |
+| Requested output above the chosen tier's ceiling | output-capacity | cheapest tier that *declares* it can serve the requested output |
 
 Jev is optional semantic judgment for ambiguous proxy rounds. It is a judge, not a worker model.
 Timeouts, invalid answers, and unavailable credentials fall back to deterministic policy.
