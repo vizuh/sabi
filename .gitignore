@@ -8,6 +8,7 @@ build/
 
 # Generated publishable package (pack.mjs / release workflow)
 packages/adapters/command-code/pkg/
+packages/core/pkg/
 packages/controller/pkg/
 
 # Coverage / caches
