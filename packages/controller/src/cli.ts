@@ -695,6 +695,16 @@ async function runServe(argv: string[]): Promise<void> {
       ...(port ? { SABI_PORT: port } : {}),
     },
   })
+  // A signal aimed at the CLI must reach the server, or stopping `sabi serve` leaves an orphan
+  // holding the port. A terminal's Ctrl-C reaches the whole process group anyway; a targeted
+  // SIGTERM does not, and that is the shape a supervisor or a test uses.
+  const forward = (signal: NodeJS.Signals): void => {
+    if (!child.killed) child.kill(signal)
+  }
+  const onInterrupt = (): void => forward('SIGINT')
+  const onTerminate = (): void => forward('SIGTERM')
+  process.on('SIGINT', onInterrupt)
+  process.on('SIGTERM', onTerminate)
   await new Promise<void>((resolve, reject) => {
     child.once('error', reject)
     child.once('exit', (code, signal) => {
@@ -702,6 +712,9 @@ async function runServe(argv: string[]): Promise<void> {
       if (signal) process.exitCode = 1
       resolve()
     })
+  }).finally(() => {
+    process.off('SIGINT', onInterrupt)
+    process.off('SIGTERM', onTerminate)
   })
 }
 

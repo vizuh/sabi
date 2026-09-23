@@ -475,8 +475,16 @@ test('sabi serve runs the proxy from the controller, without a checkout of the s
     const health = await fetch(`http://${address}/healthz`)
     assert.equal(health.status, 200)
     assert.deepEqual(await health.json(), { ok: true, models: ['sabi-code'], upstreams: ['mock'] })
+
+    // Stopping the CLI must stop the server it spawned, or the orphan keeps the test file's stdio
+    // open and the run never ends — which is how this behaved before `serve` forwarded signals.
+    const exited = new Promise<void>((resolve) => child?.once('exit', () => resolve()))
+    child.kill('SIGTERM')
+    const stopped = await Promise.race([exited.then(() => true), delay(10_000).then(() => false)])
+    assert.equal(stopped, true, 'SIGTERM to the CLI stops the server it spawned')
+    await assert.rejects(() => fetch(`http://${address}/healthz`, { signal: AbortSignal.timeout(2_000) }))
   } finally {
-    child?.kill('SIGTERM')
+    child?.kill('SIGKILL')
     rmSync(cwd, { recursive: true, force: true })
   }
 })
