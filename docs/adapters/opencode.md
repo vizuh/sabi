@@ -46,6 +46,21 @@ npm run report -- --json
 
 Decisions record the client, rule, selected tier, usage, and bounded failure evidence.
 
+## Pick the adaptive alias
+
+Choose **Sabi Code (adaptive)** in OpenCode's model picker, not one of the `(baseline)` entries. The
+baseline aliases are *fixed*: each one pins a single tier, and a fixed alias that fails is served
+as-is — deliberately, because an explicit model choice should not be silently overruled. The
+adaptive alias is the one that can move a round to another tier when the first choice cannot serve
+it, including when an upstream rate-limits a free model.
+
+`transportFallback` in `sabi.config.json` decides whether a transport failure (429 rate limit, 402
+quota, 403 plan wall) on an adaptive round retries on the next serving tier instead of ending the
+round. Every configured tier here is an OpenRouter `:free` model, and those are served from shared
+upstream pools: the provider's own 429 body reports
+`limit_source: upstream_provider_shared_pool`, so one saturated free model can fail a whole session
+while the others are fine. With the fallback on, that becomes a reroute to the next free model.
+
 ## Borrowed authentication
 
 A provider entry with a custom `baseURL` points OpenCode at Sabi while OpenCode keeps the credential
