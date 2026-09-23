@@ -84,6 +84,70 @@ export interface VerificationState {
   generation?: number
 }
 
+/**
+ * Deterministic execution outcome sources. A receipt records what a verifier or
+ * deterministic operation reported — never what a model claimed about it.
+ */
+export type ExecutionReceiptSource =
+  | 'test'
+  | 'build'
+  | 'lint'
+  | 'edit'
+  | 'git'
+  | 'repo-map'
+  | 'sandbox'
+
+export type ExecutionReceiptStatus = 'passed' | 'failed' | 'unknown'
+
+/**
+ * Shared cross-cutting execution receipt (spec 002). All fields are bounded and
+ * sanitized: fingerprints instead of contents, file names instead of paths,
+ * explicit `unknown` instead of invented defaults.
+ */
+export interface ExecutionReceipt {
+  /** Stable idempotency key: duplicate deliveries with the same id merge. */
+  operationId: string
+  source: ExecutionReceiptSource
+  status: ExecutionReceiptStatus
+  startedAt: number
+  durationMs: number
+  inputFingerprint?: string
+  outputFingerprint?: string
+  /** Changed file names only — never absolute paths or contents. */
+  changedFiles?: string[]
+  /** Verifier identity (tool/command label), when a verifier produced this. */
+  verifier?: string
+  exitCode?: number
+  expectedScope?: number
+  observedScope?: number
+  /** True when the run succeeded but covered the wrong target. */
+  scopeMismatch?: boolean
+  isolation?: {
+    workspaceId: string
+    disposable: boolean
+  }
+}
+
+/**
+ * Tri-state harness capability flag. `unknown` (or omission) MUST NOT enable
+ * receipt-dependent actions — only an explicit `true` does.
+ */
+export type CapabilityFlag = boolean | 'unknown'
+
+/**
+ * Per-harness declared evidence surface (spec 002). Sabi consumes these
+ * declarations; it never probes beyond the supported extension surface, and
+ * unknown harnesses read as all-`unknown`.
+ */
+export interface ExecutionCapabilities {
+  repoMap?: CapabilityFlag
+  incrementalContext?: CapabilityFlag
+  deterministicEdit?: CapabilityFlag
+  isolatedWorkspaces?: CapabilityFlag
+  verifierReceipts?: CapabilityFlag
+  eventDrivenChanges?: CapabilityFlag
+}
+
 export interface ScopeInput {
   expected?: string[] | number
   observed?: string[] | number
@@ -181,6 +245,9 @@ export type RecoveryAction =
   | 'fresh-context'
   | 'rollback-with-reflection'
   | 'ask-user'
+  | 'verify-local'
+  | 'rollback'
+  | 'switch-harness'
 
 export type RecoveryReasonCode =
   | 'none'
@@ -195,6 +262,8 @@ export type RecoveryReasonCode =
   | 'stale-generation'
   | 'no-safe-continuation'
   | 'verified'
+  | 'needs-verification'
+  | 'clean-point'
 
 export interface RecoveryRouteConstraint {
   excludeRoutes?: string[]
