@@ -1499,3 +1499,30 @@ The same change declares `models.local.maxOutputTokens: 32768`, matching the `qw
 ollama reports for `qwen2.5-coder:7b` (`/api/show`, no `num_predict` override) and the tier's own
 `contextWindow`. The tier had no ceiling, which is what let the first cut of the output-capacity
 promotion choose it over `mid`.
+
+### [2026-09-23] fix | the Claude hook can be repaired, and points at a durable install
+
+The installed Claude hook pointed at
+`worktrees/sabi/release-free-first/packages/controller/src/cli.ts` — a checkout that no longer
+exists — and `sabi doctor` told the user to repair it with `sabi hooks install`, which did nothing.
+`appendEvent` skipped any event that already held a Sabi entry, so a dead entry counted as an
+installed one and the documented repair could not repair. It now replaces a Sabi entry whose baked
+absolute targets no longer resolve, in place, leaving the user's neighbouring hooks in that event
+where they were, and still never duplicating an entry that resolves.
+
+`commandFor` now prefers a real installed controller (`npm install --global
+@vizuh/sabi-controller`, resolved from PATH to its own `dist/cli.mjs`) over the process that ran the
+install, so a hook installed from a checkout no longer dies with it. A bare `sabi` is deliberately
+not used: `node_modules/.bin/sabi` is a dev shim rather than an install, and a bare name cannot be
+checked for staleness at all. `sabi hooks install` now prints the command it wrote, so the target is
+visible at install time instead of being discovered later by `sabi doctor`.
+
+Validation: hooks tests 15/15, controller bundle test 1/1, `npm test` 599/599, `npm run typecheck`
+clean. The live Claude hook was repaired in place — only the Sabi entry changed, the rest of
+`~/.claude/settings.json` is byte-identical and the event still holds the same two entries — and now
+points at `www/products/sabi/packages/controller/src/cli.ts`. `sabi updates` reports
+`✓ hooks: 1 harness hook(s) resolve` where it previously failed the preflight.
+
+Boundary: hook wiring, not routing. No credential file is read, and the harness gate stays
+presence-based (`which claude`), so Sabi still cannot tell a Claude subscription from an API-key
+login — and does not try to.
