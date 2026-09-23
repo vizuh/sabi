@@ -1,4 +1,4 @@
-import type { EvidenceCode, TelemetryConfig } from './types.ts'
+import type { ChatRequestBody, EffortSource, EvidenceCode, TelemetryConfig } from './types.ts'
 
 /**
  * Telemetry policy for decision records. By default reasons and evidence carry only
@@ -126,4 +126,33 @@ const CANARY_PATTERNS = [
 
 export function looksLikeCanary(text: string): boolean {
   return CANARY_PATTERNS.some((re) => re.test(text))
+}
+
+export interface EffortObservation {
+  value?: string
+  source: EffortSource
+}
+
+/**
+ * Record-only observation of the reasoning effort a round requested. Mirrors the
+ * compatibility gate's single-form rule (`reasoning_effort` xor `reasoning.effort`):
+ * exactly one nonempty effort string observes as `client`; anything else — absent,
+ * conflicting, or malformed — observes as `unspecified`. This never routes, injects,
+ * or rewrites anything; it only gives per-route telemetry the evidence a future
+ * effort-scheduling slice needs first.
+ */
+export function observeEffort(body: ChatRequestBody): EffortObservation {
+  const flat = typeof body.reasoning_effort === 'string' && body.reasoning_effort.trim()
+    ? body.reasoning_effort.trim()
+    : undefined
+  const reasoning = body.reasoning !== null && typeof body.reasoning === 'object' && !Array.isArray(body.reasoning)
+    ? body.reasoning as Record<string, unknown>
+    : undefined
+  const nested = typeof reasoning?.effort === 'string' && reasoning.effort.trim()
+    ? reasoning.effort.trim()
+    : undefined
+  if (flat !== undefined && nested !== undefined) return { source: 'unspecified' }
+  if (flat !== undefined) return { value: flat, source: 'client' }
+  if (nested !== undefined) return { value: nested, source: 'client' }
+  return { source: 'unspecified' }
 }

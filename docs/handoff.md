@@ -1,4 +1,14 @@
 # Handoff Notes
+## Effort observability (record-only) — 2026-09-23
+
+First slice of proxy-side effort routing, chosen to avoid colliding with the active
+output-capacity workstream in `router.ts`/`compatibility.ts`: per-route `effort`/`effortSource`
+is now recorded (`observeEffort`, server record creation, bounded persistence, `report`
+`by effort` line) without changing routing, dispatch, or forwarding — Sabi still never injects
+reasoning controls. Scheduling stays a follow-up pending that router work + live verification.
+Validation: `npm test` 597/597 (7 new), typecheck clean. Rationale in `docs/decisions.md`,
+entry in `log.md`. Isolated on this branch via cherry-pick onto `origin/main`; no other lane's
+work included.
 ## Free-only across every adapter + 10-mark router gap-check — 2026-09-23
 
 Hugo's rule (OpenRouter serves free or Jev only) now holds across every shipped profile, not just
