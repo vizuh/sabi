@@ -53,9 +53,18 @@ function textOf(content: unknown): string {
     if (typeof block === 'string') { parts.push(block); continue }
     if (!isObject(block)) continue
     const text = block.text
-    if (typeof text === 'string') parts.push(text)
+    if (typeof text === 'string') { parts.push(text); continue }
+    // A tool result is where a coding agent's evidence actually lives: an error, a failing test, a
+    // stack trace. Dropping it would leave the classifier routing on prompts alone, which is the
+    // one thing this route exists to avoid.
+    if (block.type === 'tool_result' && block.content !== undefined) {
+      parts.push(textOf(block.content))
+      continue
+    }
+    // A tool call is trajectory evidence too: what the agent reached for, and with what.
+    if (block.type === 'tool_use' && typeof block.name === 'string') parts.push(`tool_use: ${block.name}`)
   }
-  return parts.join('\n')
+  return parts.filter((part) => part.length > 0).join('\n')
 }
 
 function toolNames(tools: unknown): Array<{ type: 'function'; function: { name: string } }> | undefined {
@@ -77,12 +86,32 @@ const anthropic: FormatAdapter = {
   view(body, alias) {
     const messages = body.messages
     if (!Array.isArray(messages) || !messages.length) return undefined
-    const view: Array<{ role: string; content: string }> = []
+    const view: Array<Record<string, unknown>> = []
     const system = textOf(body.system)
     if (system) view.push({ role: 'system', content: system })
     for (const message of messages) {
       if (!isObject(message) || typeof message.role !== 'string') return undefined
-      view.push({ role: message.role === 'assistant' ? 'assistant' : 'user', content: textOf(message.content) })
+      const role = message.role === 'assistant' ? 'assistant' : 'user'
+      const content = message.content
+      if (typeof content === 'string') { view.push({ role, content }); continue }
+      if (!Array.isArray(content)) { view.push({ role, content: '' }); continue }
+      const texts: string[] = []
+      const calls: Array<{ type: 'function'; function: { name: string; arguments: string } }> = []
+      for (const block of content) {
+        if (typeof block === 'string') { texts.push(block); continue }
+        if (!isObject(block)) continue
+        if (typeof block.text === 'string') { texts.push(block.text); continue }
+        if (block.type === 'tool_use' && typeof block.name === 'string') {
+          calls.push({ type: 'function', function: { name: block.name, arguments: JSON.stringify(block.input ?? {}) } })
+          continue
+        }
+        // A tool result is its own message in the OpenAI shape: the classifier reads contiguous
+        // trailing tool messages for failure evidence, so folding a result into the user turn that
+        // carried it would hide exactly the evidence this route routes on.
+        if (block.type === 'tool_result') view.push({ role: 'tool', content: textOf(block.content) })
+      }
+      if (calls.length) view.push({ role: 'assistant', content: texts.join('\n'), tool_calls: calls })
+      else if (texts.length) view.push({ role, content: texts.join('\n') })
     }
     const tools = toolNames(body.tools)
     return {
