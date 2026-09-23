@@ -53,6 +53,15 @@ export function normalizeAlias(model: unknown): string {
   const raw = String(model ?? '').trim()
   return raw.includes('/') ? raw.slice(raw.lastIndexOf('/') + 1) : raw
 }
+function requestedOutputTokens(body: ChatRequestBody): number | undefined {
+  const value = body.max_completion_tokens ?? body.max_tokens
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined
+}
+
+function outputFits(entry: { maxOutputTokens?: number }, requested: number | undefined): boolean {
+  return requested === undefined || entry.maxOutputTokens === undefined || requested <= entry.maxOutputTokens
+}
+
 
 /**
  * What a caller can add that the request body cannot show: a measured context from the previous
@@ -114,12 +123,42 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
   } else if (state.failure === 'hard' && (state.failureStreak ?? 0) === 0) {
     state.failureStreak = 1
   }
+  const recovery = planRecovery({ state })
   // Intervention is classified before the route tier; the tier remains subject to the native
   // policy and capability checks, while the bounded action is carried for the host/controller.
-  const recovery = planRecovery({ state })
+  const required = state.inputModalities ?? []
+  const requestedOutput = requestedOutputTokens(body)
+  const servesRound = (entry: (typeof config.models)[string]): boolean =>
+    isEnabledUpstream(config.upstreams[entry.upstream]) &&
+    servesUpstreamBilling(config.upstreams[entry.upstream], entry) &&
+    servesInputModalities(entry.capabilities?.inputModalities, required) &&
+    outputFits(entry, requestedOutput)
+  const outputCapacityReason = (from: string, entry: (typeof config.models)[string], to: string): string =>
+    `requested output ${requestedOutput?.toLocaleString()} exceeds '${from}' maxOutputTokens ${entry.maxOutputTokens?.toLocaleString()}; '${to}' can serve`
+
   if (target !== 'auto') {
     const model = Object.hasOwn(config.models, target) ? config.models[target] : undefined
     if (!model) throw new SabiRouteError(`alias '${alias}' targets unknown tier '${target}'`, 500)
+    if (!outputFits(model, requestedOutput)) {
+      const alternate = cheapestServingTier(config.models, (_name, entry) => servesRound(entry))
+      if (alternate && alternate !== target) {
+        const promoted = config.models[alternate]!
+        const decision: RouteDecision = {
+          alias,
+          mode: 'fixed',
+          rule: 'output-capacity',
+          tier: alternate,
+          reason: outputCapacityReason(target, model, alternate),
+          model: alternate,
+          upstream: promoted.upstream,
+          upstreamModel: promoted.model,
+          state,
+          recovery,
+        }
+        ensureRouteCompatible(body, config, decision)
+        return decision
+      }
+    }
     const decision: RouteDecision = {
       alias,
       mode: 'fixed',
@@ -135,30 +174,27 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
     ensureRouteCompatible(body, config, decision)
     return decision
   }
-  const required = state.inputModalities ?? []
   let { rule, tier, reason } = decideTier(state, config.policy)
   const planned = Object.hasOwn(config.models, tier) ? config.models[tier] : undefined
   if (!planned) throw new SabiRouteError(`policy rule '${rule}' maps to unknown tier '${tier}'`, 500)
-  // Input modality and upstream availability are both hard constraints, not preferences. A policy
-  // tier that cannot accept the request, or whose upstream is disabled, is skipped for the cheapest
-  // priced tier that satisfies both (ties by tier name) — otherwise disabling one upstream would 400
-  // every round a policy rule happens to map to it, even when another enabled tier could serve it.
-  // Cost order keeps the fallback deterministic and independent of JSON declaration order.
-  const servesRound = (entry: typeof planned): boolean =>
-    isEnabledUpstream(config.upstreams[entry.upstream]) &&
-    servesUpstreamBilling(config.upstreams[entry.upstream], entry) &&
-    servesInputModalities(entry.capabilities?.inputModalities, required)
+  // Input modality, output capacity and upstream availability are hard constraints, not preferences.
+  // A policy tier that cannot accept the request is skipped for the cheapest tier that satisfies it.
+  // This keeps adaptive and explicit aliases from failing only because a caller requested more output
+  // than the planned tier can provide.
   if (!servesRound(planned)) {
     const disabled = !isEnabledUpstream(config.upstreams[planned.upstream])
     const priced = !servesUpstreamBilling(config.upstreams[planned.upstream], planned)
+    const outputLimited = !outputFits(planned, requestedOutput)
     const alternate = cheapestServingTier(config.models, (_name, entry) => servesRound(entry))
     if (alternate) {
-      rule = disabled ? 'availability' : priced ? 'billing' : 'capability'
-      reason = disabled
-        ? `upstream for '${tier}' (${planned.model}) is disabled; '${alternate}' can serve`
-        : priced
-          ? `upstream for '${tier}' (${planned.model}) is free-models-only; '${alternate}' can serve`
-          : `input needs ${required.join('+')}; '${tier}' (${planned.model}) cannot accept it, '${alternate}' can`
+      rule = outputLimited ? 'output-capacity' : disabled ? 'availability' : priced ? 'billing' : 'capability'
+      reason = outputLimited
+        ? outputCapacityReason(tier, planned, alternate)
+        : disabled
+          ? `upstream for '${tier}' (${planned.model}) is disabled; '${alternate}' can serve`
+          : priced
+            ? `upstream for '${tier}' (${planned.model}) is free-models-only; '${alternate}' can serve`
+            : `input needs ${required.join('+')}; '${tier}' (${planned.model}) cannot accept it, '${alternate}' can`
       tier = alternate
     }
   }

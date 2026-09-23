@@ -127,7 +127,8 @@ export function ensureRouteCompatible(body: ChatRequestBody, config: SabiConfig,
   const alias = rawAlias.slice(rawAlias.lastIndexOf('/') + 1)
   const target = Object.hasOwn(config.aliases, alias) ? config.aliases[alias] : undefined
   if (!target || alias !== decision.alias) fail('request alias does not match the decision')
-  if (target !== 'auto' && (decision.tier !== target || decision.mode !== 'fixed')) {
+  const fixedOutputPromotion = target !== 'auto' && decision.mode === 'fixed' && decision.rule === 'output-capacity'
+  if (target !== 'auto' && !fixedOutputPromotion && (decision.tier !== target || decision.mode !== 'fixed')) {
     fail('fixed alias cannot change backend')
   }
   if (target === 'auto' && decision.mode !== 'auto') fail('adaptive alias requires an adaptive decision')

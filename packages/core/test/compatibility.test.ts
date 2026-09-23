@@ -163,6 +163,17 @@ test('media routing takes the first tier in configuration order that can accept 
   // A fixed alias is an explicit choice: it does not silently upgrade, it refuses.
   rejected({ ...image, model: 'sabi-fixed' }, settings, /input modality .* is not supported/)
 })
+test('fixed aliases promote only when the requested output exceeds the selected tier', () => {
+  const settings = config({ maxOutputTokens: 100 })
+  settings.models.other = catalog({ model: 'synthetic-other', maxOutputTokens: 400 })
+  const request = body({ model: 'sabi-fixed', max_tokens: 300 })
+  const decision = route(request, settings)
+  assert.equal(decision.mode, 'fixed')
+  assert.equal(decision.tier, 'other')
+  assert.equal(decision.rule, 'output-capacity')
+  assert.match(decision.reason, /requested output 300 exceeds 'cheap' maxOutputTokens 100/)
+  assert.doesNotThrow(() => ensureRouteCompatible(request, settings, decision))
+})
 
 test('unknown parts and unsupported output modalities fail instead of being dropped', () => {
   rejected(body({ messages: [{ role: 'user', content: [{ type: 'provider_blob', value: 'opaque' }] }] }), config(), /content part type is unknown/)
@@ -299,11 +310,14 @@ test('null limits and modality lists cannot masquerade as absent fields', () => 
   rejected(body({ modalities: null }), config(), /modalities must be a nonempty array/)
 })
 
-test('explicit legacy mode keeps unknown metadata but enforces declared output limits', () => {
+test('adaptive mode promotes when the planned tier cannot satisfy the output reserve', () => {
   const settings = config()
   settings.compatibility = { mode: 'legacy' }
   settings.models.cheap = { upstream: 'mock', model: 'legacy', maxOutputTokens: 50 }
-  rejected(body(), settings, /output token limit exceeds/)
+  const decision = route(body(), settings)
+  assert.equal(decision.tier, 'other')
+  assert.equal(decision.rule, 'output-capacity')
+  assert.match(decision.reason, /requested output 100 exceeds 'cheap' maxOutputTokens 50/)
   assert.doesNotThrow(() => route(body({ max_tokens: 50, unknown_extension: true }), settings))
 })
 
