@@ -9,7 +9,12 @@ Agendamento adaptativo de inferência para agentes de IA.
 
 O Sabi fica entre um harness de código e seus provedores de modelo. O harness mantém o loop de agente normal; o Sabi decide qual modelo, qual esforço de raciocínio e qual provedor atende cada rodada de inferência — continuamente, ao longo de toda a trajetória, não só no primeiro prompt.
 
-[English](README.md) · **Português (BR)** · [中文](README.zh-CN.md)
+[English](README.md) · **Português (BR)** · [中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
+
+[Instalação](docs/install.pt-BR.md) · [Integrações](docs/adapters/README.pt-BR.md) · [Evidências](docs/harnesses.md) · [Skill do agente](SKILL.md) · [Índice de máquina](llms.txt)
+
+> [!TIP]
+> O Sabi tem duas fronteiras: roteamento de inferência (modelo/provedor por rodada) e handoffs do controller (continuar/delegar/criar). Instalar um hook não troca o modelo; listar um catálogo não prova plano; um teste mock não prova economia.
 
 ## Instalar o Sabi uma vez
 

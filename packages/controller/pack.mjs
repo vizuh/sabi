@@ -50,6 +50,8 @@ const manifest = {
   publishConfig: { access: 'public' },
   repository: { type: 'git', url: 'git+https://github.com/vizuh/sabi.git', directory: 'packages/controller' },
   homepage: 'https://github.com/vizuh/sabi#readme',
+  bugs: { url: 'https://github.com/vizuh/sabi/issues' },
+  keywords: ['sabi', 'inference-scheduling', 'model-routing', 'ai-agents', 'coding-assistant', 'controller'],
 }
 writeFileSync(path.join(stagingDir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
 chmodSync(path.join(distDir, 'cli.mjs'), 0o755)

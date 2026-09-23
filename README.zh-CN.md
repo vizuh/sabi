@@ -9,7 +9,12 @@
 
 Sabi 位于编码 harness 与模型提供方之间。harness 保持自己原有的 agent 循环；Sabi 决定每一轮推理由哪个模型、哪一级推理强度（reasoning effort）和哪个提供方来服务——贯穿整条轨迹持续决策，而不只在第一次提示时决定。
 
-[English](README.md) · [Português (BR)](README.pt-BR.md) · **中文**
+[English](README.md) · [Português (BR)](README.pt-BR.md) · **中文** · [日本語](README.ja.md) · [한국어](README.ko.md)
+
+[安装](docs/install.md) · [集成](docs/adapters/README.md) · [证据](docs/harnesses.md) · [Agent 技能](SKILL.md) · [机器索引](llms.txt)
+
+> [!TIP]
+> Sabi 有两个边界：推理路由（按轮次选择模型/提供方）与 controller 交接（继续/委派/创建）。安装 hook 不等于切换模型；目录列表不等于订阅权益；mock 通过不等于省钱基准。
 
 ## 一次性安装 Sabi
 

@@ -14,9 +14,14 @@ next inference or task transition.
 
 Sabi is a host-agnostic routing layer, not another agent harness or editor. Adapters are optional bridges to the execution seams exposed by each host.
 
-**English** · [Português (BR)](README.pt-BR.md) · [中文](README.zh-CN.md)
+**English** · [Português (BR)](README.pt-BR.md) · [中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-![Sabi routing architecture](docs/images/sabi-routing.svg)
+[Install](docs/install.md) · [Integrations](docs/adapters/README.md) · [Evidence](docs/harnesses.md) · [Agent skill](SKILL.md) · [Machine index](llms.txt)
+
+> [!TIP]
+> Sabi has two boundaries: inference routing (model/provider per round) and controller handoffs (continue/delegate/spawn). A hook install is not model switching; a catalog listing is not plan entitlement; a mock pass is not a savings benchmark.
+
+![Sabi routing architecture: harness keeps its loop, adapter translates host events, Sabi core classifies the round and records evidence](docs/images/sabi-routing.svg)
 
 ## Install Sabi once
 
@@ -39,6 +44,10 @@ If the user's current host AI is doing the installation, give it the [host-AI in
 `setup` is idempotent: it keeps the daemon and state user-scoped, detects supported hosts, installs only supported Sabi-owned hooks, and keeps the normal harness path available if Sabi is unavailable. Use `sabi setup --no-hooks` when you want the daemon without changing host configuration.
 
 After installation, open your normal harness. Choose an optional integration only when you need the capability it provides.
+
+## Use with a host AI or agent
+
+Give the installing agent [SKILL.md](SKILL.md) and the [machine index](llms.txt). The canonical [host-AI flow](docs/install.ai.md) asks for the harness and route explicitly and collects only an OpenRouter key on proxy paths. Setup accepts `--language=en|pt-BR|zh-CN|ja|ko`; prompts outside EN/PT-BR fall back to English. JA/KO READMEs are full mirrors; English is canonical for rates and support claims.
 
 ## Choose an optional integration
 
