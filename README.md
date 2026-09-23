@@ -181,6 +181,40 @@ it. `sabi upgrade` then installs the new controller, verifies the registry signa
 adapter copies it owns — the OpenCode plugin is a copy in the state directory, not a link into the
 bundle — and restarts the daemon.
 
+## Borrowed authentication
+
+Sabi can sit between a harness and the model it already talks to. The harness keeps its own
+credential and keeps sending it; Sabi decides which model serves each round and forwards the request
+with the credential it received, to the provider that credential belongs to. **Sabi holds no
+credential on this path** — it opens no credential file, writes nothing to disk, and the only
+outbound destination is the provider the harness would have called itself.
+
+The harness speaks its own protocol, so Sabi accepts it directly: `POST /v1/messages` (Anthropic
+Messages) and `POST /v1/responses` (OpenAI Responses), beside the existing
+`POST /v1/chat/completions`. Only the `model` field is rewritten; streaming is forwarded frame by
+frame, so the harness parses its own protocol.
+
+```bash
+# Claude Code, keeping its own subscription credential
+ANTHROPIC_BASE_URL=http://127.0.0.1:8787 claude
+```
+
+```json
+{
+  "upstreams": { "anthropic": { "baseURL": "https://api.anthropic.com", "auth": "passthrough" } },
+  "models": { "cheap": { "upstream": "anthropic", "model": "claude-haiku-4-5" },
+              "mid": { "upstream": "anthropic", "model": "claude-sonnet-4-5" },
+              "strong": { "upstream": "anthropic", "model": "claude-opus-4-1" } },
+  "passthrough": { "alias": "sabi-code" }
+}
+```
+
+An upstream declared `auth: passthrough` may not declare an `apiKey`: the credential is the
+harness's, and a second one here is exactly what this mode exists to avoid. A round with no
+credential on it, or a tier whose upstream holds its own key, is refused with a typed error rather
+than silently routed somewhere else. See the [adapter page](docs/adapters/README.md) for which
+harness exposes a base URL to repoint.
+
 ## Routing logic
 
 The deterministic policy classifies the current state first, then applies hard constraints before

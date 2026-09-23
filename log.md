@@ -1606,3 +1606,41 @@ first prompt and `{}` on the second, and `sabi status` printed the update line.
 Boundary: the daemon's check is a single GET to the public npm registry for a package the user
 already installed — no credentials, no telemetry, no project data. The mechanism is unreleased: npm
 still serves `@vizuh/sabi-controller@0.1.0`, so shipping it needs a `controller-v*` tag.
+
+### [2026-09-23] feat | borrowed harness authentication: Sabi between the harness and the model
+
+The operator's rule: borrow the harness's route, hold no key, keep everything local. Sabi now
+accepts a harness's own wire format on `POST /v1/messages` (Anthropic Messages) and
+`POST /v1/responses` (OpenAI Responses), decides the tier from trajectory evidence, rewrites only
+`model`, and forwards the request with the credential the harness already sent, to the provider that
+credential belongs to. No credential file is opened, nothing is written to disk, and the only
+outbound destination is the provider the harness would have called itself.
+
+An upstream declared `auth: passthrough` may not declare an `apiKey` — a second credential here is
+what the mode exists to avoid. The route refuses rather than guesses: a round with no credential on
+it, or a tier whose upstream holds its own key, returns a typed error instead of falling back to a
+different provider. Streaming is forwarded frame by frame, so the harness parses its own protocol;
+a deadline mid-stream ends with an explicit error frame, the fix that made the 120s loop legible
+earlier today.
+
+`packages/adapters/oh-my-pi`: `pi.registerProvider(name, { baseUrl })` is documented by OMP as an
+override for an existing provider and OMP resolves its credential independently of the base URL, so
+`SABI_OMP_BORROW_PROVIDERS=anthropic,opencode-go` routes those providers through Sabi with no key
+copied into the extension. `docs/adapters/README.md` carries the per-adapter table: which harness
+exposes a base URL to repoint, and which does not (Command Code's mod is in-process; Orca is not a
+model client; Cline and Kilo take a key you supply, so that is not a subscription borrow).
+
+Docs: the `claude-code.md` boundary now separates the hook claim from the borrowed claim,
+`AGENTS.md`'s "do not switch paid subscriptions or harness-selected models" is replaced with the
+accurate one, and the README gains the borrowed-authentication section.
+
+Validation: `packages/server/test/passthrough.test.ts` 9/9 and `packages/core/test/config.test.ts`
+28/28 on a branch built from `main`; full suite 620/621 with the one failure being a concurrent
+session's in-flight free-catalog test. The borrowed tests prove the model is rewritten and the rest
+of the body is untouched, the credential reaches the provider and appears in no log line, record,
+body or file under the state directory, a decoy credentials file on disk is never used, frames are
+forwarded verbatim, and the two refusal paths refuse.
+
+Boundary: not exercised against a live paid subscription, so this is protocol and refusal evidence,
+not proof that a given plan serves a given model. Slice 4 (cross-provider borrowing) is out of
+scope: it needs a second credential, which is the thing this design avoids.
