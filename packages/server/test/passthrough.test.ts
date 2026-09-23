@@ -220,3 +220,22 @@ test('the borrowed route honours the request deadline', async (t) => {
   const response = await post('messages', anthropicBody())
   assert.equal(response.status, 504)
 })
+
+test('an Anthropic tool result reaches the classifier, so the round can escalate on it', async (t) => {
+  // The whole point of sitting between the harness and the model is routing on what the round
+  // produced. Anthropic carries that evidence in `tool_result` blocks, not in `text` blocks, so a
+  // view that only reads `text` would route every Claude Code round on prompts alone.
+  const { post, sabi, seen } = await fixture(t)
+  const failing = anthropicBody({
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'run the tests' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'bash', input: { command: 'npm test' } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'AssertionError: expected 2 to equal 3\n    at Test.<anonymous> (test.mjs:12:9)' }] },
+    ],
+  })
+  const response = await post('messages', failing)
+  assert.equal(response.status, 200)
+  assert.equal(sabi.recent[0]?.state.failure, 'hard', 'the failing tool result is visible to the classifier')
+  assert.equal(sabi.recent[0]?.tier, 'strong', 'a failing round escalates')
+  assert.equal(seen[0]?.body.model, 'mock-anthropic-strong')
+})
