@@ -1,9 +1,9 @@
 {
   "name": "@sabi/adapter-command-code",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "license": "MIT",
-  "description": "Adaptive inference scheduling for Command Code: one bundled mod that routes each continuing round by model, effort and trajectory state.",
+  "description": "Sabi inference adapter for Command Code, part of harness-independent adaptive routing for Claude Code, Codex, Command Code, Hermes, Oh My Pi, OpenCode and Orca.",
   "type": "module",
   "repository": {
     "type": "git",
@@ -15,13 +15,20 @@
     "url": "https://github.com/vizuh/sabi/issues"
   },
   "keywords": [
-    "commandcode",
-    "command-code",
-    "mod",
-    "llm",
-    "routing",
+    "sabi",
     "ai-agents",
-    "inference-scheduling"
+    "claude-code",
+    "codex",
+    "command-code",
+    "commandcode",
+    "hermes",
+    "inference-scheduling",
+    "llm-routing",
+    "mod",
+    "oh-my-pi",
+    "opencode",
+    "openai-compatible",
+    "orca"
   ],
   "exports": {
     ".": "./src/connect.ts"
