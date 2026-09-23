@@ -5,8 +5,13 @@
   "bin": {
     "sabi": "./packages/controller/src/cli.ts"
   },
-  "workspaces": ["packages/*", "packages/adapters/*"],
-  "engines": { "node": ">=22.6" },
+  "workspaces": [
+    "packages/*",
+    "packages/adapters/*"
+  ],
+  "engines": {
+    "node": ">=22.6"
+  },
   "scripts": {
     "start": "node packages/server/src/index.ts",
     "dev": "node --watch packages/server/src/index.ts",
@@ -18,6 +23,7 @@
     "backtest": "node packages/evals/src/backtest.ts",
     "controller": "node packages/controller/src/cli.ts",
     "build:controller": "node packages/controller/pack.mjs",
+    "build:router": "node packages/core/pack.mjs",
     "connect:command-code": "node packages/adapters/command-code/src/connect.ts",
     "connect:opencode": "node packages/adapters/opencode/src/connect.ts",
     "mod": "cmd --mod ./packages/adapters/command-code/mod/sabi.ts"
