@@ -1132,3 +1132,11 @@ hook was repaired in place and `sabi updates` now passes its hooks preflight.
 Open question for Hugo: Sabi gates the Claude hook on `which claude` (presence). Detecting a Claude
 *subscription* would mean reading `~/.claude/.credentials.json`, which Sabi does not do — the
 harness gate stays presence-based unless he asks for the boundary change.
+
+## Claude and Codex held to their own subscriptions — 2026-09-23
+
+Operator rule recorded and guarded: Claude Code and Codex are used through their own subscriptions,
+and Sabi never writes a provider base URL, an API key or a model override into either harness. The
+rule already held (no shipped code writes those variables; the installed Claude Code has no `env`
+override and Codex declares no `base_url`), so nothing changed at runtime — the guard tests in
+`packages/controller/test/hooks.test.ts` now fail if that ever drifts.
