@@ -28,6 +28,19 @@ await build({
   define: { 'process.env.SABI_BUILD_VERSION': JSON.stringify(version) },
 })
 
+// The proxy ships with the controller so `sabi serve` needs no checkout. It is a second entry, not
+// part of the CLI bundle: the server owns its own process, signals and lifetime.
+await build({
+  entryPoints: [path.join(repoRoot, 'packages/server/src/index.ts')],
+  outfile: path.join(distDir, 'server.mjs'),
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'node22',
+  sourcemap: false,
+  define: { 'process.env.SABI_BUILD_VERSION': JSON.stringify(version) },
+})
+
 copyFileSync(
   path.join(repoRoot, 'packages/adapters/opencode/src/sabi-hook.mjs'),
   path.join(resourcesDir, 'opencode/sabi-hook.mjs'),
@@ -50,8 +63,6 @@ const manifest = {
   publishConfig: { access: 'public' },
   repository: { type: 'git', url: 'git+https://github.com/vizuh/sabi.git', directory: 'packages/controller' },
   homepage: 'https://github.com/vizuh/sabi#readme',
-  bugs: { url: 'https://github.com/vizuh/sabi/issues' },
-  keywords: ['sabi', 'inference-scheduling', 'model-routing', 'ai-agents', 'coding-assistant', 'controller'],
 }
 writeFileSync(path.join(stagingDir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
 chmodSync(path.join(distDir, 'cli.mjs'), 0o755)

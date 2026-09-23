@@ -1174,3 +1174,14 @@ Verified by `packages/server/test/passthrough.test.ts` (9/9) and `packages/core/
 
 For Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:8787 claude`, with an `anthropic` upstream at
 `auth: passthrough` and tiers pointing at Anthropic model ids.
+
+## The proxy ships with the controller — 2026-09-23
+
+`sabi serve` runs the proxy from the installed controller package (`dist/server.mjs`, built by
+`pack.mjs` as a second entry), so no clone is needed; a checkout still resolves
+`packages/server/src/index.ts` and `npm start` keeps working. `--host`, `--port` and `--cwd` pass
+through; stdio is inherited so Ctrl-C behaves like `npm start`.
+
+Verified by the controller package test (bundle present, command advertised) and a CLI test that
+spawns `sabi serve --port=0` and hits `/healthz`. Foreground only — there is no supervision of a
+running proxy yet, so a server-side change needs a restart.

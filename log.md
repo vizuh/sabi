@@ -1644,3 +1644,32 @@ forwarded verbatim, and the two refusal paths refuse.
 Boundary: not exercised against a live paid subscription, so this is protocol and refusal evidence,
 not proof that a given plan serves a given model. Slice 4 (cross-provider borrowing) is out of
 scope: it needs a second credential, which is the thing this design avoids.
+
+### [2026-09-23] feat | the proxy ships with the controller: `sabi serve`
+
+The controller package carried hooks and the daemon but not the proxy, so routing inference through
+Sabi meant cloning the repo and running `npm start`. That was the last surface where "install Sabi
+once" was not true: a user with the published package had no way to run the server the borrowed
+routes live in.
+
+`packages/controller/pack.mjs` now builds a second entry — `dist/server.mjs`, the server's own
+process, signals and lifetime, kept out of the CLI bundle on purpose — and `sabi serve` resolves it
+in both shapes: the published package ships it beside `dist/cli.mjs`, and a checkout falls back to
+`packages/server/src/index.ts`, so a clone keeps working without a build step. `--host`, `--port` and
+`--cwd` pass through to the server's own resolution; the child inherits stdio, so Ctrl-C behaves the
+way it does for `npm start`.
+
+Docs: the README's install block now runs `sabi serve` and names the current version, the sentence
+claiming the controller "does not install the proxy server" is replaced, `docs/install.md` shows the
+installed path beside the checkout one, the controller README lists the command, and the adapters hub
+points at `sabi serve` instead of `npm start`.
+
+Validation: `scripts/test/controller-package.test.ts` asserts the installed package contains
+`dist/server.mjs` and that the installed CLI advertises `serve`; `packages/controller/test/cli.test.ts`
+spawns `sabi serve --port=0`, reads the address the server reports and asserts `/healthz` answers with
+the configured models and upstreams. Live smoke from a checkout: `sabi serve --port=0` printed
+`Sabi listening on http://127.0.0.1:38869/v1` and `/healthz` returned 200.
+
+Boundary: the server bundle is a second entry, not part of the CLI, so an upgrade replaces both and a
+user's running proxy must be restarted to pick up server changes — `sabi serve` is foreground by
+design and there is no daemon supervision of it yet.

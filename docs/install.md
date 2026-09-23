@@ -127,12 +127,22 @@ cmd mods remove sabi          # or: cmd mods remove ./packages/adapters/command-
 
 ## Optional integration: local OpenAI-compatible proxy
 
-Use this only when a client accepts a `baseURL` and you want Sabi to route your own upstream credentials. This is separate from the user-level controller daemon: in the current release, the proxy is still a foreground checkout process, so this optional path requires a checkout and `npm start`.
+Use this only when a client accepts a `baseURL` and you want Sabi to route your own upstream credentials. It is separate from the user-level controller daemon.
+
+From the installed controller package, with no clone:
+
+```bash
+sabi serve                         # http://127.0.0.1:8787/v1
+```
+
+From a checkout, which is what the rest of this page assumes:
 
 ```bash
 npm install
 npm start                          # http://127.0.0.1:8787/v1
 ```
+
+Both run the same server with the same config resolution; `sabi serve --host=<host> --port=<port>` overrides the address, and `--cwd=<path>` chooses which project's config to load.
 
 ### Credentials are independent of the harness
 

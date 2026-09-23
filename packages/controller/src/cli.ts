@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { appendCouncilLedgerReceipt, councilPreGate, createCouncilPlanReceipt, configureFreeQuality, defaultConfigPath, loadConfig, newCouncilLedgerReceipt, readCouncilLedgerReceipts, readSurplusReviewReceipts, surplusResources, type CouncilEvidenceLevel, type CouncilIndependence, type CouncilIntent, type CouncilMode, type CouncilPlan, type CouncilPlanReason, type CouncilReceiptSource, type CouncilReceiptStatus, type CouncilStage, type SurplusReviewIntent } from '@sabi/core'
 import {
   controllerPreferencesPath,
@@ -27,9 +28,9 @@ import { runSurplusReview } from './surplus.ts'
 import { checkForUpdate, readCachedUpdate, startUpdateRefresh, takeUpdateNotice } from './updates.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'updates' | 'upgrade' | 'uninstall'
+type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'updates' | 'serve' | 'upgrade' | 'uninstall'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'updates', 'upgrade', 'uninstall'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'updates', 'serve', 'upgrade', 'uninstall'])
 const CLI_VERSION = process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
 
 function flagValue(argv: string[], name: string): string | undefined {
@@ -86,6 +87,7 @@ function printHelp(): void {
   sabi council [history|record|pregate|plan] [--harness=<id>] [--runtime-version=<version>] [--provider=<id>] [--model=<id>] [--seat=<id>] [--task-key=<key>] [--stage=<stage>] [--mode=<mode>] [--intent=<intent>] [--status=<status>] [--evidence=<level>] [--source=<source>] [--independence=<full|reduced>] [--plan-reason=<reason>] [--claims=<n>] [--verified-claims=<n>] [--input-tokens=<n>] [--output-tokens=<n>] [--latency-ms=<n>] [--http-status=<n>] [--input-sha256=<sha>] [--output-sha256=<sha>] [--error-code=<code>] [--max-calls=<n>] [--cwd=<path>] [--json]
   sabi integrations [list|repair] [--json]
   sabi updates [--check] [--json]
+  sabi serve [--host=<host>] [--port=<port>] [--cwd=<path>]
   sabi upgrade [--version=<semver>|latest] [--json]
   sabi uninstall [--keep-config] [--json]
   sabi daemon [--status|--stop|--foreground] [--json]
@@ -657,6 +659,52 @@ function withoutToken(info: ControllerDaemonInfo | undefined): Omit<ControllerDa
   return rest
 }
 
+/**
+ * Where the proxy entry lives, in both shapes: a published controller ships `dist/server.mjs` beside
+ * `dist/cli.mjs`, and a checkout runs the server's own TypeScript entry. Same resolution order as the
+ * other bundled resources, so a checkout keeps working without a build step.
+ */
+function serverEntrypoint(): string | undefined {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url))
+  const candidates = [
+    path.resolve(moduleDir, 'server.mjs'),
+    path.resolve(moduleDir, '../dist/server.mjs'),
+    path.resolve(moduleDir, '../../server/src/index.ts'),
+  ]
+  return candidates.find((candidate) => existsSync(candidate))
+}
+
+/**
+ * Run the local proxy in the foreground. The server keeps its own process, signals and lifetime —
+ * this only resolves the entry and passes the operator's host/port through, so Ctrl-C behaves the
+ * same as it does for `npm start`.
+ */
+async function runServe(argv: string[]): Promise<void> {
+  const entry = serverEntrypoint()
+  if (!entry) {
+    throw new Error('Sabi server entrypoint not found — run from a checkout, or reinstall the controller package')
+  }
+  const host = flagValue(argv, '--host')
+  const port = flagValue(argv, '--port')
+  const child = spawn(process.execPath, [entry], {
+    cwd: resolvedCwd(argv),
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      ...(host ? { SABI_HOST: host } : {}),
+      ...(port ? { SABI_PORT: port } : {}),
+    },
+  })
+  await new Promise<void>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('exit', (code, signal) => {
+      if (typeof code === 'number' && code !== 0) process.exitCode = code
+      if (signal) process.exitCode = 1
+      resolve()
+    })
+  })
+}
+
 async function runDaemon(argv: string[]): Promise<void> {
   const stateDir = controllerStateDir()
   if (argv.includes('--foreground')) {
@@ -779,6 +827,7 @@ async function main(): Promise<void> {
   if (command === 'hooks') return runHooks(args)
   if (command === 'hook') return runHook(args)
   if (command === 'updates') return runUpdates(args)
+  if (command === 'serve') return runServe(args)
   if (command === 'upgrade') return runUpgrade(args)
   if (command === 'uninstall') return runUninstall(args)
   await runRoute(args)
