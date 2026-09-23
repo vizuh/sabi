@@ -1,4 +1,4 @@
-# @vizuh/sabi: Sabi inference adapter (Command Code mod)
+# @vizuh/sabi: Adaptive model, reasoning-effort and provider routing for coding agents
 
 Sabi is harness-independent adaptive inference scheduling for coding-agent trajectories:
 per-round routing of model, effort and provider from trajectory evidence, while each host
