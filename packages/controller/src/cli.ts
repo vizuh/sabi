@@ -612,7 +612,10 @@ async function runHooks(argv: string[]): Promise<void> {
     return
   }
   console.log('Sabi hooks')
-  for (const result of installed) console.log(`✓ ${result.harness}: ${result.path}${result.plugin ? ` (plugin ${result.plugin})` : ''}`)
+  for (const result of installed) {
+    console.log(`✓ ${result.harness}: ${result.path}${result.plugin ? ` (plugin ${result.plugin})` : ''}`)
+    if (result.command) console.log(`    runs: ${result.command}`)
+  }
 }
 
 async function runHook(argv: string[]): Promise<void> {

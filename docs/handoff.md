@@ -1106,3 +1106,19 @@ server was restarted (it predated the fix) and the exact rejected body now retur
 hook pointing at the deleted `worktrees/sabi/release-free-first` checkout — repair with
 `sabi hooks install`. The installed `~/.omp/agent/extensions/sabi.ts` was resynced from the repo
 source. Not pushed: the work is in the working tree only.
+
+## Hook repair, and a durable hook target — 2026-09-23
+
+The installed Claude hook pointed at a deleted worktree (`worktrees/sabi/release-free-first`) and
+`sabi doctor`'s documented repair — `sabi hooks install` — did nothing, because `appendEvent`
+skipped any event that already held a Sabi entry. A dead entry now gets replaced in place (the
+user's neighbouring hooks in the same event are left alone, and a resolving entry is never
+duplicated), and `commandFor` prefers a real installed controller over the process that ran the
+install. `sabi hooks install` prints the command it wrote.
+
+Validated: hooks tests 15/15, bundle test 1/1, `npm test` 599/599, typecheck clean. The live Claude
+hook was repaired in place and `sabi updates` now passes its hooks preflight.
+
+Open question for Hugo: Sabi gates the Claude hook on `which claude` (presence). Detecting a Claude
+*subscription* would mean reading `~/.claude/.credentials.json`, which Sabi does not do — the
+harness gate stays presence-based unless he asks for the boundary change.
