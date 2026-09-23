@@ -8,12 +8,15 @@ import {
   requestControllerDaemon,
   startControllerDaemon,
 } from './daemon.ts'
+import { installCommandCode, installOhMyPi } from './host-install.ts'
 
 export type HookHarness = 'claude' | 'codex'
 export type InstalledHook = 'claude' | 'codex' | 'opencode'
+/** A host Sabi can install into. The first three merge entries into a settings file; the last two take a file. */
+export type InstallableHost = InstalledHook | 'oh-my-pi' | 'command-code'
 
 export interface HookInstallResult {
-  harness: InstalledHook
+  harness: InstallableHost
   path: string
   /** The command actually written (claude/codex); opencode installs a plugin path instead. */
   command?: string
@@ -308,13 +311,22 @@ function installOpenCode(env: NodeJS.ProcessEnv, stateDir: string): HookInstallR
   return { harness: 'opencode', path: file, plugin, backup: writeObject(file, config) }
 }
 
-export function installHooks(options: { harnesses?: InstalledHook[]; stateDir?: string; env?: NodeJS.ProcessEnv } = {}): HookInstallResult[] {
+export function installHooks(options: { harnesses?: InstallableHost[]; stateDir?: string; env?: NodeJS.ProcessEnv } = {}): HookInstallResult[] {
   const env = options.env ?? process.env
   const stateDir = options.stateDir ?? controllerStateDir(env)
   const harnesses = options.harnesses ?? ['claude', 'codex', 'opencode']
   return harnesses.map((harness) => {
     if (harness === 'claude') return installClaude(env)
     if (harness === 'codex') return installCodex(env)
+    // These two ship a file rather than a config entry, so their result is a copy outcome.
+    if (harness === 'oh-my-pi') {
+      const result = installOhMyPi(env)
+      return { harness, path: result.path ?? '', ...(result.source ? { command: `from ${result.source}` } : {}) }
+    }
+    if (harness === 'command-code') {
+      const result = installCommandCode(env)
+      return { harness, path: result.path ?? result.detail, ...(result.source ? { command: `from ${result.source}` } : {}) }
+    }
     return installOpenCode(env, stateDir)
   })
 }

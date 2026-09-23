@@ -23,7 +23,7 @@ import { defaultControllerLogPath, readControllerDecisions, summarizeControllerR
 import { dispatchControllerRequest, inventorySnapshot } from './runtime.ts'
 import { installUserService, restartUserService, type UserServiceResult } from './service.ts'
 import { uninstallController, upgradeController } from './lifecycle.ts'
-import { checkHookHealth, installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
+import { checkHookHealth, installHooks, runHookCommand, type InstallableHost, type InstalledHook } from './hooks.ts'
 import { runSurplusReview } from './surplus.ts'
 import { checkForUpdate, readCachedUpdate, startUpdateRefresh, takeUpdateNotice } from './updates.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
@@ -91,7 +91,7 @@ function printHelp(): void {
   sabi upgrade [--version=<semver>|latest] [--json]
   sabi uninstall [--keep-config] [--json]
   sabi daemon [--status|--stop|--foreground] [--json]
-  sabi hooks install [--claude] [--codex] [--opencode] [--json]
+  sabi hooks install [--claude] [--codex] [--opencode] [--oh-my-pi] [--command-code] [--json]
   sabi hook <claude|codex> [--event=UserPromptSubmit]
 
 The current CLI uses live Orca state when available. Run "sabi setup" once;
@@ -581,7 +581,8 @@ async function runUpgrade(argv: string[]): Promise<void> {
     // state directory and a hook can point at a path the upgrade moved. Re-running the installer
     // refreshes the copy and repairs a stale hook; it is idempotent and leaves a resolving hook
     // exactly as it is.
-    const selected = (['claude', 'codex', 'opencode'] as InstalledHook[]).filter((harness) => argv.includes(`--${harness}`))
+    const selected = (['claude', 'codex', 'opencode', 'oh-my-pi', 'command-code'] as InstallableHost[])
+    .filter((host) => argv.includes(`--${host}`))
     const detected = configuredHarnesses()
       .map(({ agent }) => agent)
       .filter((agent): agent is InstalledHook => agent === 'claude' || agent === 'codex' || agent === 'opencode')
@@ -629,7 +630,8 @@ async function runUninstall(argv: string[]): Promise<void> {
 async function runHooks(argv: string[]): Promise<void> {
   const action = argv.find((arg) => !arg.startsWith('--')) ?? 'install'
   if (action !== 'install') throw new Error(`unsupported hooks action '${action}'`)
-  const selected = (['claude', 'codex', 'opencode'] as InstalledHook[]).filter((harness) => argv.includes(`--${harness}`))
+  const selected = (['claude', 'codex', 'opencode', 'oh-my-pi', 'command-code'] as InstallableHost[])
+    .filter((host) => argv.includes(`--${host}`))
   const detected = configuredHarnesses()
     .map(({ agent }) => agent)
     .filter((agent): agent is InstalledHook => agent === 'claude' || agent === 'codex' || agent === 'opencode')
