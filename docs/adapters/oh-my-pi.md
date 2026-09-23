@@ -59,6 +59,22 @@ declares enough (rule `output-capacity`), and a round whose requested output no 
 serve fails as an explicit incompatibility instead of silently running on an unknown-capacity
 backend. Keep the ceiling inside what at least one configured tier declares.
 
+## Borrowed authentication
+
+OMP can route a built-in provider through Sabi while keeping its own credential. OMP documents
+`pi.registerProvider(name, { baseUrl })` as an override for an existing provider, and it resolves the
+credential through its own auth storage independently of the base URL — which is what makes the
+borrow work. The extension reads the provider names from the environment:
+
+~~~bash
+SABI_OMP_BORROW_PROVIDERS=anthropic,opencode-go \
+omp --extension packages/adapters/oh-my-pi/src/sabi-extension.mjs
+~~~
+
+Each named provider is repointed at Sabi's base URL with `{ baseUrl }` and nothing else: no key is
+copied into the extension, and OMP keeps sending its own credential. Sabi decides the model per
+round and forwards the request to the provider that credential belongs to.
+
 ## Support boundary
 
 This is inference-only provider routing. It does not change OMP's selected upstream model natively;

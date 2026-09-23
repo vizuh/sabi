@@ -46,6 +46,20 @@ npm run report -- --json
 
 Decisions record the client, rule, selected tier, usage, and bounded failure evidence.
 
+## Borrowed authentication
+
+A provider entry with a custom `baseURL` points OpenCode at Sabi while OpenCode keeps the credential
+it already has. Sabi accepts the harness's own format, rewrites only `model`, and forwards it.
+
+~~~json
+// opencode.json
+{ "provider": { "sabi": { "npm": "@ai-sdk/openai-compatible",
+  "options": { "baseURL": "http://127.0.0.1:8787/v1" } } } }
+~~~
+
+The upstream behind it must be declared `auth: passthrough`, and `passthrough.alias` must name an
+adaptive alias. Sabi holds no key on this path.
+
 ## B. Controller hook
 
 The controller can install an OpenCode plugin that reports prompts/session context to the loopback
