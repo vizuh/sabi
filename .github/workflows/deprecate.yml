@@ -1,0 +1,32 @@
+name: Deprecate
+
+# The registry is the only place a deprecation can be published, and the only place we have the
+# publish token. Kept out of the release workflow on purpose: a version tag is not consent to rewrite
+# a package's install-time warning, so this runs when someone means it.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Write to the registry. Leave unchecked to preview.'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  deprecate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Preview or apply
+        env:
+          # The publish token already lives here for the release workflows; a deprecation is a
+          # publish-adjacent write and reuses exactly that credential — no new secret.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/deprecate-packages.mjs ${{ inputs.apply && '--apply' || '' }}
