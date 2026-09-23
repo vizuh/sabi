@@ -2,10 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:http'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { setTimeout as delay } from 'node:timers/promises'
 import { registerSession } from '../src/registry.ts'
 
 const cliPath = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
@@ -433,4 +434,57 @@ test('setup installs hooks by default only for detected supported harnesses', ()
   assert.equal(existsSync(path.join(cwd, 'claude', 'settings.json')), true)
   assert.equal(existsSync(path.join(cwd, 'codex', 'hooks.json')), false)
   assert.equal(existsSync(path.join(cwd, 'opencode', 'opencode.json')), false)
+})
+
+/** Bounded poll, the same shape the proxy tests use: wait for the signal, never guess a duration. */
+async function listeningAddress(read: () => string): Promise<string | undefined> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const match = /listening on http:\/\/(127\.0\.0\.1:\d+)\/v1/.exec(read())
+    if (match?.[1]) return match[1]
+    await delay(50)
+  }
+  return undefined
+}
+
+test('sabi serve runs the proxy from the controller, without a checkout of the server package', async () => {
+  // The point of `serve`: the published controller ships the proxy, so installing it is enough to
+  // run one. The server keeps its own process and lifetime, so this reads the address it reports
+  // rather than reaching into it.
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-serve-'))
+  let child: ReturnType<typeof spawn> | undefined
+  try {
+    writeFileSync(path.join(cwd, 'sabi.config.json'), JSON.stringify({
+      upstreams: { mock: { baseURL: 'http://127.0.0.1:1/v1', apiKey: false } },
+      models: { cheap: { upstream: 'mock', model: 'm-cheap' } },
+      aliases: { 'sabi-code': 'auto' },
+      policy: { unclassified: 'cheap' },
+    }))
+    child = spawn(process.execPath, [cliPath, 'serve', '--port=0'], {
+      cwd,
+      env: { ...process.env, SABI_LOG: undefined, ORCA_CLI_COMMAND: '/nonexistent/sabi-test-orca-binary' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let output = ''
+    child.stdout?.setEncoding('utf8')
+    child.stdout?.on('data', (chunk: string) => { output += chunk })
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (chunk: string) => { output += chunk })
+
+    const address = await listeningAddress(() => output)
+    assert.ok(address, `the proxy reported its address (got: ${output})`)
+    const health = await fetch(`http://${address}/healthz`)
+    assert.equal(health.status, 200)
+    assert.deepEqual(await health.json(), { ok: true, models: ['sabi-code'], upstreams: ['mock'] })
+
+    // Stopping the CLI must stop the server it spawned, or the orphan keeps the test file's stdio
+    // open and the run never ends — which is how this behaved before `serve` forwarded signals.
+    const exited = new Promise<void>((resolve) => child?.once('exit', () => resolve()))
+    child.kill('SIGTERM')
+    const stopped = await Promise.race([exited.then(() => true), delay(10_000).then(() => false)])
+    assert.equal(stopped, true, 'SIGTERM to the CLI stops the server it spawned')
+    await assert.rejects(() => fetch(`http://${address}/healthz`, { signal: AbortSignal.timeout(2_000) }))
+  } finally {
+    child?.kill('SIGKILL')
+    rmSync(cwd, { recursive: true, force: true })
+  }
 })

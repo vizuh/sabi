@@ -32,14 +32,16 @@ Sabi is installed at user scope. You do not install it per worktree or choose a 
 For Claude Code, Codex and controller-backed OpenCode workflows, install the published controller:
 
 ~~~bash
-npm install --global @vizuh/sabi-controller@0.1.0
+npm install --global @vizuh/sabi-controller@0.1.3
 sabi setup
 sabi doctor
+sabi serve                         # the local proxy, http://127.0.0.1:8787/v1
 ~~~
 
-The `@vizuh/sabi-controller` package is released as `controller-v0.1.0`. For Hermes or OpenCode
-inference through the local Sabi proxy, use the [checkout-based proxy guide](docs/install.md): the
-controller package installs hooks and the daemon, not the proxy server or Hermes profile.
+The `@vizuh/sabi-controller` package is released as `controller-v0.1.3` and carries the proxy as well
+as the hooks and the daemon: `sabi serve` runs the same server a checkout runs with `npm start`, from
+the installed package, with no clone. Generating a Hermes or OpenCode *profile* still uses the
+[setup guide](docs/install.md), because that writes host configuration rather than running a server.
 
 If the user's current host AI is doing the installation, give it the [host-AI installation flow](docs/install.ai.md); it asks for the harness and route explicitly, and asks only for an OpenRouter key on proxy paths.
 

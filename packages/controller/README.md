@@ -8,6 +8,7 @@ Install Sabi once for the user, then use supported harnesses and Orca worktrees 
 npm install --global @vizuh/sabi-controller
 sabi setup
 sabi doctor
+sabi serve
 ```
 
 The package bundles the controller and its private workspace dependencies. It does not require a
@@ -23,7 +24,9 @@ exact controller version, and `sabi uninstall` restores hook backups while archi
 
 The first public release supports only the harness adapters listed by `sabi doctor`. An executable
 being present on `PATH` is not, by itself, proof that a harness is controller-integrated. Use
-`sabi sessions --json` to inspect bounded adapter registrations; registered sessions are not route
+`sabi serve` runs the local proxy in the foreground (the same server a checkout runs with
+`npm start`), so routing inference through Sabi needs no clone. `sabi sessions --json` to inspect
+bounded adapter registrations; registered sessions are not route
 targets until their adapter proves a dispatch transport.
 
 The daemon binds to loopback only, and the OpenCode bridge refuses non-loopback controller URLs.
