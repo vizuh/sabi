@@ -1409,3 +1409,29 @@ so there is nothing for the gate to refuse.
 Free-pool 429s remain the visible cost (see parent entry). Hermes `transportFallback: true` in
 the nous-free example retries cost-ordered, free-first, so it cannot escape to paid either —
 `getFallbackChain` applies the same billing filter.
+
+## 2026-09-23 — Effort observability before effort scheduling (record-only)
+
+### Context
+
+Proxy-side effort is the first of the two 10-mark partials: the proxy validates and forwards
+`reasoning_effort`/`reasoning.effort` but never schedules it, while `router.ts` and
+`compatibility.ts` have an active workstream (output-capacity promotion hardening) that a
+routing-behavior change would collide with.
+
+### Decision
+
+Record-only slice, no routing or dispatch change: `observeEffort` in
+`packages/core/src/telemetry.ts` mirrors the gate's single-form rule (exactly one nonempty
+effort string observes as `client`, anything else as `unspecified`); `DecisionRecord` gains
+optional `effort`/`effortSource` (`scheduled` reserved, never written); the server sets both
+once at record creation; `sanitizeDecisionRecord` persists them bounded (label ≤64 chars,
+source allowlisted); `npm run report` aggregates `byEffort` + `unspecifiedEffort`. Actual
+per-round effort scheduling stays a follow-up, after the router work lands and against live
+free-tier verification — injecting reasoning controls upstream without that evidence could break
+free-tier calls.
+
+### Validation
+
+7 new tests (helper unit, report aggregation, two proxy end-to-end including pass-through
+proof); full suite and typecheck green at the time of writing (see `log.md`).

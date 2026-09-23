@@ -436,6 +436,8 @@ export interface JudgeRecord {
   usage?: { inputTokens: number; outputTokens: number }
 }
 
+export type EffortSource = 'client' | 'scheduled' | 'unspecified'
+
 export interface DecisionRecord {
   ts: string
   sessionId: string
@@ -443,6 +445,12 @@ export interface DecisionRecord {
   sessionKnown?: boolean
   /** Server-generated request identity, independent of session grouping. */
   requestId?: string
+  /** Where the recorded reasoning effort came from. `scheduled` is reserved for a future
+   * effort-scheduling slice; only `client` and `unspecified` are written today. */
+  effortSource?: EffortSource
+  /** Client-requested reasoning effort for this round, when exactly one control form named one.
+   * Record-only: Sabi never injects or rewrites it today. */
+  effort?: string
   client?: 'hermes' | 'opencode' | 'kilo-cli' | 'kilo-vscode' | 'prime-agent' | 'deepseek-harness' | 'command-code' | 'sabi-surplus' | 'unknown'
   /** Hashed client turn identity; never raw prompt text or credentials. */
   turnId?: string

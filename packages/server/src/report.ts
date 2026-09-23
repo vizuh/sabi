@@ -24,6 +24,8 @@ const unattributedRequests = rows.filter(row => row.sessionKnown !== true).lengt
 const byTier = new Map<string, number>()
 const byRule = new Map<string, number>()
 const byModel = new Map<string, number>()
+const byEffort = new Map<string, number>()
+let unspecifiedEffort = 0
 let promptTokens = 0
 let completionTokens = 0
 let cachedTokens = 0
@@ -64,6 +66,8 @@ for (const row of rows) {
   byTier.set(row.tier, (byTier.get(row.tier) ?? 0) + 1)
   byRule.set(row.rule, (byRule.get(row.rule) ?? 0) + 1)
   byModel.set(row.upstreamModel, (byModel.get(row.upstreamModel) ?? 0) + 1)
+  if (typeof row.effort === 'string' && row.effort.trim()) byEffort.set(row.effort, (byEffort.get(row.effort) ?? 0) + 1)
+  else unspecifiedEffort += 1
   if (row.cache) {
     cacheCounts[row.cache.cacheStatus] += 1
     if (row.cache.action === 'keep') cacheRetained += 1
@@ -180,6 +184,8 @@ if (asJson) {
         byTier: Object.fromEntries(byTier),
         byRule: Object.fromEntries(byRule),
         byModel: Object.fromEntries(byModel),
+        byEffort: Object.fromEntries(byEffort),
+        unspecifiedEffort,
         promptTokens,
         completionTokens,
         cachedTokens,
@@ -219,6 +225,7 @@ if (asJson) {
   console.log(`by tier   ${formatMap(byTier)}`)
   console.log(`by rule   ${formatMap(byRule)}`)
   console.log(`by model  ${formatMap(byModel)}`)
+  console.log(`by effort ${formatMap(byEffort)} · unspecified ${unspecifiedEffort}`)
   console.log(`cache     hits ${cacheCounts.hit} · misses ${cacheCounts.miss} · unknown ${cacheCounts.unknown} · retained ${cacheRetained} · switched ${cacheSwitched} · reprocessed ${cacheReprocessTokens.toLocaleString()} tok`)
   if (judgeCalls > 0) {
     const avg = judgeLatencyCount ? Math.round(judgeLatencyMs / judgeLatencyCount) : 0

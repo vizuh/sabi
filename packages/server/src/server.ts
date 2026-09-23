@@ -16,6 +16,7 @@ import {
   keyReferenceName,
   loadRecovery,
   measuredContextTokens,
+  observeEffort,
   resolveKey,
   route,
   SabiRouteError,
@@ -570,10 +571,13 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     const body = parsed as ChatRequestBody
     stage = 'route'
     decision = route(body, config, observeSession(state, identity, body))
+    const effort = observeEffort(body)
     record = {
       ts: new Date().toISOString(), ...identity,
       alias: decision.alias, mode: decision.mode, rule: decision.rule, tier: decision.tier,
       reason: '', upstream: decision.upstream, upstreamModel: decision.upstreamModel,
+      ...(effort.value !== undefined ? { effort: effort.value } : {}),
+      effortSource: effort.source,
       stream: body.stream === true, state: decision.state, outcome: 'ok',
     }
     saveDecision(decision)
