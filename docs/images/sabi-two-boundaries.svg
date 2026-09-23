@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 500" role="img" aria-labelledby="title desc">
+  <title id="title">Two boundaries: inference routing and controller handoff</title>
+  <desc id="desc">The inference boundary chooses the model and provider for the next round from trajectory state. The controller boundary continues, delegates, or spawns only on safe execution receipts.</desc>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 H0 V40" fill="none" stroke="#ffffff" stroke-opacity="0.05" stroke-width="1"/>
+    </pattern>
+    <style>
+      .sans { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    </style>
+  </defs>
+  <rect width="1200" height="500" fill="#0b0f14"/>
+  <rect width="1200" height="500" fill="url(#grid)"/>
+  <text class="sans" x="60" y="58" font-size="28" font-weight="800" fill="#f2f5f9">Two boundaries, not one</text>
+  <text class="sans" x="60" y="86" font-size="15" fill="#8b98a9">Inference routing and controller handoff share concepts — they are not interchangeable.</text>
+  <rect x="48" y="120" width="1104" height="150" rx="14" fill="#10161e" stroke="#2b3948"/>
+  <rect x="48" y="120" width="6" height="150" fill="#34d399"/>
+  <text class="mono" x="80" y="158" font-size="13" letter-spacing="2" fill="#7d8ea3">INFERENCE BOUNDARY</text>
+  <text class="sans" x="80" y="196" font-size="21" font-weight="800" fill="#f2f5f9">Choose the model + provider for the next round</text>
+  <text class="sans" x="1120" y="196" font-size="14" fill="#8b98a9" text-anchor="end">via mod · proxy</text>
+  <rect x="80" y="214" width="153" height="32" rx="16" fill="#161e29" stroke="#2b3948"/>
+  <text class="mono" x="156" y="235" font-size="13" fill="#aeb9c7" text-anchor="middle">trajectory state</text>
+  <rect x="241" y="214" width="106" height="32" rx="16" fill="#161e29" stroke="#2b3948"/>
+  <text class="mono" x="294" y="235" font-size="13" fill="#aeb9c7" text-anchor="middle">tool_calls</text>
+  <rect x="355" y="214" width="90" height="32" rx="16" fill="#161e29" stroke="#2b3948"/>
+  <text class="mono" x="400" y="235" font-size="13" fill="#aeb9c7" text-anchor="middle">failures</text>
+  <rect x="453" y="214" width="83" height="32" rx="16" fill="#161e29" stroke="#2b3948"/>
+  <text class="mono" x="494" y="235" font-size="13" fill="#aeb9c7" text-anchor="middle">context</text>
+  <rect x="48" y="290" width="1104" height="150" rx="14" fill="#10161e" stroke="#2b3948"/>
+  <rect x="48" y="290" width="6" height="150" fill="#60a5fa"/>
+  <text class="mono" x="80" y="328" font-size="13" letter-spacing="2" fill="#7d8ea3">CONTROLLER BOUNDARY</text>
+  <text class="sans" x="80" y="366" font-size="21" font-weight="800" fill="#f2f5f9">Continue · delegate · spawn — only on safe receipts</text>
+  <text class="sans" x="1120" y="366" font-size="14" fill="#8b98a9" text-anchor="end">via hooks</text>
+  <rect x="80" y="384" width="168" height="32" rx="16" fill="#161e29" stroke="#2b3948"/>
+  <text class="mono" x="164" y="405" font-size="13" fill="#aeb9c7" text-anchor="middle">execution receipts</text>
+  <rect x="256" y="384" width="90" height="32" rx="16" fill="#161e29" stroke="#2b3948"/>
+  <text class="mono" x="301" y="405" font-size="13" fill="#aeb9c7" text-anchor="middle">rollback</text>
+  <rect x="354" y="384" width="67" height="32" rx="16" fill="#161e29" stroke="#2b3948"/>
+  <text class="mono" x="387" y="405" font-size="13" fill="#aeb9c7" text-anchor="middle">hooks</text>
+  <text class="sans" x="600" y="474" font-size="15" fill="#8b98a9" text-anchor="middle">A hook does not prove native model switching. A catalog entry does not prove plan entitlement.</text>
+</svg>

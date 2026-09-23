@@ -21,7 +21,9 @@ Sabi is a host-agnostic routing layer, not another agent harness or editor. Adap
 > [!TIP]
 > Sabi has two boundaries: inference routing (model/provider per round) and controller handoffs (continue/delegate/spawn). A hook install is not model switching; a catalog listing is not plan entitlement; a mock pass is not a savings benchmark.
 
-![Sabi routing architecture: harness keeps its loop, adapter translates host events, Sabi core classifies the round and records evidence](docs/images/sabi-routing.svg)
+![One coding task routed across five rounds: cheap, mid, mid, strong, mid](docs/images/sabi-trajectory-hero.svg)
+
+> Sabi doesn't choose one model for the task. It chooses the capacity needed for the next round.
 
 ## Install Sabi once
 
@@ -61,6 +63,10 @@ Give the installing agent [SKILL.md](SKILL.md) and the [machine index](llms.txt)
 
 ## The 60-second mental model
 
+![Fixed router decides once for the whole task; Sabi decides every round](docs/images/sabi-vs-fixed-routing.svg)
+
+> Most routers decide from the request. Sabi can decide from what actually happened.
+
 One task produces a trajectory, not one request:
 
 ~~~mermaid
@@ -71,6 +77,8 @@ flowchart LR
   M --> H
   S --> E["Decision + evidence"]
 ~~~
+
+![Seven rounds, one trajectory: session, search, edit, test, failure, recovery, verify](docs/images/sabi-round-timeline.svg)
 
 A **Command Code** trajectory might look like:
 
@@ -101,6 +109,8 @@ Sabi currently has two product families:
 The families share routing concepts and core types, but they are not interchangeable. A Claude or
 Codex hook does not prove native model switching. A model catalog entry does not prove plan
 entitlement. A local mock test does not prove model quality or savings.
+
+![Two boundaries: inference routing chooses the model per round; controller handoff continues, delegates, or spawns on receipts](docs/images/sabi-two-boundaries.svg)
 
 Support is reported in layers:
 
@@ -167,6 +177,10 @@ the next 24 hours. `--json` is available for scripts.
 
 The deterministic policy classifies the current state first, then applies hard constraints before
 selecting a tier:
+
+Architecture reference — host event in, bounded decision out:
+
+![Sabi routing architecture: harness keeps its loop, adapter translates host events, Sabi core classifies the round and records evidence](docs/images/sabi-routing.svg)
 
 ~~~mermaid
 flowchart TD
