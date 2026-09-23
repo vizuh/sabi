@@ -1,5 +1,5 @@
 {
-  "provenance": "Operator rule (2026-09-22): OpenRouter may serve FREE models only. The openrouter upstream declares paidModelsAllowed:false, so any model whose price is unknown or non-zero is refused at dispatch (packages/core/src/compatibility.ts) — a config mistake cannot spend money. Every openrouter model id below carries the :free variant and cost 0. Ids, context windows, output ceilings, modalities and zero pricing verified live from https://openrouter.ai/api/v1/models and a real completion per id on 2026-09-22. Jev (TypeSafe judge) is a separate upstream and unaffected by this rule. Operator rule (2026-09-23): Claude Code and Codex are used through their own subscriptions — Sabi installs hooks into them and never writes a provider base URL, an API key or a model override into either harness, so neither can become per-token spend through Sabi. Guarded by packages/controller/test/hooks.test.ts.",
+  "provenance": "Operator rule (2026-09-22): OpenRouter may serve FREE models only. The openrouter upstream declares paidModelsAllowed:false, so any model whose price is unknown or non-zero is refused at dispatch (packages/core/src/compatibility.ts) — a config mistake cannot spend money. Every openrouter model id below carries the :free variant and cost 0. Ids, context windows, output ceilings, modalities and zero pricing verified live from https://openrouter.ai/api/v1/models and a real completion per id on 2026-09-22. Jev (TypeSafe judge) is a separate upstream and unaffected by this rule. Operator rule (2026-09-23): Claude Code and Codex are used through their own subscriptions — Sabi installs hooks into them and never writes a provider base URL, an API key or a model override into either harness, so neither can become per-token spend through Sabi. Guarded by packages/controller/test/hooks.test.ts. Operator rule (2026-09-23): transport fallback is ON. Every configured tier is an OpenRouter `:free` model, and those are served from shared upstream pools that rate-limit the whole pool (`limit_source: upstream_provider_shared_pool` in the provider's own 429 body), so a 429 on one free model is routed to the next serving tier instead of ending the round. Fixed aliases are unaffected by design.",
   "server": { "host": "127.0.0.1", "port": 8787 },
   "upstreams": {
     "openrouter": {
@@ -70,9 +70,7 @@
     "exploration": "cheap",
     "unclassified": "cheap"
   },
-  "transportFallback": {
-    "enabled": false
-  },
+  "transportFallback": { "enabled": true },
   "telemetry": {
     "allowlistOnly": true,
     "captureSnippets": false,
