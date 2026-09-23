@@ -7,7 +7,20 @@ source reviewer can check exactly what was claimed.
 - **Repository:** https://github.com/vizuh/sabi (public, non-fork, MIT — `LICENSE` at the root)
 - **Pinned commit:** `7f626c392f799f84121a5abae2e0eb9dd56028ce` (2026-09-21, an ancestor of `main`)
 - **Form:** `.github/ISSUE_TEMPLATE/project.yml` in the directory repo
-- **Status:** prepared, not submitted — posting the issue needs Hugo's go-ahead
+- **Submitted:** [issue #74](https://github.com/logicrw/awesome-jev-projects/issues/74), 2026-09-23
+- **Outcome:** accepted and closed the same day — "项目已通过 Jev 源码集成检查" (passed the Jev
+  source integration check) — and published to the catalog as `vizuh:sabi`
+
+## Catalog entry
+
+`https://logicrw.github.io/awesome-jev-projects/projects.json` → `id: "vizuh:sabi"`, category
+`Routing & Cost Optimization`, tags `llm-routing-cost`, `coding-agents`, `typed-decisions`.
+
+The directory ran its own source review rather than trusting the links above: it resolved the
+repository's `main` HEAD at review time (`208ee753f7598514d0de2ec8966d31b70766bc01`) and pinned
+evidence to that commit, listing ten files — including `packages/core/src/jevPrReview.ts`,
+`packages/controller/src/agents.ts`, `model-health.ts` and `service.ts`, which this submission never
+cited. Its own discovery found more Jev integration surface than the submission claimed.
 
 ## Form fields
 

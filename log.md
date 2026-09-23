@@ -1413,3 +1413,31 @@ replaced by the two exact branch ranges (`#L363-L374`, `#L410-L419`); the test r
 entries, checked 2026-09-23) — the only near-match is `nekowasabi/jev-routing`, a different project.
 
 Docs only: no runtime code, no config, no test change, no publication.
+
+### [2026-09-23] submitted | Awesome Jev Projects accepted Sabi on the first attempt
+
+Opened [issue #74](https://github.com/logicrw/awesome-jev-projects/issues/74) and the directory's
+automated ingestion accepted it the same day: `review` and `validate` succeeded, the
+`respond-feedback` job (which only runs for a rejected submission) was skipped, `publish` committed
+to the directory's `main`, and a maintainer comment closed the issue with "项目已通过 Jev 源码集成
+检查". Sabi is live in the catalog as `vizuh:sabi` — category `Routing & Cost Optimization`, tags
+`llm-routing-cost`, `coding-agents`, `typed-decisions`, exactly as submitted.
+
+The body was written against the ingestion parser rather than the issue form, because
+`gh issue create` cannot submit a GitHub form template: `scripts/issue-ingestion.mjs` reads the
+repository URL from a section under a heading matching `REPOSITORY_FIELD`, the category under
+`CATEGORY_FIELD`, and the tags under `TAGS_FIELD`, and it strips a trailing `(...)` from those
+heading titles. The form's own labels carry Chinese suffixes, so the freeform headings from
+`SKILL.md` were used instead. The `project-submission` label does not exist in that repository, so
+ingestion keyed off the `[Project]:` title prefix.
+
+Two things worth recording. The directory did not trust the submitted links: it resolved the
+repository's `main` HEAD at review time (`208ee75`, this repository's submission-doc merge) and
+pinned its own evidence to that commit, listing ten files — four of which
+(`jevPrReview.ts`, `agents.ts`, `model-health.ts`, `service.ts`) this submission never cited. Its
+source discovery found more Jev integration surface than we claimed, which is the opposite of the
+usual failure mode. And the correction to the two wrong line ranges in the first draft was load
+bearing: the cited `judge.ts#L285-L380` never contained the difficulty re-tier it was cited for, and
+that link was the submission's central claim.
+
+No repository code, config or test changed. `docs/submission-awesome-jev.md` records the outcome.
