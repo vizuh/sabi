@@ -1,4 +1,5 @@
-import { buildEffectiveRequestEnvelope, resolveKey, type SabiConfig, type RouteDecision, type UsageTotals } from '@sabi/core'
+import type { IncomingMessage } from 'node:http'
+import { buildEffectiveRequestEnvelope, resolveKey, SabiRouteError, type SabiConfig, type RouteDecision, type UsageTotals } from '@sabi/core'
 
 export function joinUrl(baseURL: string, suffix: string): string {
   return `${baseURL.replace(/\/+$/, '')}/${suffix.replace(/^\/+/, '')}`
@@ -107,4 +108,38 @@ export async function readResponseText(response: Response, cap = 32 * 1024 * 102
 export async function readErrorText(response: Response, cap = 32 * 1024 * 1024): Promise<string> {
   if (!response.body) return ''
   return readResponseText(response, cap, false)
+}
+
+/** Largest request Sabi will buffer. An incomplete upload must not outlive the request deadline. */
+export const BODY_LIMIT = 32 * 1024 * 1024
+
+/** Bounded request read, shared by the OpenAI-compatible route and the borrowed-auth routes. */
+export function readRequestBody(req: IncomingMessage, signal: AbortSignal): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    const cleanup = () => {
+      req.off('data', data)
+      req.off('end', end)
+      req.off('error', error)
+      signal.removeEventListener('abort', abort)
+    }
+    const error = (reason: unknown) => { cleanup(); reject(reason) }
+    const abort = () => error(signal.reason)
+    const data = (chunk: Buffer) => {
+      size += chunk.length
+      if (size > BODY_LIMIT) {
+        error(new SabiRouteError('request body too large', 413))
+        req.resume()
+        return
+      }
+      chunks.push(chunk)
+    }
+    const end = () => { cleanup(); resolve(Buffer.concat(chunks)) }
+    req.on('data', data)
+    req.on('end', end)
+    req.on('error', error)
+    signal.addEventListener('abort', abort, { once: true })
+    if (signal.aborted) abort()
+  })
 }

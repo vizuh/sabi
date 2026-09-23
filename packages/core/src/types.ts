@@ -286,6 +286,12 @@ export interface UpstreamEntry {
    * or non-zero is refused, so a config mistake cannot spend money on a free-only upstream.
    */
   paidModelsAllowed?: boolean
+  /**
+   * Borrowed authentication. `passthrough` means this upstream holds no credential of its own:
+   * the request is forwarded with the credential the harness already sent, to the provider that
+   * credential belongs to. Sabi stores nothing, logs nothing, and never opens a credential file.
+   */
+  auth?: 'passthrough'
 }
 
 export interface JudgeThresholds {
@@ -362,6 +368,14 @@ export interface SabiConfig {
    */
   transportFallback?: {
     enabled?: boolean
+  }
+  /**
+   * Borrowed harness authentication. `alias` names the adaptive alias whose policy serves rounds
+   * that arrive in a harness's native wire format; the incoming model id is the harness's own label
+   * and is not an alias. Defaults to `sabi-code` when that alias is adaptive.
+   */
+  passthrough?: {
+    alias?: string
   }
 }
 

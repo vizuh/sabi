@@ -35,10 +35,10 @@ import {
   type SabiConfig,
 } from '@sabi/core'
 import { createSseTap, UpstreamStreamError, type SseTapResult } from './sse.ts'
+import { handlePassthrough, type PassthroughFormat } from './passthrough.ts'
 import { createTypesafeClient, type JudgeClient } from './typesafe.ts'
-import { buildUpstreamBody, callUpstream, chatResponseFromJson, isObject, readErrorText, readResponseText, UpstreamProtocolError, usageFromJson } from './upstream.ts'
+import { buildUpstreamBody, callUpstream, chatResponseFromJson, isObject, readErrorText, readRequestBody, readResponseText, UpstreamProtocolError, usageFromJson } from './upstream.ts'
 
-const BODY_LIMIT = 32 * 1024 * 1024
 const RECENT_LIMIT = 200
 
 /**
@@ -326,35 +326,6 @@ function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   })
 }
 
-function readBody(req: IncomingMessage, signal: AbortSignal): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    let size = 0
-    const cleanup = () => {
-      req.off('data', data)
-      req.off('end', end)
-      req.off('error', error)
-      signal.removeEventListener('abort', abort)
-    }
-    const error = (reason: unknown) => { cleanup(); reject(reason) }
-    const abort = () => error(signal.reason)
-    const data = (chunk: Buffer) => {
-      size += chunk.length
-      if (size > BODY_LIMIT) {
-        error(new SabiRouteError('request body too large', 413))
-        req.resume()
-        return
-      }
-      chunks.push(chunk)
-    }
-    const end = () => { cleanup(); resolve(Buffer.concat(chunks)) }
-    req.on('data', data)
-    req.on('end', end)
-    req.on('error', error)
-    signal.addEventListener('abort', abort, { once: true })
-    if (signal.aborted) abort()
-  })
-}
 
 function modelSummary(config: SabiConfig) {
   // Advertise a conservative window for both policy and optional judge decisions.
@@ -472,6 +443,20 @@ async function handleRequest(state: ServerState, req: IncomingMessage, res: Serv
     await handleChat(state, req, res)
     return
   }
+  // Borrowed-authentication routes: the harness's own wire format, forwarded with the harness's
+  // own credential. Same JSON-only dispatch rule as the OpenAI route — `text/plain` is a CORS
+  // simple request that a foreign page could fire without ever reading the response.
+  if (req.method === 'POST' && (path === '/v1/messages' || path === '/v1/responses')) {
+    const contentType = Array.isArray(req.headers['content-type'])
+      ? req.headers['content-type'].join(',')
+      : req.headers['content-type']
+    if (!contentType || !contentType.toLowerCase().includes('application/json')) {
+      sendError(res, 415, 'content-type must be application/json')
+      return
+    }
+    await handlePassthroughRequest(state, req, res, path === '/v1/messages' ? 'anthropic' : 'responses')
+    return
+  }
   if (req.method === 'GET' && (path === '/v1/models' || path === '/models')) {
     sendJson(res, 200, { object: 'list', data: modelSummary(state.options.config) })
     return
@@ -492,6 +477,63 @@ async function handleRequest(state: ServerState, req: IncomingMessage, res: Serv
     return
   }
   sendError(res, 404, `no route for ${req.method} ${path}`, 'not_found')
+}
+
+/**
+ * One borrowed round. The deadline, the abort wiring and the identity fields are the same as the
+ * OpenAI route, so a borrowed round cannot outlive its budget or record a different identity.
+ */
+async function handlePassthroughRequest(
+  state: ServerState,
+  req: IncomingMessage,
+  res: ServerResponse,
+  format: PassthroughFormat,
+): Promise<void> {
+  const controller = new AbortController()
+  const { signal } = controller
+  const timeout = setTimeout(() => controller.abort(new DOMException('request deadline exceeded', 'TimeoutError')),
+    state.options.requestTimeoutMs ?? 120_000)
+  timeout.unref()
+  const disconnected = () => {
+    if (!res.writableFinished) controller.abort(new DOMException('client aborted', 'AbortError'))
+  }
+  req.once('aborted', disconnected)
+  res.once('close', disconnected)
+  try {
+    await handlePassthrough(
+      { config: state.options.config, logFile: state.logFile, recent: state.recent, identity: requestIdentity(req) },
+      req,
+      res,
+      format,
+      signal,
+    )
+  } catch (error) {
+    const deadline = signal.aborted && (signal.reason as Error)?.name === 'TimeoutError'
+    const aborted = signal.aborted && !deadline
+    const status = deadline ? 504 : error instanceof SabiRouteError ? error.status : 502
+    const message = deadline ? 'request deadline exceeded' : aborted ? 'client aborted'
+      : error instanceof SabiRouteError ? error.message : 'borrowed upstream request failed'
+    if (!res.destroyed && !res.writableFinished) {
+      if (aborted) {
+        res.destroy()
+      } else if (res.headersSent) {
+        // Already committed as 200, so the failure cannot become a status code: end the stream with
+        // an explicit SSE error frame instead of a silent close the client cannot classify.
+        try {
+          res.write(`data: ${JSON.stringify({ type: 'error', error: { type: 'sabi_error', message } })}\n\n`)
+          res.end()
+        } catch {
+          res.destroy()
+        }
+      } else {
+        sendError(res, status, message)
+      }
+    }
+  } finally {
+    clearTimeout(timeout)
+    req.off('aborted', disconnected)
+    res.off('close', disconnected)
+  }
 }
 
 async function handleChat(state: ServerState, req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -561,7 +603,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
   try {
     const identity = requestIdentity(req)
     res.setHeader('x-sabi-request-id', identity.requestId!)
-    const raw = await readBody(req, signal)
+    const raw = await readRequestBody(req, signal)
     let parsed: unknown
     try { parsed = JSON.parse(raw.toString('utf8')) } catch { throw new SabiRouteError('invalid request body') }
     if (!isObject(parsed) || !Array.isArray(parsed.messages) || !parsed.messages.length ||

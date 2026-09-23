@@ -21,6 +21,37 @@ If a host has no verified execution seam, Sabi can still document or observe the
 | Move work between existing sessions/worktrees | Claude Code, Codex, OpenCode controller hooks + Orca | Task/session controller |
 | Add a new host | Follow [the maintainer contract](../maintainers.md) | Adapter proposal |
 
+## Borrowed authentication
+
+Sabi can sit between a harness and the model it already talks to. The harness keeps its own
+credential and keeps sending it; Sabi decides which model serves each round and forwards the
+request with the credential it received, to the provider that credential belongs to. **Sabi holds
+no credential of its own on this path** — no file is opened, nothing is written to disk, and the
+only outbound destination is the provider the harness would have called itself. The upstream is
+declared `auth: passthrough`, which forbids an `apiKey` on it.
+
+The harness sends its own wire format, so Sabi accepts the harness's protocol directly:
+`POST /v1/messages` (Anthropic Messages) and `POST /v1/responses` (OpenAI Responses), alongside the
+existing `POST /v1/chat/completions`. Only the `model` field is rewritten.
+
+| Adapter | Borrowed rounds | How the harness is repointed |
+| --- | --- | --- |
+| [Claude Code](claude-code.md) | Yes — Anthropic Messages | `ANTHROPIC_BASE_URL` points at Sabi; Claude Code keeps its own subscription credential |
+| [Codex](codex.md) | Yes — OpenAI Responses | A `model_providers.<id>` entry with `base_url` and `wire_api` |
+| [Oh My Pi](oh-my-pi.md) | Yes — either format | `pi.registerProvider("<provider>", { baseUrl })` overrides a built-in provider; OMP keeps its own credential |
+| [OpenCode](opencode.md) | Yes — either format | A provider entry with a custom `baseURL` |
+| [Hermes](hermes.md) | Yes — either format | Hermes' own provider base URL points at Sabi |
+| [Cline](cline.md) / [Kilo](kilo.md) | Partly | Their custom OpenAI-compatible provider accepts a base URL; the key configured there is the one Sabi forwards, so this is a key you supplied, not a subscription borrow |
+| [DeepSeek Harness](deepseek-harness.md) | No — uses the OpenAI route | It is an OpenAI-compatible client, so it uses `sabi/sabi-code`, not a borrowed native format |
+| [Command Code](command-code.md) | No | The mod runs in-process inside the harness; there is no base URL to repoint |
+| [Orca](orca.md) | No | Orca is the editor/coordinator, not a model client |
+| [Prime Agent](prime-agent.md) | Unverified | A custom provider entry may accept a base URL; not verified here |
+
+Rows marked *yes* state what the harness documents, not a live run against a paid subscription. The
+borrowed route refuses rather than guessing: a round with no credential on the request, or a tier
+whose upstream holds its own key, is refused with a typed error instead of falling back to a
+different provider.
+
 ## Capability map
 
 | Adapter | Form | Current status | Optional entry point |

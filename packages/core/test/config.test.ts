@@ -437,3 +437,38 @@ test('judge.includeSnippets is an optional boolean egress opt-in', () => {
     /judge\.includeSnippets must be a boolean/,
   )
 })
+
+test('a borrowed upstream holds no credential, and its alias must be adaptive', () => {
+  const borrowed = {
+    ...minimal,
+    upstreams: { borrowed: { baseURL: 'http://127.0.0.1:2', auth: 'passthrough' }, mock: minimal.upstreams.mock },
+    aliases: { 'sabi-code': 'auto', 'sabi-fixed': 'cheap' },
+  }
+  // The point of `auth: passthrough` is that Sabi holds nothing: a declared key would be a second
+  // credential for the same call, which is exactly what this mode exists to avoid.
+  assert.equal(validateConfig(borrowed).upstreams.borrowed!.auth, 'passthrough')
+  assert.throws(
+    () => validateConfig({ ...borrowed, upstreams: { ...borrowed.upstreams, borrowed: { baseURL: 'http://127.0.0.1:2', auth: 'passthrough', apiKey: '$SOME_KEY' } } }),
+    /is auth:passthrough and must not declare apiKey/,
+  )
+  assert.throws(
+    () => validateConfig({ ...borrowed, upstreams: { ...borrowed.upstreams, borrowed: { baseURL: 'http://127.0.0.1:2', auth: 'borrowed' } } }),
+    /upstream 'borrowed'\.auth must be 'passthrough'/,
+  )
+
+  // A borrowed round needs the adaptive policy: a fixed alias would pin every harness round to one
+  // model and defeat the point of sitting between the harness and the model.
+  assert.equal(validateConfig({ ...borrowed, passthrough: { alias: 'sabi-code' } }).passthrough!.alias, 'sabi-code')
+  assert.throws(
+    () => validateConfig({ ...borrowed, passthrough: { alias: 'sabi-fixed' } }),
+    /passthrough\.alias 'sabi-fixed' must name an alias targeting 'auto'/,
+  )
+  assert.throws(
+    () => validateConfig({ ...borrowed, passthrough: { alias: 'nope' } }),
+    /passthrough\.alias 'nope' must name an alias targeting 'auto'/,
+  )
+  assert.throws(
+    () => validateConfig({ ...borrowed, passthrough: { aliases: ['sabi-code'] } }),
+    /passthrough\.aliases is not a supported field/,
+  )
+})

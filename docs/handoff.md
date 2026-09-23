@@ -1161,3 +1161,16 @@ refreshes the adapter copies it owns instead of only replacing the bundle. Valid
 Unreleased: npm serves `@vizuh/sabi-controller@0.1.0`, so none of the controller work from
 2026-09-23 reaches users until a `controller-v*` tag is pushed (see
 `.github/workflows/controller-release.yml`).
+
+## Borrowed harness authentication — 2026-09-23
+
+`POST /v1/messages` and `POST /v1/responses` are live on the proxy: the harness's own wire format,
+routed by Sabi, forwarded with the harness's own credential to the provider it belongs to. Sabi
+holds no key on this path; `auth: passthrough` upstreams are forbidden from declaring one. Refusal
+is explicit when there is no credential on the round or the tier's upstream is keyed.
+
+Verified by `packages/server/test/passthrough.test.ts` (9/9) and `packages/core/test/config.test.ts`
+(28/28). Not verified against a live paid subscription — protocol and refusal evidence only.
+
+For Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:8787 claude`, with an `anthropic` upstream at
+`auth: passthrough` and tiers pointing at Anthropic model ids.

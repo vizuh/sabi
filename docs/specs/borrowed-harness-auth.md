@@ -1,6 +1,9 @@
 # Borrowed harness authentication
 
-Status: design accepted by the operator 2026-09-23; not implemented. Slice 1 is named at the end.
+Status: implemented 2026-09-23. Slices 1 and 3 have landed (`/v1/messages`, `/v1/responses`,
+`auth: passthrough`, the OMP provider override). Slice 2 (Codex Responses recipe) and slice 4
+(cross-provider borrowing) have not. Verified by `packages/server/test/passthrough.test.ts` and
+`packages/core/test/config.test.ts`; not yet exercised against a live paid subscription.
 
 ## Contract
 
