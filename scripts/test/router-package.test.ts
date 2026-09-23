@@ -14,16 +14,20 @@ const pkgDir = path.join(repoRoot, 'packages/core/pkg')
  * routes. A bundle that only imports from inside this repository is not a library — it fails for the
  * first consumer, which is exactly the failure the packer's own guard cannot see.
  */
-test('the router package builds, is self-contained, and routes from its own entry', async () => {
+test('the Sabi package builds, carries the Command Code mod, is self-contained, and routes', async () => {
   execFileSync(process.execPath, [path.join(repoRoot, 'packages/core/pack.mjs')], { cwd: repoRoot, stdio: 'pipe' })
 
   const manifest = JSON.parse(readFileSync(path.join(pkgDir, 'package.json'), 'utf8')) as {
     name: string; version: string; types: string; files: string[]
   }
-  assert.equal(manifest.name, '@vizuh/sabi-router')
+  assert.equal(manifest.name, '@vizuh/sabi')
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/)
   assert.equal(manifest.types, './src/index.ts', 'the typed entry ships from source')
   for (const file of manifest.files) assert.equal(existsSync(path.join(pkgDir, file)), true, `${file} is in files but not built`)
+  // The short name used to point at the mod alone. It now carries the layer *and* the mod, so an
+  // existing `cmd mods add -g npm:@vizuh/sabi` install keeps resolving a real file.
+  const packed = JSON.parse(readFileSync(path.join(pkgDir, 'package.json'), 'utf8')) as { commandcode?: { mods: string[] } }
+  assert.deepEqual(packed.commandcode?.mods, ['./mod/sabi.mjs'], 'the mod manifest still points at a file that ships')
 
   // Loaded by path, not through the workspace: the bundle must stand on its own.
   const bundle = await import(pathToFileURL(path.join(pkgDir, 'dist/index.mjs')).href)

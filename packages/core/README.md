@@ -1,4 +1,4 @@
-# @vizuh/sabi-router
+# @vizuh/sabi
 
 **Sabi is the thin routing layer for coding agents.** It decides *which model, reasoning effort and
 provider* should serve the next round of a task, from the evidence that round actually produced —
@@ -45,8 +45,10 @@ install proves none of those.
 
 | Package | What it is |
 |---|---|
-| `@vizuh/sabi-controller` | The user-level product around this layer: `sabi setup`, `sabi serve`, `sabi doctor`, `sabi updates` |
-| `@vizuh/sabi` | Sabi's Command Code mod (deprecated in favour of the layers above) |
+| `@vizuh/sabi-controller` | The CLI around this layer: `sabi setup`, `sabi serve`, `sabi doctor`, `sabi updates` |
+
+This package also carries Sabi's Command Code mod at `mod/sabi.mjs`, so `cmd mods add -g npm:@vizuh/sabi` works from this package too.
+| `@vizuh/sabi-commandcode` | The stand-alone Command Code mod, if you want the mod without the layer |
 | host adapters | Claude Code, Codex, OpenCode, Oh My Pi, Hermes, Kilo, Cline, Prime Agent, Orca, DeepSeek Harness |
 
 ## License
