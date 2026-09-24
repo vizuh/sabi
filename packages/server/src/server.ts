@@ -37,6 +37,7 @@ import {
 import { createSseTap, UpstreamStreamError, type SseTapResult } from './sse.ts'
 import { handlePassthrough, type PassthroughFormat } from './passthrough.ts'
 import { createTypesafeClient, type JudgeClient } from './typesafe.ts'
+import { HealthMonitor, type UpstreamHealth } from './healthcheck.ts'
 import { buildUpstreamBody, callUpstream, chatResponseFromJson, isObject, readErrorText, readRequestBody, readResponseText, UpstreamProtocolError, usageFromJson } from './upstream.ts'
 
 const RECENT_LIMIT = 200
@@ -98,6 +99,10 @@ interface ServerState {
   sessions: Map<string, SessionMemory>
   /** Loaded once at startup (never inside a request); undefined if the load failed. */
   recoveryProfile?: RecoveryProfile
+  /** Live upstream health monitor. */
+  health?: HealthMonitor
+  /** Epoch ms of the last health probe round; updated on each tick. */
+  healthTick?: number
 }
 
 interface SessionMemory {
@@ -395,6 +400,12 @@ export function createSabiServer(options: SabiServerOptions): SabiServer {
     })
   })
 
+  // Probe upstreams on startup and every 30s. A dead upstream is skipped by the
+  // router until it returns, so a downed Hermes proxy stops producing 502s.
+  const health = new HealthMonitor(state.options.config, () => { state.healthTick = Date.now() })
+  health.start()
+  state.health = health
+
   server.requestTimeout = requestTimeoutMs
   server.timeout = 0 // Active chat requests have a total deadline, not an idle timeout.
   server.headersTimeout = Math.min(requestTimeoutMs, 60_000)
@@ -413,6 +424,7 @@ export function createSabiServer(options: SabiServerOptions): SabiServer {
       })
     },
     close(): Promise<void> {
+      health.stop()
       return new Promise((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))
       })
@@ -461,12 +473,18 @@ async function handleRequest(state: ServerState, req: IncomingMessage, res: Serv
     sendJson(res, 200, { object: 'list', data: modelSummary(state.options.config) })
     return
   }
-  if (req.method === 'GET' && path === '/healthz') {
+  if (req.method === 'GET' && (path === '/healthz' || path === '/health')) {
+    const upstreams = state.health
+      ? state.health.snapshot().map((h: UpstreamHealth) => ({
+          name: h.name, ok: h.alive, lastChecked: h.lastChecked, ...(h.lastError ? { error: h.lastError } : {}),
+        }))
+      : Object.keys(state.options.config.upstreams).map((name) => ({ name, ok: true }))
     // Never leak the absolute log path: it is host filesystem layout, not health.
     sendJson(res, 200, {
       ok: true,
       models: Object.keys(state.options.config.aliases),
-      upstreams: Object.keys(state.options.config.upstreams),
+      upstreams,
+      ...(state.healthTick ? { lastProbe: state.healthTick } : {}),
     })
     return
   }
