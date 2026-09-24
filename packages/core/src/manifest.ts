@@ -41,7 +41,7 @@ export function loadAdapterManifest(
   const downgrades: AdapterCapability[] = []
 
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { ok: false, refusals: [{ surface: 'manifest', reason: 'manifest must be a JSON object' }] }
+    return { ok: false, refusals: [{ surface: 'manifest', reason: 'manifest must be a JSON object' }], downgrades: [] }
   }
   const m = raw as Record<string, unknown>
 

@@ -773,8 +773,8 @@ export type ConformanceVerdict =
 export interface ConformanceCheck {
   id: string
   name: string
-  /** Pure function of the IR; no host interaction. */
-  check: (ir: TrajectoryIR) => boolean
+  /** Pure function of the IR and manifest; no host interaction. */
+  check: (ir: TrajectoryIR, manifest: AdapterManifest) => boolean
 }
 
 export interface ConformanceReport {

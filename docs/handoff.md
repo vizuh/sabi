@@ -1,4 +1,17 @@
 # Handoff Notes
+
+## Spec 012 — evidence-scored routing (L0–L4) — 2026-09-24 (uncommitted)
+
+Created `specs/012-evidence-scored-routing/` (spec.md, plan.md, tasks.md). This
+spec describes an additive evidence-scoring layer on top of the existing
+priority-ordered rule cascade — the `RouteLevel` L0–L4 enum with signal
+weights and score-to-tier thresholds from the user's escalation vision. The
+score is a pure per-round signal accumulator that suggests an initial tier; the
+existing hard gates (transport, stuck cap, judge veto, paid/free enforcement)
+remain authoritative. L2/FREE_ENSEMBLE depends on spec 003 (fanout); PAID_MID/
+PAID_STRONG require a paid-capable upstream opt-in. No code changes — this is
+spec/documentation only. See `log.md` entry [2026-09-24].
+
 ## Specs 005–011 + roadmap Track B — 2026-09-23 (uncommitted)
 
 Seven new specs (005 IR/conformance, 006 continuity/reliability/durable, 007 ACP/A2A,

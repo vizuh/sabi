@@ -1496,3 +1496,63 @@ exactly as before — the three declared tiers win on name. This is deliberate: 
 evidence, and Sabi never refuses a route for lack of evidence. The path to full dynamic
 free-model selection is now open; it needs the server to pass a catalog into `route()`,
 which is a separate wiring task.
+
+## 2026-09-24 — Decision envelope and adapter conformance suite (spec 005 Phase 3–4)
+
+### Context
+
+The Trajectory IR is the way in; the Decision envelope is the way out. With the
+IR boundary landed, the symmetric output was missing: hosts still consumed N
+bespoke decision shapes, and adapter conformance was prose in `maintainers.md`
+rather than a measured suite. The synthesis is explicit that this eliminates
+more bugs than thousands of lines of router logic.
+
+### Decision
+
+- **Decision envelope** (`packages/core/src/decision.ts`): `renderDecisionEnvelope`
+  renders one host-facing envelope per planned round — action, model, provider,
+  effort, deadline, lock/affinity, fallback chain, reason. Fields a host cannot
+  express are refused with a reason and recorded in `refused`; the remainder of
+  the decision still applies, so a refusal never silently drops the whole
+  envelope. An undeclared capability reads as all-unknown, never as permissive.
+  The fallback chain is derived (`fallbackFor`), never generated: a fixed order
+  Sabi falls back through when the primary action is unavailable.
+- **Adapter manifest** (`packages/core/src/manifest.ts`): `loadAdapterManifest`
+  validates a machine-readable `adapter.json` with explicit outcomes — accept,
+  refuse-with-reason (stale protocol, missing fields, over-claiming), and
+  downgrade (undeclared capability, adapter still loads degraded). A manifest is
+  a declaration, never a capability probe: Sabi consumes it.
+- **Conformance suite** (`packages/core/src/conformance.ts`): six shared checks
+  (`manifest-valid`, `evidence-allowlisted`, `untranslatable-listed`,
+  `unknown-not-invented`, `no-secret-leak`, `receipt-bounded`) plus four named
+  verdicts — conformant / lossy / unstable / leaking / refused. Fixture adapters
+  prove each verdict; `summarizeConformance` aggregates across adapters.
+- **`sabi adapter verify <id>`** (`packages/controller/src/cli.ts`): runs the
+  shared suite for one adapter from its built-in manifest. Pure, no host
+  interaction — the suite doubles as a golden compatibility test.
+- First manifest shipped: `packages/adapters/opencode/adapter.json`
+  (`adapterProtocol: 2`, surfaces, capability claims, and an explicit
+  `paidSpend` refusal).
+
+### Why
+
+The IR alone does not fix the adapter explosion; the decision shape does. And
+conformance turns `maintainers.md` from documentation into a legible, repeatable
+gate. Both are additive: no existing routing, dispatch, or host behavior changed.
+
+### Validation
+
+`packages/core/test/decision.test.ts` (7/7), `manifest.test.ts` (9/9),
+`conformance.test.ts` (7/7), `ir.test.ts` (5/5). `npm test` **698/696** — the
+one remaining failure is the same pre-existing `modelRequired` drift
+(`explicit preferredModels still win over useFreeCatalog auto-selection`),
+which reproduces identically on the pre-merge parent `80928e5` (644/645) and is
+unrelated to this work. `npm run typecheck` clean apart from it.
+
+### Tradeoff
+
+The CLI `verify` path builds a fixture IR from the built-in harness manifest
+rather than reading a live adapter's `adapter.json`. That keeps the suite pure
+(no host interaction, isolated-profile safe), but it means `sabi adapter verify`
+validates the *declared* contract, not a shipped manifest file. Reading a
+shipped manifest is the next step once two adapters ship `adapter.json`.

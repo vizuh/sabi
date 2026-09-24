@@ -18,6 +18,7 @@ import {
 } from './daemon.ts'
 import { configuredHarnesses } from './inventory.ts'
 import { adapterReady, builtInAdapterManifests, commandAvailable } from './adapter-contract.ts'
+import { runConformance, summarizeConformance, mergeConformanceChecks, CONFORMANCE_CHECKS, type ConformanceFixture } from '@sabi/core'
 import { readSessionRegistry } from './registry.ts'
 import { defaultControllerLogPath, readControllerDecisions, summarizeControllerReplay } from './log.ts'
 import { dispatchControllerRequest, inventorySnapshot } from './runtime.ts'
@@ -28,9 +29,9 @@ import { runSurplusReview } from './surplus.ts'
 import { checkForUpdate, readCachedUpdate, startUpdateRefresh, takeUpdateNotice } from './updates.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'updates' | 'serve' | 'upgrade' | 'uninstall'
+type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'updates' | 'serve' | 'upgrade' | 'uninstall' | 'adapter'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'updates', 'serve', 'upgrade', 'uninstall'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'updates', 'serve', 'upgrade', 'uninstall', 'adapter'])
 const CLI_VERSION = process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
 
 function flagValue(argv: string[], name: string): string | undefined {
@@ -843,8 +844,65 @@ async function main(): Promise<void> {
   if (command === 'serve') return runServe(args)
   if (command === 'upgrade') return runUpgrade(args)
   if (command === 'uninstall') return runUninstall(args)
+  if (command === 'adapter') return runAdapter(args)
   await runRoute(args)
 }
+
+/**
+ * `sabi adapter verify <id>` runs the shared conformance suite for one adapter.
+ * Live runs are isolated to a profile guard: the suite is pure (no host
+ * interaction), so it never touches the user's harness configuration.
+ */
+function runAdapter(argv: string[]): void {
+  const sub = argv.find((arg) => !arg.startsWith('--')) ?? 'list'
+  if (sub === 'list') {
+    const ids = builtInAdapterManifests().map((manifest) => manifest.id)
+    console.log('sabi adapter verify <id>')
+    console.log(`available adapters: ${ids.join(', ') || 'none'}`)
+    return
+  }
+  if (sub !== 'verify') throw new Error(`unsupported adapter action '${sub}'`)
+  const id = argv.find((arg) => !arg.startsWith('--') && arg !== 'verify')
+  if (!id) throw new Error('sabi adapter verify requires an adapter id')
+
+  const manifest = builtInAdapterManifests().find((m) => m.id === id)
+  if (!manifest) throw new Error(`unknown adapter '${id}'`)
+
+  const fixture: ConformanceFixture = {
+    id,
+    manifest: {
+      id: manifest.id,
+      kind: manifest.id as 'opencode',
+      version: manifest.command ?? 'unknown',
+      loop: manifest.status === 'inference-only' ? 'mod' : 'proxy',
+    },
+    ir: {
+      roundId: `verify:${id}`,
+      harness: manifest.id as 'opencode',
+      kind: 'implementation',
+      failureLevel: 'none',
+      evidence: [],
+      untranslatable: manifest.operations['observe-outcome'] === 'missing' ? ['outcome'] : [],
+    },
+  }
+
+  const report = runConformance(fixture)
+  if (jsonRequested(argv)) {
+    console.log(JSON.stringify(report, null, 2))
+    return
+  }
+  console.log(`sabi adapter verify ${id}: ${report.verdict}`)
+  for (const check of report.checks) {
+    const mark = check.verdict === 'conformant' ? '✓' : '✗'
+    const suffix = check.detail ? ` — ${check.detail}` : ''
+    console.log(`  ${mark} ${check.checkId}${suffix}`)
+  }
+  const summary = summarizeConformance([report])
+  console.log(
+    `conformant ${summary.conformant} / lossy ${summary.lossy} / unstable ${summary.unstable} / leaking ${summary.leaking} / refused ${summary.refused}`,
+  )
+}
+
 
 void main().catch((error: unknown) => {
   console.error(`[SABI] failed — ${(error as Error).message}`)

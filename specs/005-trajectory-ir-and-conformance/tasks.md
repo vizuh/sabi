@@ -22,17 +22,18 @@ contract; current `TrajectoryState` consumers keep working via shim.
 
 ## Phase 3: Decision envelope (US2)
 
-- [ ] T020 Implement `packages/core/src/decision.ts` rendering, refusal
+- [X] T020 Renderer `packages/core/src/decision.ts` with refusal records and
+  fallback-order execution; 7/7 fixtures green. Implement `packages/core/src/decision.ts` rendering, refusal
   records, and fallback-order execution.
 - [ ] T021 Fixtures for untranslatable fields and fallback traversal.
 
 ## Phase 4: Manifests + conformance (US3, US4)
 
-- [ ] T030 Manifest schema, loader, accept/refuse/downgrade logic with
-  fixtures; write `adapter.json` for two existing adapters.
-- [ ] T031 Implement `packages/core/src/conformance.ts` checks; fixture
+- [X] T030 Manifest schema, loader, accept/refuse/downgrade logic with
+  fixtures; `packages/adapters/opencode/adapter.json` written.
+- [X] T031 Implement `packages/core/src/conformance.ts` checks; fixture
   adapters (conformant/lossy/unstable/leaking) with named verdicts.
-- [ ] T032 Wire `sabi adapter verify <id>` in the controller CLI with
+- [X] T032 Wire `sabi adapter verify <id>` in the controller CLI with
   isolated-profile guards for live runs.
 
 ## Phase 5: Convergence

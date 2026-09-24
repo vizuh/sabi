@@ -1768,4 +1768,19 @@ conventions, no commit). Delivery note: long `--text` + `--enter` reported
 accepted but did not submit until an `--interrupt` flushed the input box;
 typing verified separately with a probe. Session confirmed live: it read
 receipts.ts/capabilities.ts/evidence.test.ts, diffed the test file, and
-moved to type/baseline checks ($0.36 spend at handoff).
+1771|moved to type/baseline checks ($0.36 spend at handoff).
+
+## [2026-09-24] spec | Evidence-scored routing (L0–L4)
+
+Created `specs/012-evidence-scored-routing/` with spec.md, plan.md, tasks.md.
+Describes an additive evidence-scoring layer (`RouteLevel` enum, signal
+weights, score-to-level thresholds) on top of the existing priority-ordered
+rule cascade. The score is a per-round signal accumulator that suggests an
+initial tier, but the existing hard gates (transport exclusion, stuck cap,
+judge veto, paid/free enforcement) remain authoritative — a higher score never
+overrides a lower gate. Key behaviors: de-escalation via score decay on
+verification pass / judge approval / mechanical work; L2/FREE_ENSEMBLE
+requires spec 003 fanout (degrades to L1 if absent); PAID_MID/PAID_STRONG
+respect `paidModelsAllowed: false` at the `ensureRouteCompatible` choke point.
+Existing test suite: 676 tests, 675 pass, 1 pre-existing failure
+(controller/inventory.test.ts, unrelated). No code changes — docs/spec only.
