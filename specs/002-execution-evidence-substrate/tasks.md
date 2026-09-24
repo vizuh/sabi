@@ -22,31 +22,31 @@
 
 ## Phase 2: Receipt primitive (US1)
 
-- [ ] T010 Implement builders in `packages/core/src/receipts.ts`: sources
+- [X] T010 Implement builders in `packages/core/src/receipts.ts`: sources
   test/build/lint/edit/git/repo-map/sandbox; scope-mismatch flag; unknown
   defaults; `operationId` idempotency.
-- [ ] T011 Wire receipt-backed transitions into `packages/core/src/evidence.ts`;
+- [X] T011 Wire receipt-backed transitions into `packages/core/src/evidence.ts`;
   extend `packages/core/test/evidence.test.ts` (wrong-target verifier,
   contradictory output, out-of-order arrival).
-- [ ] T012 Persist receipts by `operationId` in
+- [X] T012 Persist receipts by `operationId` in
   `packages/controller/src/registry.ts`; restart/duplicate-delivery tests.
 
 ## Phase 3: Capabilities (US2)
 
-- [ ] T020 Implement `packages/core/src/capabilities.ts` with
+- [X] T020 Implement `packages/core/src/capabilities.ts` with
   unknown-defaults and gating helpers; capability snapshot pinned at plan time.
-- [ ] T021 Wire gating into `packages/core/src/recovery-actions.ts` and
+- [X] T021 Wire gating into `packages/core/src/recovery-actions.ts` and
   router so receipt-dependent actions require declared capabilities.
-- [ ] T022 Fixture harnesses (full/partial/none) proving degradation is
+- [X] T022 Fixture harnesses (full/partial/none) proving degradation is
   explicit, never silent.
 
 ## Phase 4: New actions (US3)
 
-- [ ] T030 Extend the 001 fixture matrix: verify-before-repair,
+- [X] T030 Extend the 001 fixture matrix: verify-before-repair,
   rollback-with-clean-point, switch-on-transport-with-alternate.
-- [ ] T031 Implement precedence in `packages/core/src/recovery-actions.ts`;
+- [X] T031 Implement precedence in `packages/core/src/recovery-actions.ts`;
   escalation-precision fixtures must not regress.
-- [ ] T032 Extend `RecoveryCapsule` clean-point linkage for rollback bounds.
+- [X] T032 Extend `RecoveryCapsule` clean-point linkage for rollback bounds.
 
 ## Phase 5: Adapter parity (US4)
 

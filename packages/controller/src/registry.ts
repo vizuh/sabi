@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import {
+  isExecutionReceiptSource,
+  isExecutionReceiptStatus,
+  MAX_OPERATION_ID_CHARS,
+  MAX_VERIFIER_CHARS,
+  sanitizeChangedFiles,
+} from '@sabi/core'
+import type { ExecutionReceipt } from '@sabi/core'
 import type { AgentCapacityStatus, AgentLifecycle } from './types.ts'
 import type { ControllerExecutionReceipt, ControllerReceiptPhase } from './types.ts'
 
@@ -8,6 +16,8 @@ const MAX_SESSIONS = 128
 const SESSION_TTL_MS = 10 * 60_000
 const MAX_TEXT = 240
 const MAX_CAPSULE_SIGNATURE = 160
+const MAX_EXECUTION_RECEIPTS = 256
+const MAX_FINGERPRINT_CHARS = 64
 const CAPACITY_STATUSES: AgentCapacityStatus[] = ['available', 'degraded', 'rate_limited', 'quota_exhausted', 'unavailable']
 const LIFECYCLES: AgentLifecycle[] = ['active', 'idle', 'blocked', 'waiting', 'dead']
 
@@ -48,6 +58,10 @@ export interface RegisterSessionInput {
 
 export function registryPath(stateDir: string): string {
   return path.join(stateDir, 'sessions.json')
+}
+
+export function executionReceiptsPath(stateDir: string): string {
+  return path.join(stateDir, 'execution-receipts.json')
 }
 
 function text(value: unknown, max = MAX_TEXT): string | undefined {
@@ -212,4 +226,107 @@ export function recordSessionOutcome(
   })
   writeAll(stateDir, updated)
   return updated.find((entry) => entry.id === session.id) ?? session
+}
+
+function finiteNonNegative(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+}
+
+function normalizeIsolation(value: unknown): ExecutionReceipt['isolation'] {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const workspaceId = text(record.workspaceId, MAX_OPERATION_ID_CHARS)
+  if (!workspaceId || typeof record.disposable !== 'boolean') return undefined
+  return { workspaceId, disposable: record.disposable }
+}
+
+/**
+ * Structural validation of a core execution receipt from an untrusted source.
+ * Fail-closed: identity, source, status and timing are required; optional
+ * fields survive only bounded and sanitized. `scopeMismatch` is recomputed
+ * from scope counts — never trusted from the wire.
+ */
+function normalizeExecutionReceipt(value: unknown): ExecutionReceipt | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const operationId = text(record.operationId, MAX_OPERATION_ID_CHARS)
+  const startedAt = finiteNonNegative(record.startedAt)
+  const durationMs = finiteNonNegative(record.durationMs)
+  if (!operationId || !isExecutionReceiptSource(record.source) || !isExecutionReceiptStatus(record.status) ||
+    startedAt === undefined || durationMs === undefined) return undefined
+  const receipt: ExecutionReceipt = { operationId, source: record.source, status: record.status, startedAt, durationMs }
+  const inputFingerprint = text(record.inputFingerprint, MAX_FINGERPRINT_CHARS)
+  if (inputFingerprint) receipt.inputFingerprint = inputFingerprint
+  const outputFingerprint = text(record.outputFingerprint, MAX_FINGERPRINT_CHARS)
+  if (outputFingerprint) receipt.outputFingerprint = outputFingerprint
+  const changedFiles = sanitizeChangedFiles(record.changedFiles)
+  if (changedFiles) receipt.changedFiles = changedFiles
+  const verifier = text(record.verifier, MAX_VERIFIER_CHARS)
+  if (verifier) receipt.verifier = verifier
+  if (Number.isSafeInteger(record.exitCode)) receipt.exitCode = record.exitCode as number
+  const expectedScope = finiteNonNegative(record.expectedScope)
+  const observedScope = finiteNonNegative(record.observedScope)
+  if (expectedScope !== undefined) receipt.expectedScope = expectedScope
+  if (observedScope !== undefined) receipt.observedScope = observedScope
+  if (expectedScope !== undefined && observedScope !== undefined) receipt.scopeMismatch = observedScope !== expectedScope
+  const isolation = normalizeIsolation(record.isolation)
+  if (isolation) receipt.isolation = isolation
+  return receipt
+}
+
+/**
+ * Monotone, deterministic merge for duplicate `operationId` delivery: an
+ * `unknown` placeholder strengthens to a terminal verdict; a terminal verdict
+ * is never flipped by a later contradictory or unknown delivery.
+ */
+function mergeExecutionReceipt(existing: ExecutionReceipt, incoming: ExecutionReceipt): ExecutionReceipt {
+  if (existing.status === 'unknown' && incoming.status !== 'unknown') return incoming
+  return existing
+}
+
+function readAllExecutionReceipts(stateDir: string): ExecutionReceipt[] {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(executionReceiptsPath(stateDir), 'utf8'))
+    if (!Array.isArray(parsed)) return []
+    return parsed.map(normalizeExecutionReceipt).filter((entry): entry is ExecutionReceipt => entry !== undefined)
+  } catch {
+    return []
+  }
+}
+
+function writeAllExecutionReceipts(stateDir: string, receipts: ExecutionReceipt[]): void {
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 })
+  const file = executionReceiptsPath(stateDir)
+  const temporary = `${file}.tmp-${process.pid}`
+  writeFileSync(temporary, `${JSON.stringify(receipts.slice(-MAX_EXECUTION_RECEIPTS), null, 2)}\n`, { mode: 0o600 })
+  renameSync(temporary, file)
+}
+
+export function readExecutionReceipts(stateDir: string): ExecutionReceipt[] {
+  return readAllExecutionReceipts(stateDir)
+}
+
+/** Persist an execution receipt idempotently by `operationId`; throws on malformed input. */
+export function recordExecutionReceipt(stateDir: string, input: unknown): ExecutionReceipt {
+  const receipt = normalizeExecutionReceipt(input)
+  if (!receipt) {
+    const record = (input !== null && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Record<string, unknown>
+    if (text(record.operationId, MAX_OPERATION_ID_CHARS) === undefined) throw new Error('execution receipt requires a bounded operationId')
+    if (!isExecutionReceiptSource(record.source)) throw new Error('execution receipt requires an allowlisted source')
+    if (!isExecutionReceiptStatus(record.status)) throw new Error('execution receipt requires a passed, failed or unknown status')
+    throw new Error('execution receipt requires finite non-negative startedAt and durationMs')
+  }
+  const all = readAllExecutionReceipts(stateDir)
+  const index = all.findIndex((entry) => entry.operationId === receipt.operationId)
+  if (index === -1) {
+    all.push(receipt)
+    writeAllExecutionReceipts(stateDir, all)
+    return receipt
+  }
+  const merged = mergeExecutionReceipt(all[index]!, receipt)
+  if (merged !== all[index]) {
+    all[index] = merged
+    writeAllExecutionReceipts(stateDir, all)
+  }
+  return merged
 }

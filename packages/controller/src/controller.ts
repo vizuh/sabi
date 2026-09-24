@@ -131,7 +131,7 @@ export function buildRecoveryCapsule(input: RecoveryCapsuleInput | undefined): R
   const stale = sourceGeneration !== undefined && currentGeneration !== undefined && sourceGeneration < currentGeneration
   const downgrade = (items: RecoveryCapsuleItem[]): RecoveryCapsuleItem[] =>
     stale ? items.map((item) => item.status === 'verified' ? { ...item, status: 'unverified' as const } : item) : items
-  const lastKnownCleanPoint = capsuleLabel(input.lastKnownCleanPoint)
+  const lastKnownCleanPoint = !stale && capsuleLabel(input.lastKnownCleanPoint)
   const recommendedNextAction = !stale && input.recommendedNextAction && RECOVERY_ACTIONS.has(input.recommendedNextAction)
     ? input.recommendedNextAction
     : undefined

@@ -51,6 +51,8 @@ export type VerificationReason =
   | 'scope-unknown'
   | 'user-denial'
   | 'contradicted'
+  | 'verification-receipt'
+  | 'verification-receipt'
 export type ScopeCoverageSource = 'explicit' | 'inferred' | 'unknown'
 
 export interface ScopeCoverage {
@@ -185,6 +187,8 @@ export interface ChatRequestBody {
   observedScope?: string[]
   scope?: ScopeInput
   verificationReceipt?: VerificationReceipt
+  /** Structured execution receipt (spec 002); validated before it can close verification. */
+  executionReceipt?: ExecutionReceipt
   contextGeneration?: number
   summaryClaim?: boolean
   [key: string]: unknown
@@ -292,6 +296,12 @@ export interface RecoveryPlannerInput {
   currentProvider?: string
   safeRollback?: boolean
   hasFeedback?: boolean
+  /** Pinned-at-plan-time capability snapshot; omission means all-unknown (001 behavior). */
+  capabilities?: ExecutionCapabilities
+  /** Bounded clean-point label from a current-generation capsule; required for `rollback`. */
+  cleanPoint?: string
+  /** An alternate harness with declared capabilities is registered; enables `switch-harness`. */
+  alternateCapableHarness?: boolean
 }
 
 export interface CostRates {

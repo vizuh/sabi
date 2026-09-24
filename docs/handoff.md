@@ -1,4 +1,30 @@
 # Handoff Notes
+## Spec 002 phases 2–4: receipts, capability gating, new recovery actions — 2026-09-23
+
+Branch `feat/002-phase2-workflows` (worktree `worktrees/sabi/feat-002-phase2`), based on
+`origin/main` ~PR #125; UNCOMMITTED — no commit/push yet. Phase 1 (types + builders + 21
+fixtures) merged earlier via PR #123; the prior turn's uncommitted evidence wiring was
+completed and hardened here (runtime guard, dead untyped branch removed, generation handling
+simplified, `executionReceipt` threaded through `decorateTrajectoryState`/`extractTrajectoryState`).
+
+Done through T032: receipt-backed verification transitions (`'verification-receipt'` reason in
+type + runtime set); controller registry persists core receipts by `operationId`
+(`execution-receipts.json`, 256-bound, atomic) with idempotent monotone merge — duplicates
+collapse, `unknown` strengthens to terminal, a stored terminal verdict never flips;
+`snapshotCapabilities` pins plan-time tri-state declarations; `planRecovery` + router gate
+receipt-dependent actions on explicit `true` (full/partial/none fixture harnesses prove explicit
+degradation); precedence adds `verify-local` before repair, `rollback` bounded to a
+current-generation clean point before the 001 reflection chain, `switch-harness` on transport
+with a registered capable alternate; stale clean points are dropped from recovery capsules.
+
+Validation: `npm test` 658/658 (baseline at session start: 634 with 1 failure — all red was in
+the prior turn's uncommitted code, no pre-existing dirt), `npm run typecheck` clean. tasks.md
+checkboxes updated through T032; `log.md` entry appended.
+
+Next: Phase 5 adapter parity (T040–T041: one emitter mapping per adapter path with a shared
+join test; explicit-unknown coverage for session/usage/price/latency gaps), then Phase 6
+convergence (T050–T051). Note: `npm install` in a fresh worktree syncs one stale lockfile line
+(`@sabi/controller` 0.1.1 → 0.1.3); reverted here as unrelated — handle as a separate chore.
 ## Effort observability (record-only) — 2026-09-23
 
 First slice of proxy-side effort routing, chosen to avoid colliding with the active

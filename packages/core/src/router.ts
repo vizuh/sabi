@@ -4,7 +4,7 @@ import { tiersFor } from './config.ts'
 import { decideTier } from './policy.ts'
 import { planRecovery } from './recovery-actions.ts'
 import { applyMeasuredContext, extractTrajectoryState } from './state.ts'
-import type { ChatRequestBody, FailureLevel, ModelModality, RouteDecision, SabiConfig } from './types.ts'
+import type { ChatRequestBody, ExecutionCapabilities, FailureLevel, ModelModality, RouteDecision, SabiConfig } from './types.ts'
 
 export { ensureRouteCompatible, isEnabledUpstream, SabiRouteError } from './compatibility.ts'
 
@@ -81,6 +81,8 @@ export interface RouteContext {
   previousLastRole?: string
   previousGeneration?: number
   previousCache?: import('./types.ts').CacheObservation
+  /** Pinned-at-plan-time harness capability snapshot; omission means all-unknown. */
+  capabilities?: ExecutionCapabilities
 }
 
 export function route(body: ChatRequestBody, config: SabiConfig, context: RouteContext = {}): RouteDecision {
@@ -123,7 +125,7 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
   } else if (state.failure === 'hard' && (state.failureStreak ?? 0) === 0) {
     state.failureStreak = 1
   }
-  const recovery = planRecovery({ state })
+  const recovery = planRecovery({ state, capabilities: context.capabilities })
   // Intervention is classified before the route tier; the tier remains subject to the native
   // policy and capability checks, while the bounded action is carried for the host/controller.
   const required = state.inputModalities ?? []

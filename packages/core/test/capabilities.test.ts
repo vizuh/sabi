@@ -6,6 +6,7 @@ import {
   gateCapabilities,
   isCapable,
   isCapabilityFlag,
+  snapshotCapabilities,
 } from '../src/capabilities.ts'
 import type { ExecutionCapabilities } from '../src/types.ts'
 
@@ -72,4 +73,29 @@ test('all six capability keys are declared', () => {
     'verifierReceipts',
     'eventDrivenChanges',
   ])
+})
+
+test('a capability snapshot pins declared flags and treats everything else as unknown', () => {
+  const snapshot = snapshotCapabilities({
+    verifierReceipts: true,
+    deterministicEdit: false,
+    repoMap: 'unknown',
+    isolatedWorkspaces: 'yes',
+    eventDrivenChanges: 1,
+    notACapability: true,
+  })
+  assert.deepEqual(snapshot, { verifierReceipts: true, deterministicEdit: false, repoMap: 'unknown' })
+  assert.equal(isCapable(snapshot, 'verifierReceipts'), true)
+  assert.equal(isCapable(snapshot, 'deterministicEdit'), false)
+  assert.equal(isCapable(snapshot, 'isolatedWorkspaces'), false)
+  assert.equal(isCapable(snapshot, 'incrementalContext'), false)
+})
+
+test('snapshots are deterministic and non-objects pin nothing', () => {
+  assert.deepEqual(snapshotCapabilities(undefined), {})
+  assert.deepEqual(snapshotCapabilities(null), {})
+  assert.deepEqual(snapshotCapabilities(['verifierReceipts']), {})
+  assert.deepEqual(snapshotCapabilities('full'), {})
+  const input = { verifierReceipts: true as const, repoMap: 'unknown' as const }
+  assert.deepEqual(snapshotCapabilities(input), snapshotCapabilities(input))
 })

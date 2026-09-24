@@ -20,6 +20,22 @@ export function defaultCapabilities(): ExecutionCapabilities {
   return {}
 }
 
+/**
+ * Pin an untrusted declaration into a plan-time snapshot. Only allowlisted
+ * keys with strict tri-state flags survive; anything else reads as unknown.
+ * Deterministic for identical input.
+ */
+export function snapshotCapabilities(value: unknown): ExecutionCapabilities {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const record = value as Record<string, unknown>
+  const snapshot: ExecutionCapabilities = {}
+  for (const key of CAPABILITY_KEYS) {
+    const flag = record[key]
+    if (isCapabilityFlag(flag)) snapshot[key] = flag
+  }
+  return snapshot
+}
+
 /** True only for an explicit `true`. `false`, `'unknown'`, and omission all gate off. */
 export function isCapable(caps: ExecutionCapabilities | undefined, key: CapabilityKey): boolean {
   if (!caps || typeof caps !== 'object') return false
