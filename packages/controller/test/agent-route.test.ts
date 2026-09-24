@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { planAgentRoute } from '../src/agents.ts'
+import { planAgentRoute, catalogFreeWorkerCount } from '../src/agents.ts'
 import type { AgentHarness, AgentRoutingInput, AgentSession, HandoffSnapshot } from '../src/types.ts'
 
 const now = Date.parse('2026-09-19T12:00:00.000Z')
@@ -229,4 +229,196 @@ test('hard blockers are deterministic before any quality judgment', () => {
     assert.equal(plan.action, 'DELEGATE')
     assert.equal(plan.currentEligible, false)
   }
+})
+
+test('catalog-free-worker count is zero when no catalog is present and counts explicit-free workers only', () => {
+  assert.equal(catalogFreeWorkerCount(undefined), 0)
+  assert.equal(catalogFreeWorkerCount({ models: [] } as never), 0)
+  assert.equal(catalogFreeWorkerCount({
+    models: [
+      { id: 'opencode/muse-free', costClass: 'explicit-free', role: 'worker' },
+      { id: 'opencode/jev-free', costClass: 'explicit-free', role: 'judge' },
+      { id: 'opencode-go/kimi-k3', costClass: 'unknown', role: 'worker' },
+    ],
+  } as never), 1)
+})
+
+test('a harness with more free catalog workers wins when capacity and preference are equal', () => {
+  const fewFree = harness('harness:hermes', 'hermes', {
+    harness: 'hermes',
+    command: 'hermes',
+    catalog: {
+      command: 'hermes',
+      outputSha256: 'a',
+      observedAt: now,
+      modelCount: 1,
+      models: [{ id: 'nous/hermes-free', costClass: 'explicit-free', role: 'worker' }],
+    },
+  })
+  const manyFree = harness('harness:opencode', 'opencode', {
+    harness: 'opencode',
+    command: 'opencode',
+    catalog: {
+      command: 'opencode',
+      outputSha256: 'b',
+      observedAt: now,
+      modelCount: 4,
+      models: [
+        { id: 'opencode/muse-free', costClass: 'explicit-free', role: 'worker' },
+        { id: 'opencode/ling-free', costClass: 'explicit-free', role: 'worker' },
+        { id: 'opencode/jev-free', costClass: 'explicit-free', role: 'judge' },
+        { id: 'opencode-go/kimi-k3', costClass: 'unknown', role: 'worker' },
+      ],
+    },
+  })
+  // Neither is listed in preferredHarnesses, so both share the same preference index.
+  const plan = planAgentRoute(input({
+    existingSessions: [],
+    spawnCandidates: [fewFree, manyFree],
+    preferredHarnesses: ['claude', 'codex'],
+    useFreeCatalog: true,
+  }))
+
+  assert.equal(plan.action, 'SPAWN')
+  assert.equal(plan.target?.id, 'harness:opencode')
+})
+
+test('free-catalog preference is silent when useFreeCatalog is off', () => {
+  const fewFree = harness('harness:hermes', 'hermes', {
+    harness: 'hermes',
+    command: 'hermes',
+    catalog: {
+      command: 'hermes',
+      outputSha256: 'a',
+      observedAt: now,
+      modelCount: 1,
+      models: [{ id: 'nous/hermes-free', costClass: 'explicit-free', role: 'worker' }],
+    },
+  })
+  const manyFree = harness('harness:opencode', 'opencode', {
+    harness: 'opencode',
+    command: 'opencode',
+    catalog: {
+      command: 'opencode',
+      outputSha256: 'b',
+      observedAt: now,
+      modelCount: 3,
+      models: [
+        { id: 'opencode/muse-free', costClass: 'explicit-free', role: 'worker' },
+        { id: 'opencode/jev-free', costClass: 'explicit-free', role: 'judge' },
+        { id: 'opencode-go/kimi-k3', costClass: 'unknown', role: 'worker' },
+      ],
+    },
+  })
+  const plan = planAgentRoute(input({
+    existingSessions: [],
+    spawnCandidates: [fewFree, manyFree],
+    preferredHarnesses: ['hermes', 'opencode'],
+    useFreeCatalog: false,
+  }))
+
+  assert.equal(plan.action, 'SPAWN')
+  assert.equal(plan.target?.id, 'harness:hermes')
+})
+
+test('a harness without a catalog is never penalized by free-catalog scoring', () => {
+  const noCatalog = harness('harness:hermes', 'hermes', { harness: 'hermes', command: 'hermes' })
+  const withCatalog = harness('harness:opencode', 'opencode', {
+    harness: 'opencode',
+    command: 'opencode',
+    catalog: {
+      command: 'opencode',
+      outputSha256: 'b',
+      observedAt: now,
+      modelCount: 1,
+      models: [{ id: 'opencode/muse-free', costClass: 'explicit-free', role: 'worker' }],
+    },
+  })
+  // No preferredHarnesses: both have equal preference (0), so free-catalog decides.
+  const plan = planAgentRoute(input({
+    existingSessions: [],
+    spawnCandidates: [noCatalog, withCatalog],
+    useFreeCatalog: true,
+  }))
+
+  // The catalog-bearing harness wins; the one without a catalog is neutral (score 0), not penalized.
+  assert.equal(plan.action, 'SPAWN')
+  assert.equal(plan.target?.id, 'harness:opencode')
+})
+
+test('free-catalog is a tiebreak after preference, not a replacement for it', () => {
+  const bothOneFree = harness('harness:hermes', 'hermes', {
+    harness: 'hermes',
+    command: 'hermes',
+    catalog: {
+      command: 'hermes',
+      outputSha256: 'a',
+      observedAt: now,
+      modelCount: 1,
+      models: [{ id: 'nous/hermes-free', costClass: 'explicit-free', role: 'worker' }],
+    },
+  })
+  const manyFree = harness('harness:opencode', 'opencode', {
+    harness: 'opencode',
+    command: 'opencode',
+    catalog: {
+      command: 'opencode',
+      outputSha256: 'b',
+      observedAt: now,
+      modelCount: 3,
+      models: [
+        { id: 'opencode/muse-free', costClass: 'explicit-free', role: 'worker' },
+        { id: 'opencode/another-free', costClass: 'explicit-free', role: 'worker' },
+        { id: 'opencode/jev-free', costClass: 'explicit-free', role: 'judge' },
+      ],
+    },
+  })
+  // Both at the same preference index (not listed), so free-catalog decides.
+  const plan = planAgentRoute(input({
+    existingSessions: [],
+    spawnCandidates: [bothOneFree, manyFree],
+    preferredHarnesses: ['claude', 'codex'],
+    useFreeCatalog: true,
+  }))
+
+  assert.equal(plan.action, 'SPAWN')
+  assert.equal(plan.target?.id, 'harness:opencode')
+})
+
+test('explicit preference still outranks free-catalog when they conflict', () => {
+  const bothOneFree = harness('harness:hermes', 'hermes', {
+    harness: 'hermes',
+    command: 'hermes',
+    catalog: {
+      command: 'hermes',
+      outputSha256: 'a',
+      observedAt: now,
+      modelCount: 1,
+      models: [{ id: 'nous/hermes-free', costClass: 'explicit-free', role: 'worker' }],
+    },
+  })
+  const manyFree = harness('harness:opencode', 'opencode', {
+    harness: 'opencode',
+    command: 'opencode',
+    catalog: {
+      command: 'opencode',
+      outputSha256: 'b',
+      observedAt: now,
+      modelCount: 2,
+      models: [
+        { id: 'opencode/muse-free', costClass: 'explicit-free', role: 'worker' },
+        { id: 'opencode/jev-free', costClass: 'explicit-free', role: 'judge' },
+      ],
+    },
+  })
+  // Hermes is explicitly preferred first, so it wins despite fewer free workers.
+  const plan = planAgentRoute(input({
+    existingSessions: [],
+    spawnCandidates: [bothOneFree, manyFree],
+    preferredHarnesses: ['hermes', 'opencode'],
+    useFreeCatalog: true,
+  }))
+
+  assert.equal(plan.action, 'SPAWN')
+  assert.equal(plan.target?.id, 'harness:hermes')
 })

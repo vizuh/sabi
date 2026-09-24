@@ -4,6 +4,7 @@ import type {
   AgentRoutePlan,
   AgentRoutingInput,
   AgentSession,
+  HarnessCatalogDescriptor,
 } from './types.ts'
 
 const REPEATED_FAILURE_STREAK = 2
@@ -125,12 +126,35 @@ function preferenceRank(agent: AgentDescriptor, preferred: string[] | undefined)
   return index < 0 ? preferred.length : index
 }
 
-function best<T extends AgentSession | AgentHarness>(agents: T[], required: string[], preferred?: string[]): T | undefined {
+/**
+ * Count explicit-free worker models in a harness's observed catalog. This is a tie-breaker
+ * signal, not an entitlement claim: catalog presence does not prove plan capacity, quota or
+ * quality. A missing catalog returns 0 (neutral), so a harness without one is never penalized.
+ */
+export function catalogFreeWorkerCount(catalog: HarnessCatalogDescriptor | undefined): number {
+  if (!catalog?.models) return 0
+  return catalog.models.filter((model) => model.costClass === 'explicit-free' && model.role === 'worker').length
+}
+
+function freeCatalogScore(agent: AgentSession | AgentHarness): number {
+  return agent.kind === 'harness' ? catalogFreeWorkerCount(agent.catalog) : 0
+}
+
+function best<T extends AgentSession | AgentHarness>(
+  agents: T[],
+  required: string[],
+  preferred?: string[],
+  useFreeCatalog = false,
+): T | undefined {
   return [...agents].sort((left, right) => {
     const rank = capacityRank(left) - capacityRank(right)
     if (rank !== 0) return rank
     const preference = preferenceRank(left, preferred) - preferenceRank(right, preferred)
     if (preference !== 0) return preference
+    if (useFreeCatalog) {
+      const free = freeCatalogScore(right) - freeCatalogScore(left)
+      if (free !== 0) return free
+    }
     const leftExtra = left.capabilities.filter((capability) => !required.includes(capability)).length
     const rightExtra = right.capabilities.filter((capability) => !required.includes(capability)).length
     return leftExtra - rightExtra || (right.lastOutputAt ?? 0) - (left.lastOutputAt ?? 0) || left.id.localeCompare(right.id)
@@ -148,6 +172,7 @@ export function planAgentRoute(input: AgentRoutingInput): AgentRoutePlan {
     ...sessionCandidates.map((session) => session.id),
     ...harnessCandidates.map((harness) => harness.id),
   ]
+  const useFreeCatalog = input.useFreeCatalog === true
 
   if (active.eligible) {
     return {
@@ -163,7 +188,7 @@ export function planAgentRoute(input: AgentRoutingInput): AgentRoutePlan {
     }
   }
 
-  const target = best(sessionCandidates, input.requiredCapabilities, input.preferredHarnesses)
+  const target = best(sessionCandidates, input.requiredCapabilities, input.preferredHarnesses, useFreeCatalog)
   if (target) {
     return {
       action: 'DELEGATE',
@@ -179,7 +204,7 @@ export function planAgentRoute(input: AgentRoutingInput): AgentRoutePlan {
     }
   }
 
-  const harness = best(harnessCandidates, input.requiredCapabilities, input.preferredHarnesses)
+  const harness = best(harnessCandidates, input.requiredCapabilities, input.preferredHarnesses, useFreeCatalog)
   if (harness) {
     return {
       action: 'SPAWN',

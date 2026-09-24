@@ -1526,3 +1526,246 @@ points at `www/products/sabi/packages/controller/src/cli.ts`. `sabi updates` rep
 Boundary: hook wiring, not routing. No credential file is read, and the harness gate stays
 presence-based (`which claude`), so Sabi still cannot tell a Claude subscription from an API-key
 login — and does not try to.
+
+## [2026-09-23] change | README/i18n/skill surface borrowed from awesome-jev-projects
+
+Reference: `logicrw/awesome-jev-projects` (fetched live 2026-09-23: centered banner header, badge row,
+language nav EN/zh-CN/ja/ko, TIP callout, comparison table, `npx skills add` + `llms.txt` distribution,
+`scripts/generate-readme.mjs` four-locale generation). Borrowed the structure, not the content; Sabi
+wording keeps the inference-vs-controller evidence boundary.
+
+Changed (uncommitted): EN/PT-BR/ZH README headers share one pattern — five-locale nav
+(EN/PT-BR/ZH/JA/KO), quick nav (Install/Integrations/Evidence/skill/machine index), boundary TIP, and
+descriptive image alt text. New `README.ja.md`/`README.ko.md` are concise entry points that defer to
+English for verified claims (no invented translations). New `SKILL.md` + `llms.txt` agent entry points;
+EN README gains a "Use with a host AI" section. `packages/controller/pack.mjs` manifest gains
+`keywords`/`bugs`; controller README gains language/skill links. `scripts/setup.ts` accepts
+`--language=en|pt-BR|zh-CN|ja|ko` (prompts outside EN/PT-BR fall back to English). `CONTRIBUTING.md`
+records the JA/KO entry-point rule.
+
+Validation: `npm run typecheck` clean, `scripts/test/setup.test.ts` 28/28. Full parallel `npm test`
+shows pre-existing combined-run-only flakes (agent-route preference, controller-bundle PATH assertion;
+both pass isolated; clean-tree baseline also fails one unrelated test in parallel) — not caused by
+this docs-only slice. No commit, push, deployment, or publication. Note: a concurrent hooks commit
+(`6b7adbb`) landed mid-session in this shared checkout; a `git stash -u` round-trip was used for a
+baseline check and fully restored (stash `readme-i18n-wip` kept, not dropped).
+
+## [2026-09-23] change | PR #111: JA/KO native mirrors, skill surface, setup languages
+
+Follow-up to the entry above, same scope plus full native JA/KO (was entry-point stubs; now full
+mirrors of the EN README with identical numbers/commands/ids; JA/KO prose is AI-written, native
+review pending). Branch `docs/ja-ko-native-skill` cut from `origin/main` in a throwaway worktree
+(removed after push) so the 3 unpushed local-main commits and all concurrent dirt stay out of the
+diff: 11 files, +581/-8, one commit. Pushed; PR: https://github.com/vizuh/sabi/pull/111 —
+merged 2026-09-23 as `9528467` (CI `verify` SUCCESS, mergeable CLEAN).
+Validation on the branch: typecheck clean, setup tests 28/28. `log.md`/`docs/handoff.md` entries
+stay in the worktree for the main-line flow, not in the PR. Stashes `ja-ko-pr-scope` and
+`readme-i18n-wip` kept as backup until merge. No deployment, no publication.
+
+## [2026-09-23] change | Cross-harness free-catalog routing preference in the controller
+
+Added an opt-in tie-breaker that lets the controller prefer to spawn/delegate to a harness whose
+**live model catalog** exposes explicit-free worker models, so tasks can flow to whichever harness has
+a good free model right now (e.g. OpenCode's `muse-spark-1.3-contributor-free`, Hermes Nous, etc.).
+
+- `packages/core/src/types.ts`: `ControllerConfig.harnessRouting?: { useFreeCatalog?: boolean }`.
+- `packages/core/src/config.ts`: validation for the new nested field.
+- `packages/controller/src/agents.ts`: new `catalogFreeWorkerCount()` helper (counts worker models with
+  `costClass: 'explicit-free'`), and a `useFreeCatalog` flag threaded through `best()` → `planAgentRoute`.
+  The sort order stays: capacity → preference → **free-catalog count (desc)** → extra capabilities →
+  recency → id. A missing catalog scores 0 (neutral, never a penalty). Only `AgentHarness` candidates
+  can score; `AgentSession` candidates always score 0.
+- `packages/controller/src/controller.ts`: `bestSession`, `bestHarness`, `fallbackTarget` and
+  `selectRoute` all thread the config flag through; the reroute fallback path in `runController` also
+  uses it.
+- `sabi.config.json`: added `"harnessRouting": { "useFreeCatalog": true }` under `controller`.
+- `packages/controller/test/agent-route.test.ts`: 5 new tests covering the helper, preference tie-break,
+  and the "explicit preference still outranks free-catalog" guarantee.
+
+Intra-harness routing is untouched — the proxy/mod path for Hermes, OMP, OpenCode, and the Command Code
+mod still schedule models independently inside each harness loop. Only the controller's cross-harness
+SPAWN/DELEGATE decisions gain the catalog signal. A harness without an observable catalog falls back to
+the existing capacity/preference order.
+
+Validation: `npm run typecheck` clean; `npm test` 605/605 (controller 145/145, including 5 new tests).
+No commit, push, deployment, or publication.
+
+## [2026-09-23] change | Neutral npm shop window for @vizuh/sabi + adapter naming audit
+
+Made the `@vizuh/sabi` registry listing harness-neutral (no preferred harness) without changing
+what the tarball installs — it remains the Command Code mod only (`cmd mods add -g npm:@vizuh/sabi`).
+
+- `packages/adapters/command-code/package.json`: description rewritten to name all seven peer
+  harnesses alphabetically (Claude Code, Codex, Command Code, Hermes, Oh My Pi, OpenCode, Orca);
+  keywords broadened from 7 Command-Code-first entries to 14 with `sabi` first and the rest
+  alphabetical (`ai-agents`, `claude-code`, `codex`, `command-code`, `commandcode`, `hermes`,
+  `inference-scheduling`, `llm-routing`, `mod`, `oh-my-pi`, `opencode`, `openai-compatible`, `orca`).
+- `packages/adapters/command-code/README.md` (the npm page body): new neutral header plus a
+  harness → Sabi-surface → install route table. Controller harnesses point at
+  `@vizuh/sabi-controller` + `sabi setup`; proxy harnesses at the checkout guide; DSH/Kilo/Cline/
+  Prime Agent defer to the adapter directory. The mod-only boundary and the free-models-only
+  proxy default are stated unchanged, so the page cannot be read as "one install covers all hosts".
+- `packages/adapters/command-code/pack.mjs`: no change needed — verified it already passes
+  `source.description`/`keywords` through to the published manifest.
+- `packages/adapters/prime-agent/package.json`: renamed `@sabi/prime-agent-probe` →
+  `@sabi/adapter-prime-agent` (leaf probe, no dependents); `package-lock.json` regenerated
+  (`--package-lock-only`), which also synced the stale command-code lock entry 0.1.5 → 0.2.0.
+- `AGENTS.md`: adapter list now includes deepseek-harness/hermes/oh-my-pi; controller-publish guard
+  updated — `@vizuh/sabi-controller` 0.1.0/0.1.1 registry proof exists (verified via `npm view`
+  2026-09-23), so controller changes ship via `controller-v*` tags and DSH via `dsh-v*` tags.
+- Full npm audit (public: `@vizuh/sabi` 0.2.0, `@vizuh/sabi-controller` 0.1.1,
+  `@vizuh/sabi-deepseek-harness` 0.1.1; private `@sabi/*` workspace leaves; Hermes is Python
+  `sabi-hermes-metadata`, not npm) recorded in the conversation; Hermes/Orca/OhMyPi/OpenCode
+  adapters stay source/checkout-only by design.
+
+Validation: pack dry-build (`SABI_VERSION=v9.9.9-test`) stages `@vizuh/sabi` with the neutral
+description/keywords and unchanged `files` list; staging dir removed afterwards. `npm test`
+610/611 — the single failure (`controller/test/inventory.test.ts:152`, preferredModels vs
+free-catalog) reproduces identically with these changes stashed, so it is pre-existing worktree
+dirt, not this slice. Typecheck shows the same 2 pre-existing controller inventory errors.
+No commit, push, version bump, tag, or publish — release needs Hugo's explicit approval.
+
+## [2026-09-23] release-prep | @vizuh/sabi 0.2.1 branch pushed, PR #118 (tag after merge)
+
+Acted on Hugo's "bump, cut, prepare and push". Local main was 3 ahead / 23 behind
+`origin/main`, so the release was NOT cut from the stale worktree: created linked worktree
+`worktrees/sabi/release-v0.2.1` at `origin/main` tip (`4bd0d28`), ported exactly the 5 release
+files, bumped `packages/adapters/command-code` 0.2.0 → 0.2.1, resynced the lockfile (also fixed
+the pre-existing stale controller 0.1.0 → 0.1.1 entry already on main).
+
+Validation on the release branch (mirrors the release workflow): `npm ci`, typecheck clean,
+`npm test` 605/605, pack dry-build stages `@vizuh/sabi@0.2.1` with the neutral manifest;
+staging removed. Committed as `a025965`, pushed branch `release/v0.2.1`, opened
+https://github.com/vizuh/sabi/pull/118 (base `main`, metadata-only notes in the body).
+
+Deliberately NOT done: `git tag v0.2.1` / tag push — per `release.yml` and CONTRIBUTING the tag
+follows the merge, and pushing the tag auto-publishes to npm with provenance. Next: merge PR
+#118, then `git tag v0.2.1 && git push origin v0.2.1`. The 3 local-ahead commits and all other
+worktree dirt were excluded from the release; the release worktree stays registered until the
+tag lands.
+
+## [2026-09-23] release | @vizuh/sabi 0.2.1 shipped to npm (neutral shop window live)
+
+PR #118 merged as `63ef585` (CI `verify` green), tag `v0.2.1` cut on `origin/main` and pushed —
+release workflow run `35861668126` success: typecheck + tests green, `npm publish` with
+provenance (`+ @vizuh/sabi@0.2.1`, Sigstore transparency log), GitHub Release `v0.2.1` created
+with the exact served tarball. Verified live via `npm view`: version 0.2.1, the neutral
+description naming all seven peer harnesses, all 14 neutral keywords, and the route-table README
+rendering on the page. Remote release branch deleted; linked worktree removed; local
+`release/v0.2.1` branch deleted. Deployed artifact state: npm `@vizuh/sabi@0.2.1` (provenance),
+GitHub Release `v0.2.1`; no other deployment (proxy/controller ship via checkout or their own
+`controller-v*` / `dsh-v*` lanes).
+
+## [2026-09-23] spec | Execution-scheduler specs 002–004 + 12-month roadmap
+
+Mapped the Simplicio-material synthesis (execution evidence as first-class routing input)
+against the existing spec inventory and wrote three numbered specs in house format
+(spec.md + plan.md + tasks.md each), all Planned, no code changed:
+
+- Inventory verified: `specs/001-evidence-aware-scheduler` fully implemented (49/49 tasks
+  `[X]`); `docs/specs/` holds 9 spec docs (surplus-inference review-only slice implemented,
+  surplus-council spec-only, vnext 6-phase plan, decision-signals Phase 1 implemented,
+  command-code-evidence-parity V1 implemented, hermes/OMP/opencode lanes); 8 `docs/tasks/`
+  files; `ControllerExecutionReceipt` is minimal (phase/observedAt/requestId); daemon is
+  loopback HTTP on `127.0.0.1:7433`; surplus worker-mode, fanout, capabilities, and repo
+  providers do not exist (verified via code grep).
+- `specs/002-execution-evidence-substrate/`: shared `ExecutionReceipt`, tri-state
+  `ExecutionCapabilities`, `verify-local`/`rollback`/`switch-harness` actions, one
+  normalized adapter receipt shape. Unlocks everything below.
+- `specs/003-verified-candidate-fanout/`: ≤3-branch free-only fanout with verifier
+  arbitration, structural safety (isolation required, destructive/out-of-scope refused),
+  surplus reviewers graduating to workers on replayable ops only, shadow-gated policy.
+- `specs/004-repo-context-and-measurement/`: consume-not-own repo provider interface,
+  receipts-in-report chain views, per-completed-task metric catalog with provenance
+  labels, time-boxed threshold-gated UDS spike (P3, lowest priority).
+- `docs/roadmap-12-month.md`: Q4 2026 substrate → Q1 2027 fanout → Q2 2027 context +
+  measurement → Q3 2027 promotion review + held-out evaluation; dependency graph,
+  per-quarter gates, non-goals, working rules.
+
+Validation: spec files written and paths grounded in real code (`recovery-actions.ts`,
+`registry.ts`, `surplus.ts`, `report.ts`, `daemon.ts`); no implementation, no test run
+needed (docs-only slice). No commit, push, or publication.
+
+## [2026-09-23] implement | Spec 002 Phase 1: receipt + capability contracts with green fixtures
+
+First code slice of the execution-scheduler roadmap (spec 002, tasks T001–T003).
+All additive, no planner behavior changed.
+
+- `packages/core/src/types.ts`: `ExecutionReceipt` (operationId, source, status,
+  timestamps, fingerprints, changed file names, verifier, exit code, scope
+  counts, scope-mismatch flag, isolation), `CapabilityFlag` tri-state,
+  `ExecutionCapabilities` (6 keys), `RecoveryAction` += `verify-local`,
+  `rollback`, `switch-harness`, `RecoveryReasonCode` += `needs-verification`,
+  `clean-point`.
+- `packages/core/src/recovery-actions.ts`: `RECOVERY_ACTIONS` and
+  `RECOVERY_REASON_CODES` allowlists synced (guards, judge candidates, log
+  normalization accept the new values; the planner emits none yet).
+- `packages/core/src/receipts.ts` (new): builders with fail-closed identity/
+  source, exit-derived status with explicit override, fingerprint-not-content,
+  name-only bounded changed files, `unknown` for every missing signal.
+- `packages/core/src/capabilities.ts` (new): all-unknown defaults,
+  explicit-`true`-only gating with missing-key reporting.
+- `packages/core/test/receipts.test.ts` (14 tests) +
+  `packages/core/test/capabilities.test.ts` (7 tests), written failing-first.
+- `specs/002-execution-evidence-substrate/tasks.md`: T001–T003 checked.
+
+Validation: new files 21/21 pass; full `npm test` 644 pass / 1 fail — the
+single failure is the pre-existing `controller/test/inventory.test.ts:152`
+free-catalog case (reproduces with these changes stashed, unrelated worktree
+dirt); typecheck shows only the 2 pre-existing controller inventory errors.
+No commit, push, or publication.
+
+## [2026-09-23] spec | Substrate-breadth specs 005–011 + roadmap Track B (docs only)
+
+Second spec batch: seven numbered specs in house format (spec.md + plan.md +
+tasks.md each, all Planned) plus Track B woven into `docs/roadmap-12-month.md`.
+No code changed. PR #123 (002 Phase 1) confirmed merged on `origin/main`
+(`2a6230b`); stale `feat-002-phase1` worktree removed, local + remote branch
+deleted.
+
+- `specs/005-trajectory-ir-and-conformance/`: canonical Trajectory IR +
+  Decision envelope + versioned adapter manifests + `sabi adapter verify`
+  conformance suite; additive migration via shim, no adapter rewrites.
+- `specs/006-continuity-reliability-durability/`: ContinuityState affinity
+  (can-switch before should-switch) + 8-way failure taxonomy + health/
+  breakers/backoff/budgets/deadlines + SQLite/WAL durable state via
+  `node:sqlite` (no new dependency).
+- `specs/007-acp-a2a-bridges/`: ACP session bridge + A2A delegation bridge
+  with the inference-vs-controller scope guard assertion-tested (ACP-only
+  hosts refuse per-round routing with directing reasons).
+- `specs/008-protocols-objectives-evidence/`: native Gemini generateContent +
+  WireProtocol minimal-mutation passthrough + CapabilityEvidence
+  (source/confidence/TTL, receipt > probe > catalog > config) + route
+  objectives compiled onto unchanged tiers.
+- `specs/009-semantic-decision-plane/`: DecisionFrame (one context, many
+  finite questions) + replaceable backends (Jev calibrated / local
+  relative-only / LLM fallback) + versioned question assets + shadow
+  judgments with byte-equivalence + `sabi inspect-adapter` with explicit
+  rejects.
+- `specs/010-shadow-routing-telemetry/`: `sabi shadow on` mirroring with
+  equivalence guard + bounded retention + OTel/Prometheus operational
+  series + sliceable corpus (collection only, never benchmarks).
+- `specs/011-huggingface-presence/`: versioned public trajectory API first,
+  then Space demo ("one trajectory, many decisions", recorded mode,
+  estimates-discipline costs), reproducible datasets with quarantine, org +
+  Collection with GitHub/npm canonical and tool-not-model framing.
+- Roadmap: Track A (002–004) unchanged in structure; Track B quarters
+  (Q4: 005 + 010 start; Q1: 006 + 008 + 005 conformance; Q2: 007 + 008
+  evidence + 009 + 006 store; Q3: promotions + 010 evaluation + 011
+  showcase + prune-10% milestone), extended dependency graph + non-goals.
+
+Validation: 21 new files written with paths grounded in real code; no
+implementation, no test run needed (docs-only slice). No commit, push, or
+publication.
+
+## [2026-09-23] handoff | Spec 002 Phase 2/3 pushed to OpenCode via Orca terminal
+
+Opened Orca terminal `sabi-002-phase2-opencode` (handle
+`term_6b437723-1be4-4efc-886d-f209f6c74778`) running OpenCode 1.18.32 in
+`worktrees/sabi/feat-002-phase2` and delivered the Phase 2/3 handoff
+(verify baseline, finish T010–T012 + T020–T022 + Phase 4 actions, test-first
+conventions, no commit). Delivery note: long `--text` + `--enter` reported
+accepted but did not submit until an `--interrupt` flushed the input box;
+typing verified separately with a probe. Session confirmed live: it read
+receipts.ts/capabilities.ts/evidence.test.ts, diffed the test file, and
+moved to type/baseline checks ($0.36 spend at handoff).

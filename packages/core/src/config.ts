@@ -278,6 +278,14 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
     if (upstream.paidModelsAllowed !== undefined && typeof upstream.paidModelsAllowed !== 'boolean') {
       throw new Error(`Sabi config ${source}: upstream '${name}'.paidModelsAllowed must be a boolean`)
     }
+    if (upstream.auth !== undefined && upstream.auth !== 'passthrough') {
+      throw new Error(`Sabi config ${source}: upstream '${name}'.auth must be 'passthrough'`)
+    }
+    // A passthrough upstream borrows the credential on the incoming request. Declaring a key here
+    // would be a second credential for the same call, and the one Sabi is not supposed to hold.
+    if (upstream.auth === 'passthrough' && upstream.apiKey !== undefined && upstream.apiKey !== false) {
+      throw new Error(`Sabi config ${source}: upstream '${name}' is auth:passthrough and must not declare apiKey`)
+    }
   }
 
   if (!Object.keys(models).length) throw new Error(`Sabi config ${source}: no models declared`)
@@ -327,6 +335,24 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
     }
     if (transportFallback.enabled !== undefined && typeof transportFallback.enabled !== 'boolean') {
       throw new Error(`Sabi config ${source}: transportFallback.enabled must be a boolean`)
+    }
+  }
+
+  const passthrough = config.passthrough
+  if (passthrough !== undefined) {
+    if (!isObject(passthrough)) throw new Error(`Sabi config ${source}: passthrough must be an object`)
+    for (const field of Object.keys(passthrough)) {
+      if (field !== 'alias') throw new Error(`Sabi config ${source}: passthrough.${field} is not a supported field`)
+    }
+    if (passthrough.alias !== undefined) {
+      if (typeof passthrough.alias !== 'string' || !passthrough.alias.trim()) {
+        throw new Error(`Sabi config ${source}: passthrough.alias must be a nonempty string`)
+      }
+      // A borrowed round needs the adaptive policy: a fixed alias would pin every harness round to
+      // one model and defeat the point of sitting between the harness and the model.
+      if (aliases[passthrough.alias] !== 'auto') {
+        throw new Error(`Sabi config ${source}: passthrough.alias '${passthrough.alias}' must name an alias targeting 'auto'`)
+      }
     }
   }
 
@@ -397,9 +423,18 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
   const controller = config.controller
   if (controller !== undefined) {
     if (!isObject(controller)) throw new Error(`Sabi config ${source}: controller must be an object`)
-    const controllerFields = new Set(['preferredHarnesses', 'harnesses'])
+    const controllerFields = new Set(['preferredHarnesses', 'harnesses', 'harnessRouting'])
     for (const field of Object.keys(controller)) {
       if (!controllerFields.has(field)) throw new Error(`Sabi config ${source}: controller.${field} is not a supported field`)
+    }
+    if (controller.harnessRouting !== undefined) {
+      if (!isObject(controller.harnessRouting)) throw new Error(`Sabi config ${source}: controller.harnessRouting must be an object`)
+      for (const field of Object.keys(controller.harnessRouting)) {
+        if (field !== 'useFreeCatalog') throw new Error(`Sabi config ${source}: controller.harnessRouting.${field} is not a supported field`)
+      }
+      if (controller.harnessRouting.useFreeCatalog !== undefined && typeof controller.harnessRouting.useFreeCatalog !== 'boolean') {
+        throw new Error(`Sabi config ${source}: controller.harnessRouting.useFreeCatalog must be a boolean`)
+      }
     }
     const validateStrings = (value: unknown, label: string): void => {
       if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !item.trim())) {

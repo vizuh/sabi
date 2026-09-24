@@ -166,6 +166,21 @@ function launchCommand(command: string, model: string | undefined): string | und
   return model && MODEL_ID.test(model) ? `${command} --model ${model}` : undefined
 }
 
+/**
+ * When `useFreeCatalog` is enabled, auto-select the first healthy explicit-free worker model
+ * from a harness's live catalog (e.g. `opencode/muse-spark-1.3-contributor-free`). This is a
+ * convenience on top of the operator's explicit `preferredModels` — the operator's list always
+ * wins. Returns undefined when no free worker is observable; the harness is never launched
+ * with a guessed or paid-only model.
+ */
+function autoFreeWorkerModel(harness: string, catalog: HarnessCatalogDescriptor | undefined): string | undefined {
+  if (!catalog?.models) return undefined
+  const free = catalog.models
+    .filter((model) => model.costClass === 'explicit-free' && model.role === 'worker' && modelHealth(harness, model.id)?.status !== 'unavailable')
+    .map((model) => model.id)
+  return free[0]
+}
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
@@ -255,13 +270,17 @@ export function configuredHarnesses(controller?: ControllerConfig): Array<{
   const definitions = !configured?.length
     ? DEFAULT_HARNESSES
     : configured.map((agent) => ({ agent, command: agent }))
+  const useFreeCatalog = controller?.harnessRouting?.useFreeCatalog === true
   return definitions.filter(({ command }) => executableExists(command)).map(({ agent, command }) => {
     const preferredModels = controller?.harnesses?.[agent]?.preferredModels
     // Only probe catalogs with a verified local command contract. Other harnesses may interpret
     // --list-models as a normal invocation; a configured preference remains an explicit opt-in.
-    const shouldProbe = agent === 'opencode' || agent === 'command-code' || Boolean(preferredModels?.length)
+    // When useFreeCatalog is on we also probe so we can auto-select a free worker model.
+    const shouldProbe = agent === 'opencode' || agent === 'command-code' || Boolean(preferredModels?.length) || useFreeCatalog
     const catalog = shouldProbe ? localCatalog(agent, command) : undefined
-    const model = preferredModel(agent, catalog, preferredModels)
+    // Explicit preferredModels win; otherwise, when useFreeCatalog is on, fall back to the first
+    // healthy free worker in the live catalog. No model is ever guessed or inferred from price.
+    const model = preferredModel(agent, catalog, preferredModels) ?? (useFreeCatalog ? autoFreeWorkerModel(agent, catalog) : undefined)
     return {
       agent,
       command,

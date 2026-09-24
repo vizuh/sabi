@@ -28,6 +28,19 @@ await build({
   define: { 'process.env.SABI_BUILD_VERSION': JSON.stringify(version) },
 })
 
+// The proxy ships with the controller so `sabi serve` needs no checkout. It is a second entry, not
+// part of the CLI bundle: the server owns its own process, signals and lifetime.
+await build({
+  entryPoints: [path.join(repoRoot, 'packages/server/src/index.ts')],
+  outfile: path.join(distDir, 'server.mjs'),
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'node22',
+  sourcemap: false,
+  define: { 'process.env.SABI_BUILD_VERSION': JSON.stringify(version) },
+})
+
 copyFileSync(
   path.join(repoRoot, 'packages/adapters/opencode/src/sabi-hook.mjs'),
   path.join(resourcesDir, 'opencode/sabi-hook.mjs'),

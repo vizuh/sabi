@@ -316,7 +316,12 @@ test('a deadline terminates a stalled stream after headers with one transport re
   }, { requestTimeoutMs: 150 })
   const response = await post({ stream: true })
   assert.equal(response.status, 200)
-  await assert.rejects(() => response.text())
+  // The status line is already 200, so the deadline arrives as an explicit SSE error frame — the
+  // same shape as any other mid-stream failure. A destroyed socket instead leaves the client with
+  // "socket connection was closed unexpectedly", which reads as a task failure and escalates.
+  const body = await response.text()
+  assert.match(body, /"type":"sabi_error"/)
+  assert.match(body, /"code":504/)
   await until(() => upstreamClosed && sabi.recent.length === 1)
   assert.equal(sabi.recent[0].outcome, 'transport')
   assert.equal(sabi.recent[0].transport, 504)

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { appendCouncilLedgerReceipt, councilPreGate, createCouncilPlanReceipt, configureFreeQuality, defaultConfigPath, loadConfig, newCouncilLedgerReceipt, readCouncilLedgerReceipts, readSurplusReviewReceipts, surplusResources, type CouncilEvidenceLevel, type CouncilIndependence, type CouncilIntent, type CouncilMode, type CouncilPlan, type CouncilPlanReason, type CouncilReceiptSource, type CouncilReceiptStatus, type CouncilStage, type SurplusReviewIntent } from '@sabi/core'
 import {
   controllerPreferencesPath,
@@ -24,12 +25,12 @@ import { installUserService, restartUserService, type UserServiceResult } from '
 import { uninstallController, upgradeController } from './lifecycle.ts'
 import { checkHookHealth, installHooks, runHookCommand, type InstalledHook } from './hooks.ts'
 import { runSurplusReview } from './surplus.ts'
-import { checkForUpdate } from './updates.ts'
+import { checkForUpdate, readCachedUpdate, startUpdateRefresh, takeUpdateNotice } from './updates.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'updates' | 'upgrade' | 'uninstall'
+type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'updates' | 'serve' | 'upgrade' | 'uninstall'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'updates', 'upgrade', 'uninstall'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'updates', 'serve', 'upgrade', 'uninstall'])
 const CLI_VERSION = process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
 
 function flagValue(argv: string[], name: string): string | undefined {
@@ -65,6 +66,10 @@ function printStatus(snapshot: Record<string, unknown>, heading = 'Sabi status')
   console.log(`sessions: ${sessions.length ? sessions.map((session) => `${session.agent}=${session.available ? session.lifecycle ?? 'available' : 'unavailable'}`).join(', ') : 'none'}`)
   if (registered) console.log(`registered adapters: ${registered.length}`)
   console.log(`spawn candidates: ${candidates.length ? candidates.map((candidate) => `${candidate.agent}${candidate.available ? '' : ' (unavailable)'}`).join(', ') : 'none'}`)
+  const update = snapshot.update as { status?: string; installedVersion?: string; latestVersion?: string } | undefined
+  if (update?.status === 'update-available') {
+    console.log(`Sabi update: ${update.latestVersion} available (installed ${update.installedVersion}) — run \`sabi updates\`, then \`sabi upgrade\``)
+  }
 }
 
 function printHelp(): void {
@@ -82,6 +87,7 @@ function printHelp(): void {
   sabi council [history|record|pregate|plan] [--harness=<id>] [--runtime-version=<version>] [--provider=<id>] [--model=<id>] [--seat=<id>] [--task-key=<key>] [--stage=<stage>] [--mode=<mode>] [--intent=<intent>] [--status=<status>] [--evidence=<level>] [--source=<source>] [--independence=<full|reduced>] [--plan-reason=<reason>] [--claims=<n>] [--verified-claims=<n>] [--input-tokens=<n>] [--output-tokens=<n>] [--latency-ms=<n>] [--http-status=<n>] [--input-sha256=<sha>] [--output-sha256=<sha>] [--error-code=<code>] [--max-calls=<n>] [--cwd=<path>] [--json]
   sabi integrations [list|repair] [--json]
   sabi updates [--check] [--json]
+  sabi serve [--host=<host>] [--port=<port>] [--cwd=<path>]
   sabi upgrade [--version=<semver>|latest] [--json]
   sabi uninstall [--keep-config] [--json]
   sabi daemon [--status|--stop|--foreground] [--json]
@@ -151,6 +157,8 @@ async function runStatus(command: 'status' | 'agents', argv: string[]): Promise<
   const snapshot = {
     ...(remote ?? inventorySnapshot(cwd, { mode: 'local-cli', daemon: daemon.state })),
     registeredSessions: readSessionRegistry(controllerStateDir()),
+    // Cache-only: `sabi status` is a read and stays offline. The daemon keeps this warm.
+    update: readCachedUpdate() ?? { status: 'unavailable' as const, error: 'not checked yet; run `sabi updates --check`' },
   }
   if (jsonRequested(argv)) console.log(JSON.stringify(snapshot, null, 2))
   else printStatus(snapshot, command === 'agents' ? 'Sabi agents' : 'Sabi status')
@@ -569,6 +577,22 @@ async function runUpgrade(argv: string[]): Promise<void> {
   const result = upgradeController(version)
   if (result.status === 0 && hasControllerPreferences()) {
     const stateDir = controllerStateDir()
+    // The controller bundle is replaced in place, but the OpenCode plugin is a *copy* into the
+    // state directory and a hook can point at a path the upgrade moved. Re-running the installer
+    // refreshes the copy and repairs a stale hook; it is idempotent and leaves a resolving hook
+    // exactly as it is.
+    const selected = (['claude', 'codex', 'opencode'] as InstalledHook[]).filter((harness) => argv.includes(`--${harness}`))
+    const detected = configuredHarnesses()
+      .map(({ agent }) => agent)
+      .filter((agent): agent is InstalledHook => agent === 'claude' || agent === 'codex' || agent === 'opencode')
+    const harnesses = selected.length ? selected : detected
+    if (harnesses.length) {
+      try {
+        result.refreshed = installHooks({ harnesses, stateDir }).map(({ harness }) => harness)
+      } catch (error) {
+        result.error = `package upgraded but adapter refresh failed: ${(error as Error).message}`
+      }
+    }
     const service = restartUserService({ stateDir })
     if (service.installed) {
       if (service.running) result.restarted = true
@@ -584,7 +608,10 @@ async function runUpgrade(argv: string[]): Promise<void> {
     }
   }
   if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
-  else console.log(result.status === 0 ? `Sabi upgraded to ${result.version}${result.restarted ? ' and daemon restarted' : ''}` : `Sabi upgrade failed (${result.status})`)
+  else {
+    console.log(result.status === 0 ? `Sabi upgraded to ${result.version}${result.restarted ? ' and daemon restarted' : ''}` : `Sabi upgrade failed (${result.status})`)
+    if (result.refreshed?.length) console.log(`adapters refreshed: ${result.refreshed.join(', ')}`)
+  }
   if (result.status !== 0 || result.error) process.exitCode = 1
 }
 
@@ -621,7 +648,7 @@ async function runHooks(argv: string[]): Promise<void> {
 async function runHook(argv: string[]): Promise<void> {
   const harness = argv.find((arg) => !arg.startsWith('--'))
   if (harness !== 'claude' && harness !== 'codex') throw new Error('hook harness must be claude or codex')
-  await runHookCommand(harness, flagValue(argv, '--event') ?? 'UserPromptSubmit')
+  await runHookCommand(harness, flagValue(argv, '--event') ?? 'UserPromptSubmit', { notice: () => takeUpdateNotice() })
 }
 
 /** The daemon token is a live IPC credential (packages/controller/src/daemon.ts:152) — it stays
@@ -632,10 +659,76 @@ function withoutToken(info: ControllerDaemonInfo | undefined): Omit<ControllerDa
   return rest
 }
 
+/**
+ * Where the proxy entry lives, in both shapes: a published controller ships `dist/server.mjs` beside
+ * `dist/cli.mjs`, and a checkout runs the server's own TypeScript entry. Same resolution order as the
+ * other bundled resources, so a checkout keeps working without a build step.
+ */
+function serverEntrypoint(): string | undefined {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url))
+  const candidates = [
+    path.resolve(moduleDir, 'server.mjs'),
+    path.resolve(moduleDir, '../dist/server.mjs'),
+    path.resolve(moduleDir, '../../server/src/index.ts'),
+  ]
+  return candidates.find((candidate) => existsSync(candidate))
+}
+
+/**
+ * Run the local proxy in the foreground. The server keeps its own process, signals and lifetime —
+ * this only resolves the entry and passes the operator's host/port through, so Ctrl-C behaves the
+ * same as it does for `npm start`.
+ */
+async function runServe(argv: string[]): Promise<void> {
+  const entry = serverEntrypoint()
+  if (!entry) {
+    throw new Error('Sabi server entrypoint not found — run from a checkout, or reinstall the controller package')
+  }
+  const host = flagValue(argv, '--host')
+  const port = flagValue(argv, '--port')
+  const child = spawn(process.execPath, [entry], {
+    cwd: resolvedCwd(argv),
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      ...(host ? { SABI_HOST: host } : {}),
+      ...(port ? { SABI_PORT: port } : {}),
+    },
+  })
+  // A signal aimed at the CLI must reach the server, or stopping `sabi serve` leaves an orphan
+  // holding the port. A terminal's Ctrl-C reaches the whole process group anyway; a targeted
+  // SIGTERM does not, and that is the shape a supervisor or a test uses.
+  const forward = (signal: NodeJS.Signals): void => {
+    if (!child.killed) child.kill(signal)
+  }
+  const onInterrupt = (): void => forward('SIGINT')
+  const onTerminate = (): void => forward('SIGTERM')
+  process.on('SIGINT', onInterrupt)
+  process.on('SIGTERM', onTerminate)
+  await new Promise<void>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('exit', (code, signal) => {
+      if (typeof code === 'number' && code !== 0) process.exitCode = code
+      if (signal) process.exitCode = 1
+      resolve()
+    })
+  }).finally(() => {
+    process.off('SIGINT', onInterrupt)
+    process.off('SIGTERM', onTerminate)
+  })
+}
+
 async function runDaemon(argv: string[]): Promise<void> {
   const stateDir = controllerStateDir()
   if (argv.includes('--foreground')) {
-    await runForegroundControllerDaemon({ stateDir })
+    // The daemon is the only always-on part of Sabi, so it owns the one outbound check Sabi makes
+    // on its own. Every other surface reads the cache this keeps warm.
+    const stopRefresh = startUpdateRefresh({ stateDir })
+    try {
+      await runForegroundControllerDaemon({ stateDir })
+    } finally {
+      stopRefresh()
+    }
     return
   }
   if (argv.includes('--stop')) {
@@ -747,6 +840,7 @@ async function main(): Promise<void> {
   if (command === 'hooks') return runHooks(args)
   if (command === 'hook') return runHook(args)
   if (command === 'updates') return runUpdates(args)
+  if (command === 'serve') return runServe(args)
   if (command === 'upgrade') return runUpgrade(args)
   if (command === 'uninstall') return runUninstall(args)
   await runRoute(args)

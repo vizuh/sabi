@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { looksLikeCanary } from '@sabi/core'
 import type { ControllerConfig, EvidenceSource, EvidenceStatus, RecoveryAction } from '@sabi/core'
+import { catalogFreeWorkerCount } from './agents.ts'
 import { planAgentRoute } from './agents.ts'
 import { chooseActionWithJev } from './jev.ts'
 import {
@@ -231,15 +232,19 @@ function preferenceRank(agent: AgentSession | AgentHarness, preferred: string[] 
   return index < 0 ? preferred.length : index
 }
 
-function bestSession(sessions: AgentSession[], preferred?: string[]): AgentSession | undefined {
-  return [...sessions]
-    .filter((session) => session.available && session.lifecycle === 'idle')
-    .sort((left, right) => capacityRank(left.capacity.status) - capacityRank(right.capacity.status) || preferenceRank(left, preferred) - preferenceRank(right, preferred) || (right.lastOutputAt ?? 0) - (left.lastOutputAt ?? 0) || left.id.localeCompare(right.id))[0]
+function freeCatalogScore(agent: AgentSession | AgentHarness): number {
+  return agent.kind === 'harness' ? catalogFreeWorkerCount(agent.catalog) : 0
 }
 
-function bestHarness(harnesses: AgentHarness[], preferred?: string[]): AgentHarness | undefined {
+function bestSession(sessions: AgentSession[], preferred?: string[], useFreeCatalog = false): AgentSession | undefined {
+  return [...sessions]
+    .filter((session) => session.available && session.lifecycle === 'idle')
+    .sort((left, right) => capacityRank(left.capacity.status) - capacityRank(right.capacity.status) || preferenceRank(left, preferred) - preferenceRank(right, preferred) || (useFreeCatalog ? freeCatalogScore(right) - freeCatalogScore(left) : 0) || (right.lastOutputAt ?? 0) - (left.lastOutputAt ?? 0) || left.id.localeCompare(right.id))[0]
+}
+
+function bestHarness(harnesses: AgentHarness[], preferred?: string[], useFreeCatalog = false): AgentHarness | undefined {
   return [...harnesses].filter((harness) => harness.available)
-    .sort((left, right) => capacityRank(left.capacity.status) - capacityRank(right.capacity.status) || preferenceRank(left, preferred) - preferenceRank(right, preferred) || left.id.localeCompare(right.id))[0]
+    .sort((left, right) => capacityRank(left.capacity.status) - capacityRank(right.capacity.status) || preferenceRank(left, preferred) - preferenceRank(right, preferred) || (useFreeCatalog ? freeCatalogScore(right) - freeCatalogScore(left) : 0) || left.id.localeCompare(right.id))[0]
 }
 
 function handoffForAction(plan: AgentRoutePlan, action: ControllerAction, target: AgentSession | AgentHarness | undefined): AgentRoutePlan {
@@ -334,6 +339,7 @@ export async function selectRoute(
     replacementExecutionMs: 60_000,
     rateLimitThresholdMs: 120_000,
   }
+  const useFreeCatalog = controller?.harnessRouting?.useFreeCatalog === true
   const basePlan = planAgentRoute({
     now: Date.now(),
     active: inventory.active,
@@ -343,6 +349,7 @@ export async function selectRoute(
     costs,
     handoff,
     preferredHarnesses: controller?.preferredHarnesses,
+    useFreeCatalog,
   })
   const noJev: JevDecisionTelemetry = { status: 'not-consulted', validActions: [] }
 
@@ -382,7 +389,7 @@ export async function selectRoute(
   }
 
   if (signals.multiScope) {
-    const target = bestHarness(inventory.spawnCandidates, controller?.preferredHarnesses)
+    const target = bestHarness(inventory.spawnCandidates, controller?.preferredHarnesses, useFreeCatalog)
     if (!target) {
       return { action: 'ASK', rule: 'no-orchestration-target', reason: 'request requires orchestration but no available Orca harness can be selected safely', plan: { ...basePlan, action: 'ASK' }, validActions: ['ASK'], decisionSource: 'deterministic', jev: { ...noJev, validActions: ['ASK'] } }
     }
@@ -398,8 +405,8 @@ export async function selectRoute(
     return { action: 'CONTINUE', rule: 'trivial-current-session', reason: 'trivial request stays in the current healthy session', target: inventory.active, plan: basePlan, validActions: ['CONTINUE'], decisionSource: 'deterministic', jev: { ...noJev, validActions: ['CONTINUE'] } }
   }
 
-  const session = bestSession(inventory.existingSessions, controller?.preferredHarnesses)
-  const harness = bestHarness(inventory.spawnCandidates, controller?.preferredHarnesses)
+  const session = bestSession(inventory.existingSessions, controller?.preferredHarnesses, useFreeCatalog)
+  const harness = bestHarness(inventory.spawnCandidates, controller?.preferredHarnesses, useFreeCatalog)
   if (requestsFreshHarness(request) && harness) {
     const plan = handoffForAction(basePlan, 'SPAWN', harness)
     return { action: 'SPAWN', rule: 'fresh-harness-request', reason: `request explicitly asks for a fresh harness; spawn ${harness.agent}`, target: harness, plan, validActions: ['SPAWN'], decisionSource: 'deterministic', jev: { ...noJev, validActions: ['SPAWN'] } }
@@ -610,16 +617,17 @@ function fallbackTarget(
   failedTargetIds: Set<string>,
   preferred?: string[],
   preferredHarness?: string,
+  useFreeCatalog = false,
 ): AgentSession | AgentHarness | undefined {
   const targetKey = (candidate: AgentSession | AgentHarness): string => `${candidate.id}\0${candidate.model ?? ''}`
   const sameHarness = preferredHarness
-    ? bestHarness(inventory.spawnCandidates.filter((candidate) => candidate.harness === preferredHarness && !failedTargetIds.has(targetKey(candidate))), preferred)
+    ? bestHarness(inventory.spawnCandidates.filter((candidate) => candidate.harness === preferredHarness && !failedTargetIds.has(targetKey(candidate))), preferred, useFreeCatalog)
     : undefined
   if (sameHarness) return sameHarness
-  const session = bestSession(inventory.existingSessions.filter((candidate) => !failedTargetIds.has(targetKey(candidate))), preferred)
+  const session = bestSession(inventory.existingSessions.filter((candidate) => !failedTargetIds.has(targetKey(candidate))), preferred, useFreeCatalog)
   if (session) return session
   if (!failedTargetIds.has(targetKey(inventory.active)) && inventory.active.available) return inventory.active
-  return bestHarness(inventory.spawnCandidates.filter((candidate) => !failedTargetIds.has(targetKey(candidate))), preferred)
+  return bestHarness(inventory.spawnCandidates.filter((candidate) => !failedTargetIds.has(targetKey(candidate))), preferred, useFreeCatalog)
 }
 
 function recordModelExecution(
@@ -673,6 +681,7 @@ export async function runController(
     ? recordModelExecution(selection.target, executeSelection(selection, inventory, cwd, request, handoff, waitMs, idempotencyKey), initialExecutionStartedAt)
     : { status: 'not-started', idempotencyKey }
 
+  const useFreeCatalog = controller?.harnessRouting?.useFreeCatalog === true
   if (execute && execution.status === 'failed' && execution.retryable === true && selection.action !== 'ASK' && selection.action !== 'ORCHESTRATE' && selection.decisionSource !== 'override') {
     const failedTargetIds = new Set<string>()
     let rerouteCount = 0
@@ -681,7 +690,7 @@ export async function runController(
       if (execution.targetId) failedTargetIds.add(`${execution.targetId}\0${execution.model ?? ''}`)
       const refreshed = discoverAgents(cwd, { stuckSession: signals.stuckSession, controller, currentSession, currentHarness, refresh: true })
       inventory = refreshed
-      const fallback = fallbackTarget(refreshed, failedTargetIds, controller?.preferredHarnesses, failedHarness)
+      const fallback = fallbackTarget(refreshed, failedTargetIds, controller?.preferredHarnesses, failedHarness, useFreeCatalog)
       if (!fallback) break
       const previousTargetId = execution.targetId
       const retryStartedAt = Date.now()

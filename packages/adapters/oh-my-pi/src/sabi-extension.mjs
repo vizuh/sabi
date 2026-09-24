@@ -69,6 +69,30 @@ export function createSabiProviderConfig(env = process.env) {
   };
 }
 
+/**
+ * Point a built-in OMP provider at Sabi so its rounds are routed. OMP keeps its own credential and
+ * keeps sending it; Sabi forwards that credential to the provider it belongs to and rewrites only
+ * the model. Nothing is copied into this extension, and no key is read from disk.
+ *
+ * `pi.registerProvider(name, { baseUrl })` is documented by OMP as an override for an existing
+ * provider, and OMP resolves the credential through its own auth storage independently of the base
+ * URL — which is what makes the borrow work.
+ */
+export function createBorrowedProviderOverride(env = process.env) {
+  return { baseUrl: resolveBaseUrl(env) };
+}
+
+/** Providers named in `SABI_OMP_BORROW_PROVIDERS` (comma-separated) are routed through Sabi. */
+export function borrowedProviderNames(env = process.env) {
+  return String(env.SABI_OMP_BORROW_PROVIDERS ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+}
+
 export default function sabiOhMyPiExtension(pi) {
   pi.registerProvider("sabi", createSabiProviderConfig());
+  for (const provider of borrowedProviderNames()) {
+    pi.registerProvider(provider, createBorrowedProviderOverride());
+  }
 }

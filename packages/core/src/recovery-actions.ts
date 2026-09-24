@@ -16,6 +16,9 @@ export const RECOVERY_ACTIONS: readonly RecoveryAction[] = [
   'fresh-context',
   'rollback-with-reflection',
   'ask-user',
+  'verify-local',
+  'rollback',
+  'switch-harness',
 ]
 
 export const RECOVERY_REASON_CODES: readonly RecoveryReasonCode[] = [
@@ -31,6 +34,8 @@ export const RECOVERY_REASON_CODES: readonly RecoveryReasonCode[] = [
   'stale-generation',
   'no-safe-continuation',
   'verified',
+  'needs-verification',
+  'clean-point',
 ]
 
 export function isRecoveryAction(value: unknown): value is RecoveryAction {

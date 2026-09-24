@@ -29,6 +29,7 @@ export type EvidenceCode =
   | 'rate-limited'
   | 'quota-exceeded'
   | 'timeout'
+  | 'connection-closed'
   | 'mutation'
   | 'verification-receipt'
   | 'summary-claim'
@@ -81,6 +82,70 @@ export interface VerificationState {
   reason?: VerificationReason
   receiptId?: string
   generation?: number
+}
+
+/**
+ * Deterministic execution outcome sources. A receipt records what a verifier or
+ * deterministic operation reported — never what a model claimed about it.
+ */
+export type ExecutionReceiptSource =
+  | 'test'
+  | 'build'
+  | 'lint'
+  | 'edit'
+  | 'git'
+  | 'repo-map'
+  | 'sandbox'
+
+export type ExecutionReceiptStatus = 'passed' | 'failed' | 'unknown'
+
+/**
+ * Shared cross-cutting execution receipt (spec 002). All fields are bounded and
+ * sanitized: fingerprints instead of contents, file names instead of paths,
+ * explicit `unknown` instead of invented defaults.
+ */
+export interface ExecutionReceipt {
+  /** Stable idempotency key: duplicate deliveries with the same id merge. */
+  operationId: string
+  source: ExecutionReceiptSource
+  status: ExecutionReceiptStatus
+  startedAt: number
+  durationMs: number
+  inputFingerprint?: string
+  outputFingerprint?: string
+  /** Changed file names only — never absolute paths or contents. */
+  changedFiles?: string[]
+  /** Verifier identity (tool/command label), when a verifier produced this. */
+  verifier?: string
+  exitCode?: number
+  expectedScope?: number
+  observedScope?: number
+  /** True when the run succeeded but covered the wrong target. */
+  scopeMismatch?: boolean
+  isolation?: {
+    workspaceId: string
+    disposable: boolean
+  }
+}
+
+/**
+ * Tri-state harness capability flag. `unknown` (or omission) MUST NOT enable
+ * receipt-dependent actions — only an explicit `true` does.
+ */
+export type CapabilityFlag = boolean | 'unknown'
+
+/**
+ * Per-harness declared evidence surface (spec 002). Sabi consumes these
+ * declarations; it never probes beyond the supported extension surface, and
+ * unknown harnesses read as all-`unknown`.
+ */
+export interface ExecutionCapabilities {
+  repoMap?: CapabilityFlag
+  incrementalContext?: CapabilityFlag
+  deterministicEdit?: CapabilityFlag
+  isolatedWorkspaces?: CapabilityFlag
+  verifierReceipts?: CapabilityFlag
+  eventDrivenChanges?: CapabilityFlag
 }
 
 export interface ScopeInput {
@@ -180,6 +245,9 @@ export type RecoveryAction =
   | 'fresh-context'
   | 'rollback-with-reflection'
   | 'ask-user'
+  | 'verify-local'
+  | 'rollback'
+  | 'switch-harness'
 
 export type RecoveryReasonCode =
   | 'none'
@@ -194,6 +262,8 @@ export type RecoveryReasonCode =
   | 'stale-generation'
   | 'no-safe-continuation'
   | 'verified'
+  | 'needs-verification'
+  | 'clean-point'
 
 export interface RecoveryRouteConstraint {
   excludeRoutes?: string[]
@@ -285,6 +355,12 @@ export interface UpstreamEntry {
    * or non-zero is refused, so a config mistake cannot spend money on a free-only upstream.
    */
   paidModelsAllowed?: boolean
+  /**
+   * Borrowed authentication. `passthrough` means this upstream holds no credential of its own:
+   * the request is forwarded with the credential the harness already sent, to the provider that
+   * credential belongs to. Sabi stores nothing, logs nothing, and never opens a credential file.
+   */
+  auth?: 'passthrough'
 }
 
 export interface JudgeThresholds {
@@ -334,9 +410,24 @@ export interface ControllerHarnessConfig {
   preferredModels?: string[]
 }
 
+export interface ControllerHarnessRoutingConfig {
+  /**
+   * When true, the controller prefers to spawn/delegate to a harness whose live model
+   * catalog exposes at least one explicit-free worker model (e.g. `opencode/muse-…-free`),
+   * as a tie-breaker after capacity but before static preference order. Sessions without a
+   * catalog are treated as neutral (score 0). This never overrides capacity gating — a
+   * quota-exhausted harness with free models still loses to a healthy one without.
+   *
+   * The score counts free worker models in the catalog, so more free options outrank fewer.
+   * Gated so a missing catalog does not cause a regression: score 0 = no penalty.
+   */
+  useFreeCatalog?: boolean
+}
+
 export interface ControllerConfig {
   preferredHarnesses?: string[]
   harnesses?: Record<string, ControllerHarnessConfig>
+  harnessRouting?: ControllerHarnessRoutingConfig
 }
 
 export interface SabiConfig {
@@ -361,6 +452,14 @@ export interface SabiConfig {
    */
   transportFallback?: {
     enabled?: boolean
+  }
+  /**
+   * Borrowed harness authentication. `alias` names the adaptive alias whose policy serves rounds
+   * that arrive in a harness's native wire format; the incoming model id is the harness's own label
+   * and is not an alias. Defaults to `sabi-code` when that alias is adaptive.
+   */
+  passthrough?: {
+    alias?: string
   }
 }
 

@@ -171,6 +171,8 @@ export interface AgentRoutingInput {
   requiredCapabilities: string[]
   costs: AgentRoutingCosts
   handoff: HandoffSnapshot
+  /** Opt-in tie-breaker: prefer candidates whose live catalog exposes free worker models. */
+  useFreeCatalog?: boolean
 }
 
 export type AgentRouteAction = 'CONTINUE' | 'DELEGATE' | 'SPAWN' | 'ASK'

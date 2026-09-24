@@ -9,6 +9,8 @@ export interface UpgradeResult {
   command: string
   status: number
   restarted: boolean
+  /** Harnesses whose hook/plugin wiring was re-installed after the package was replaced. */
+  refreshed?: string[]
   error?: string
 }
 

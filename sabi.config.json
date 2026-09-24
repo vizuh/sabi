@@ -70,9 +70,7 @@
     "exploration": "cheap",
     "unclassified": "cheap"
   },
-  "transportFallback": {
-    "enabled": false
-  },
+  "transportFallback": { "enabled": true },
   "telemetry": {
     "allowlistOnly": true,
     "captureSnippets": false,
@@ -83,6 +81,9 @@
     "harnesses": {
       "command-code": { "preferredModels": ["moonshotai/kimi-k3"] },
       "opencode": { "preferredModels": ["opencode-go/kimi-k3"] }
+    },
+    "harnessRouting": {
+      "useFreeCatalog": true
     }
   },
   "judge": {

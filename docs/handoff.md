@@ -1,4 +1,88 @@
 # Handoff Notes
+## Specs 005–011 + roadmap Track B — 2026-09-23 (uncommitted)
+
+Seven new specs (005 IR/conformance, 006 continuity/reliability/durable, 007 ACP/A2A,
+008 protocols/objectives/evidence, 009 semantic plane, 010 shadow/telemetry, 011 HF),
+21 files, all Planned; roadmap extended with Track B quarters + prune-10% milestone.
+PR #123 verified on origin/main; stale worktree/branches cleaned. Next: build 002
+Phase 2/3, or start 005 Phase 1 / 010 waves 1–2 (both unblock downstream work) — no
+code touched yet.
+
+## Spec 002 Phase 1 built: receipts + capabilities green — 2026-09-23 (uncommitted)
+
+T001–T003 done: additive `ExecutionReceipt`/`ExecutionCapabilities`/extended actions in
+core types, new `receipts.ts` + `capabilities.ts`, 21/21 fixture tests pass, full suite
+644/1 (1 pre-existing failure, proven unrelated). Planner emits no new actions yet — that
+is 002 Phase 4. Next: Phase 2 receipt wiring (evidence transitions T011, registry T012)
+or Phase 3 capability gating (T020–T022).
+
+## Execution-scheduler specs + 12-month roadmap — 2026-09-23 (uncommitted)
+
+New: `specs/002-execution-evidence-substrate/`, `specs/003-verified-candidate-fanout/`,
+`specs/004-repo-context-and-measurement/` (spec+plan+tasks each, all Planned) and
+`docs/roadmap-12-month.md` (Q4 2026 substrate → Q1 2027 fanout → Q2 2027 context/measurement
+→ Q3 2027 promotion review). 001 verified 49/49 done; gaps verified by code grep (no
+fanout, no capabilities, minimal controller receipt, HTTP-only daemon). Next: start 002
+Phase 1 contracts, or review/adjust quarter scope first — no code touched yet.
+
+## Release 0.2.1 SHIPPED — 2026-09-23 (uncommitted)
+
+`@vizuh/sabi@0.2.1` live on npm (verified: neutral description, 14 keywords, route-table
+README). PR #118 merged (`63ef585`), tag `v0.2.1` pushed, workflow success + provenance,
+GitHub Release created. Release branch + worktree removed. Nothing further to do on this lane.
+
+## Neutral npm shop window for @vizuh/sabi — 2026-09-23 (uncommitted)
+
+`@vizuh/sabi` registry copy is now harness-neutral (no preferred harness); the tarball still
+installs only the Command Code mod. Changed: command-code `package.json` description + 14
+alphabetical keywords, command-code `README.md` route table (controller → `@vizuh/sabi-controller`,
+proxy → checkout guide), prime-agent rename to `@sabi/adapter-prime-agent`, lockfile resync,
+`AGENTS.md` adapter list + controller-publish guard (0.1.1 live). `pack.mjs` needed no change
+(passthrough verified by dry-build). Validation: pack staging correct, `npm test` 610/611 with the
+1 failure proven pre-existing (reproduces stashed). Next step needs Hugo: version bump + `v*` tag +
+`npm publish` for the new copy to reach the registry. No commit/push/publication done.
+
+## README/i18n/skill surface → PR #111 (native JA/KO) — 2026-09-23
+
+Pushed as https://github.com/vizuh/sabi/pull/111 from branch `docs/ja-ko-native-skill` (cut from
+`origin/main` in a throwaway worktree, since removed) — merged 2026-09-23 as `9528467` (CI green). JA/KO are now full native mirrors, not stubs;
+entry-point wording updated in CONTRIBUTING/SKILL/EN-README/setup comment. Branch validation:
+typecheck clean, setup 28/28. log/handoff entries kept in worktree, out of the PR. Stashes
+`ja-ko-pr-scope` + `readme-i18n-wip` kept until merge.
+## Cross-harness free-catalog routing preference — 2026-09-23
+
+Added an opt-in tie-breaker so the controller can prefer to SPAWN/DELEGATE to the harness whose
+**live model catalog** exposes the most explicit-free worker models (e.g. OpenCode Muse, Hermes Nous,
+Command Code Go-plan free tiers). Config knob: `controller.harnessRouting.useFreeCatalog: true`
+(added to the shipped `sabi.config.json`).
+
+- `packages/core/src/types.ts`: `ControllerConfig.harnessRouting?.useFreeCatalog`.
+- `packages/core/src/config.ts`: validation.
+- `packages/controller/src/agents.ts`: `catalogFreeWorkerCount()` helper + `useFreeCatalog` threaded
+  through `best()` → `planAgentRoute()`. Sort order: capacity → preference → **free-catalog count**
+  → extra capabilities → recency → id. Missing catalog = score 0 (neutral). Sessions always score 0.
+- `packages/controller/src/controller.ts`: `bestSession`/`bestHarness`/`fallbackTarget`/`selectRoute`
+  all thread the flag; the retry reroute loop uses it too.
+- 5 new tests in `agent-route.test.ts`.
+
+Intra-harness routing is untouched — the proxy/mod path for Hermes, OMP, OpenCode, and the Command Code
+mod still schedule models inside their own loops. Only the controller's cross-harness SPAWN/DELEGATE
+decisions gain the catalog signal. Explicit `preferredHarnesses` still outranks the free-catalog tiebreak
+when they conflict.
+
+Validation: `npm run typecheck` clean; `npm test` 605/605 (controller 145/145). No commit, push,
+deployment, or publication.
+
+## README/i18n/skill surface (awesome-jev pattern) — 2026-09-23
+
+Uncommitted docs-only slice borrowing the `logicrw/awesome-jev-projects` README/repo/setup structure
+(header nav, boundary TIP, skill + machine index, generated-locale discipline) without its content.
+EN/PT-BR/ZH share one header (5-locale nav, quick nav, TIP, alt-text image); new concise JA/KO entry
+points defer to EN; new `SKILL.md` + `llms.txt`; controller manifest gains keywords/bugs; setup accepts
+`--language=en|pt-BR|zh-CN|ja|ko` with EN fallback outside EN/PT-BR. Validation: typecheck clean,
+setup tests 28/28; full parallel suite flakes are pre-existing (pass isolated, baseline fails too).
+Shared-checkout note: concurrent hooks commit `6b7adbb` landed mid-session; stash round-trip fully
+restored, stash `readme-i18n-wip` kept as backup, stale stashed hook copies superseded by the commit.
 ## Effort observability (record-only) — 2026-09-23
 
 First slice of proxy-side effort routing, chosen to avoid colliding with the active
