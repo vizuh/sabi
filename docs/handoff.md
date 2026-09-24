@@ -1,5 +1,41 @@
 # Handoff Notes
 
+## Spec 005 — Trajectory IR + Adapter SDK and Conformance — 2026-09-24
+
+Branch `feat/005-trajectory-ir-and-conformance` (PR #135, pushed). Phases 1, 3 and 4
+built; Phase 2 (compatibility shim over existing `TrajectoryState` consumers) and
+Phase 5 (convergence) remain.
+
+- **Phase 1 — IR boundary**: `packages/core/src/ir.ts` normalizes one host round
+  into `TrajectoryIR`. Proxy, mod and native shapes carrying the same observable
+  state produce byte-equivalent policy inputs; untranslatable fields are listed,
+  never silently dropped; unallowlisted evidence codes are refused. Types:
+  `TrajectoryIR`, `DecisionEnvelope`, `AdapterManifest`, `AdapterCapability`,
+  `AdapterRefusal`, `ContinuityLock`, `ConformanceVerdict`, `ConformanceCheck`,
+  `ConformanceReport`.
+- **Phase 3 — Decision envelope**: `packages/core/src/decision.ts` renders one
+  host-facing envelope per planned round. Fields a host cannot express are
+  refused with a reason and recorded in `refused`; the remainder still applies.
+  Undeclared capability reads as all-unknown, never as permissive. Fallback
+  chain is derived, never generated.
+- **Phase 4 — Manifests + conformance**: `packages/core/src/manifest.ts`
+  validates machine-readable `adapter.json` (accept / refuse-with-reason /
+  downgrade); `packages/core/src/conformance.ts` ships six shared checks with
+  four named verdicts; `sabi adapter verify <id>` runs the suite from the
+  built-in manifest. First manifest: `packages/adapters/opencode/adapter.json`.
+- **Catalog-aware free-model classification** (router): `route()` accepts
+  `RouteCapabilityContext` — optional live catalog, `minOutputTokens`,
+  `requiredModalities`. `servesRound` now gates on `usableFree`,
+  `catalogSupportsTools` and `catalogOutputCeiling`. Absent catalog =
+  declared-only, never refused, so routing is byte-identical to before without
+  one.
+
+Validation: `ir.test.ts` 5/5, `decision.test.ts` 7/7, `manifest.test.ts` 9/9,
+`conformance.test.ts` 7/7; `npm test` 698/696 (one pre-existing `modelRequired`
+failure, reproduces on pre-merge parent `80928e5`); typecheck clean apart from
+it. See `docs/decisions.md` (2026-09-24). Next: Phase 2 shim, then per-host IR
+migration (Hermes, OpenCode, Command Code translators).
+
 ## Spec 012 — evidence-scored routing (L0–L4) — 2026-09-24 (uncommitted)
 
 Created `specs/012-evidence-scored-routing/` (spec.md, plan.md, tasks.md). This
