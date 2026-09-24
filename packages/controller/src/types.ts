@@ -103,6 +103,12 @@ export interface AgentHarness extends AgentDescriptor {
   catalog?: HarnessCatalogDescriptor
   /** Process-local receipt health for the selected model; absence means no observation yet. */
   modelHealth?: HarnessModelHealth
+  /**
+   * True only when an operator named the model explicitly via `preferredModels`.
+   * Auto-selection (free-catalog) never sets it, and a required model without a
+   * known live session is gated to unavailable.
+   */
+  modelRequired?: boolean
 }
 
 /** A distilled, provenance-tagged claim; never a raw transcript excerpt. */
