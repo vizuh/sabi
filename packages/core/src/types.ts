@@ -711,6 +711,13 @@ export interface AdapterRefusal {
 }
 
 /**
+ * Switching affinity. `required` means the host MUST NOT switch on its own;
+ * `preferred` is a cache/economics hint that still permits a switch; `none`
+ * leaves the decision to cost/capability/effort/failure/quality/latency.
+ */
+export type ContinuityLock = 'none' | 'preferred' | 'required'
+
+/**
  * Normalized Trajectory IR (spec 005). Every harness/runtime emits one of these
  * per round; translators map host events onto it. Fields a host cannot supply
  * read as `unknown` — never as an invented default.
@@ -742,6 +749,14 @@ export interface DecisionEnvelope {
   reasonCode: RecoveryReasonCode
   /** Ordered fallback chain. Empty = refuse. */
   fallback: RecoveryAction[]
+  /** The model/provider this envelope serves; retained when a field is refused. */
+  model: string
+  upstream: string
+  effort?: string
+  /** Bounded deadline in ms, when one was planned. Absent = no deadline. */
+  deadlineMs?: number
+  /** Switching affinity. `required` binds the host; `preferred` is a hint. */
+  lock: ContinuityLock
   /** Deterministic, never a model claim. */
   verification?: VerificationState
   capabilities?: ExecutionCapabilities
