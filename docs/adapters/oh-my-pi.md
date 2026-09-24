@@ -26,16 +26,20 @@ omp \
   --model sabi/sabi-code
 ~~~
 
-To make the extension available to all OMP sessions, copy it into the user extension directory:
+To make the extension available to all OMP sessions, copy it into the user extension directory with a
+`.ts` or `.js` suffix. OMP's directory scanner accepts only those two extensions
+(`isExtensionFile` in `extensibility/extensions/loader.ts`), so a copied `.mjs` is never
+auto-discovered — the explicit `--extension` form above is the only way to load the checked-in
+`.mjs` file.
 
 ~~~bash
 install -Dm0644 \
   packages/adapters/oh-my-pi/src/sabi-extension.mjs \
-  ~/.omp/agent/extensions/sabi.mjs
+  ~/.omp/agent/extensions/sabi.ts
 omp --model sabi/sabi-code
 ~~~
 
-The copy is the only user configuration mutation. Remove `~/.omp/agent/extensions/sabi.mjs` to
+The copy is the only user configuration mutation. Remove `~/.omp/agent/extensions/sabi.ts` to
 roll back the integration; the adapter never edits OMP settings or credentials.
 
 ## Endpoint overrides
@@ -58,6 +62,22 @@ number: a tier whose declared `maxOutputTokens` is smaller is skipped for the ch
 declares enough (rule `output-capacity`), and a round whose requested output no configured tier can
 serve fails as an explicit incompatibility instead of silently running on an unknown-capacity
 backend. Keep the ceiling inside what at least one configured tier declares.
+
+## Borrowed authentication
+
+OMP can route a built-in provider through Sabi while keeping its own credential. OMP documents
+`pi.registerProvider(name, { baseUrl })` as an override for an existing provider, and it resolves the
+credential through its own auth storage independently of the base URL — which is what makes the
+borrow work. The extension reads the provider names from the environment:
+
+~~~bash
+SABI_OMP_BORROW_PROVIDERS=anthropic,opencode-go \
+omp --extension packages/adapters/oh-my-pi/src/sabi-extension.mjs
+~~~
+
+Each named provider is repointed at Sabi's base URL with `{ baseUrl }` and nothing else: no key is
+copied into the extension, and OMP keeps sending its own credential. Sabi decides the model per
+round and forwards the request to the provider that credential belongs to.
 
 ## Support boundary
 

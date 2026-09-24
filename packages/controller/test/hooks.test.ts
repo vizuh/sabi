@@ -143,6 +143,49 @@ test('installHooks merges Claude, Codex and OpenCode without replacing existing 
   }
 })
 
+test('wiring Claude and Codex adds hooks only, never a provider, key or model override', () => {
+  // Operator rule (2026-09-23): Claude Code and Codex are used through their own subscriptions.
+  // Sabi wires hooks into them and must never repoint either harness at a provider, hand it a key,
+  // or override its model — that is what would turn a subscription into per-token spend.
+  const root = workspace()
+  try {
+    const claude = path.join(root, 'claude', 'settings.json')
+    const codexHooks = path.join(root, 'codex', 'hooks.json')
+    const codexConfig = path.join(root, 'codex', 'config.toml')
+    mkdirSync(path.dirname(claude), { recursive: true })
+    mkdirSync(path.dirname(codexHooks), { recursive: true })
+    const userEnv = { ANTHROPIC_BASE_URL: 'https://example.invalid', ANTHROPIC_API_KEY: 'user-owned' }
+    writeFileSync(claude, JSON.stringify({ model: 'sonnet', env: userEnv, hooks: { Stop: [{ hooks: [{ type: 'command', command: 'existing-stop' }] }] } }))
+    writeFileSync(codexConfig, 'model = "gpt-6-luna"\n')
+
+    installHooks({
+      harnesses: ['claude', 'codex'],
+      stateDir: path.join(root, 'state'),
+      env: { ...process.env, HOME: root, SABI_CLAUDE_SETTINGS: claude, SABI_CODEX_HOOKS: codexHooks, SABI_HOOK_COMMAND: 'sabi-test' },
+    })
+
+    const written = JSON.parse(readFileSync(claude, 'utf8'))
+    assert.deepEqual(Object.keys(written).sort(), ['env', 'hooks', 'model'], 'no field was added beside hooks')
+    assert.equal(written.model, 'sonnet')
+    assert.deepEqual(written.env, userEnv)
+    // Codex keeps its own provider configuration; Sabi only owns the hooks file.
+    assert.equal(readFileSync(codexConfig, 'utf8'), 'model = "gpt-6-luna"\n')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a hook reply carries no model, provider or credential field', () => {
+  // Same rule from the runtime side: a hook may stop the round and say what Sabi did, but it never
+  // switches the harness's model or provider.
+  const output = hookOutput('claude', 'UserPromptSubmit', {
+    action: 'SPAWN',
+    target: { agent: 'claude' },
+    execution: { status: 'started', receipt: { phase: 'started', observedAt: '2026-09-20T00:00:00.000Z' } },
+  })
+  assert.deepEqual(Object.keys(output).sort(), ['continue', 'stopReason', 'systemMessage'])
+})
+
 test('hook output blocks only after a real delegated execution receipt', () => {
   assert.deepEqual(hookOutput('claude', 'UserPromptSubmit'), {})
   assert.deepEqual(hookOutput('claude', 'UserPromptSubmit', {

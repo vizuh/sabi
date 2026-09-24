@@ -135,6 +135,16 @@ pool (`hermes auth list`: nous OAuth + Copilot) — per-tenant fallbacks stay a
 OpenCode Go and ChatGPT Plus remain native Hermes providers. Select them with Hermes' own
 `hermes model` flow; their subscription entitlements are not silently transferred into Sabi.
 
+## Borrowed authentication
+
+Hermes can keep its own credential and let Sabi choose the model per round: point the Hermes provider
+base URL at Sabi, which accepts the harness's own wire format, rewrites only `model`, and forwards
+the request with the credential Hermes sent. The upstream behind it must be declared
+`auth: passthrough`, and Sabi holds no key on this path.
+
+Hermes' native proxy path already routes through Sabi for model/provider selection; the borrowed
+route is for the case where the credential stays entirely Hermes'.
+
 ## Maintainer note
 
 The adapter must return the complete request and replace only Sabi attribution headers. Do not add

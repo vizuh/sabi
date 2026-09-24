@@ -14,9 +14,16 @@ next inference or task transition.
 
 Sabi is a host-agnostic routing layer, not another agent harness or editor. Adapters are optional bridges to the execution seams exposed by each host.
 
-**English** · [Português (BR)](README.pt-BR.md) · [中文](README.zh-CN.md)
+**English** · [Português (BR)](README.pt-BR.md) · [中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-![Sabi routing architecture](docs/images/sabi-routing.svg)
+[Install](docs/install.md) · [Integrations](docs/adapters/README.md) · [Evidence](docs/harnesses.md) · [Agent skill](skills/sabi/SKILL.md) · [Machine index](llms.txt)
+
+> [!TIP]
+> Sabi has two boundaries: inference routing (model/provider per round) and controller handoffs (continue/delegate/spawn). A hook install is not model switching; a catalog listing is not plan entitlement; a mock pass is not a savings benchmark.
+
+![One coding task routed across five rounds: cheap, mid, mid, strong, mid](docs/images/sabi-trajectory-hero.svg)
+
+> Sabi doesn't choose one model for the task. It chooses the capacity needed for the next round.
 
 ## Install Sabi once
 
@@ -25,20 +32,27 @@ Sabi is installed at user scope. You do not install it per worktree or choose a 
 For Claude Code, Codex and controller-backed OpenCode workflows, install the published controller:
 
 ~~~bash
-npm install --global @vizuh/sabi-controller@0.1.0
+npm install --global @vizuh/sabi-controller@0.1.3
 sabi setup
 sabi doctor
+sabi serve                         # the local proxy, http://127.0.0.1:8787/v1
 ~~~
 
-The `@vizuh/sabi-controller` package is released as `controller-v0.1.0`. For Hermes or OpenCode
-inference through the local Sabi proxy, use the [checkout-based proxy guide](docs/install.md): the
-controller package installs hooks and the daemon, not the proxy server or Hermes profile.
+The `@vizuh/sabi-controller` package is released as `controller-v0.1.3` and carries the proxy as well
+as the hooks and the daemon: `sabi serve` runs the same server a checkout runs with `npm start`, from
+the installed package, with no clone. Generating a Hermes or OpenCode *profile* still uses the
+[setup guide](docs/install.md), because that writes host configuration rather than running a server.
 
 If the user's current host AI is doing the installation, give it the [host-AI installation flow](docs/install.ai.md); it asks for the harness and route explicitly, and asks only for an OpenRouter key on proxy paths.
 
 `setup` is idempotent: it keeps the daemon and state user-scoped, detects supported hosts, installs only supported Sabi-owned hooks, and keeps the normal harness path available if Sabi is unavailable. Use `sabi setup --no-hooks` when you want the daemon without changing host configuration.
 
 After installation, open your normal harness. Choose an optional integration only when you need the capability it provides.
+
+## Use with a host AI or agent
+
+Install the skill with the open skills CLI — `npx skills add vizuh/sabi --skill sabi` — or hand the
+installing agent [SKILL.md](skills/sabi/SKILL.md) and the [machine index](llms.txt) directly. The canonical [host-AI flow](docs/install.ai.md) asks for the harness and route explicitly and collects only an OpenRouter key on proxy paths. Setup accepts `--language=en|pt-BR|zh-CN|ja|ko`; prompts outside EN/PT-BR fall back to English. JA/KO READMEs are full mirrors; English is canonical for rates and support claims.
 
 ## Choose an optional integration
 
@@ -52,6 +66,10 @@ After installation, open your normal harness. Choose an optional integration onl
 
 ## The 60-second mental model
 
+![Fixed router decides once for the whole task; Sabi decides every round](docs/images/sabi-vs-fixed-routing.svg)
+
+> Most routers decide from the request. Sabi can decide from what actually happened.
+
 One task produces a trajectory, not one request:
 
 ~~~mermaid
@@ -62,6 +80,8 @@ flowchart LR
   M --> H
   S --> E["Decision + evidence"]
 ~~~
+
+![Seven rounds, one trajectory: session, search, edit, test, failure, recovery, verify](docs/images/sabi-round-timeline.svg)
 
 A **Command Code** trajectory might look like:
 
@@ -92,6 +112,8 @@ Sabi currently has two product families:
 The families share routing concepts and core types, but they are not interchangeable. A Claude or
 Codex hook does not prove native model switching. A model catalog entry does not prove plan
 entitlement. A local mock test does not prove model quality or savings.
+
+![Two boundaries: inference routing chooses the model per round; controller handoff continues, delegates, or spawns on receipts](docs/images/sabi-two-boundaries.svg)
 
 Support is reported in layers:
 
@@ -144,15 +166,66 @@ diff or model claims. A claim is advisory until a deterministic verifier proves 
 
 The user-level controller installed above can coordinate supported Claude Code, Codex, OpenCode, and Orca workflows. It is a task/session surface, not a generic way to rewrite the model inside an existing host session. See [Adapters](docs/adapters/README.md) for the evidence and boundary of each host.
 
+Claude Code and Codex run on their own subscriptions: Sabi installs hooks into them and never
+writes a provider base URL, an API key or a model override into either harness. Delegating to them
+therefore costs nothing beyond the subscription already in place, and nothing Sabi does can turn
+either one into per-token API spend.
+
 `sabi updates` is the pre-upgrade check an agent can run: it reports the installed version against
 the last npm answer, and preflights the Node version, the project config and installed hook paths.
 The cached read is offline; only `sabi updates --check` contacts the registry, and one check covers
 the next 24 hours. `--json` is available for scripts.
 
+Keeping Sabi current is the daemon's job rather than the user's memory. The daemon makes at most one
+registry check per day and writes the answer to a cache every other surface reads offline;
+`SABI_UPDATE_CHECK=off` turns that one request off entirely. When the registry is ahead, the
+installed Claude and Codex hooks show a single line once per check window and `sabi status` reports
+it. `sabi upgrade` then installs the new controller, verifies the registry signatures, refreshes the
+adapter copies it owns — the OpenCode plugin is a copy in the state directory, not a link into the
+bundle — and restarts the daemon.
+
+## Borrowed authentication
+
+Sabi can sit between a harness and the model it already talks to. The harness keeps its own
+credential and keeps sending it; Sabi decides which model serves each round and forwards the request
+with the credential it received, to the provider that credential belongs to. **Sabi holds no
+credential on this path** — it opens no credential file, writes nothing to disk, and the only
+outbound destination is the provider the harness would have called itself.
+
+The harness speaks its own protocol, so Sabi accepts it directly: `POST /v1/messages` (Anthropic
+Messages) and `POST /v1/responses` (OpenAI Responses), beside the existing
+`POST /v1/chat/completions`. Only the `model` field is rewritten; streaming is forwarded frame by
+frame, so the harness parses its own protocol.
+
+```bash
+# Claude Code, keeping its own subscription credential
+ANTHROPIC_BASE_URL=http://127.0.0.1:8787 claude
+```
+
+```json
+{
+  "upstreams": { "anthropic": { "baseURL": "https://api.anthropic.com", "auth": "passthrough" } },
+  "models": { "cheap": { "upstream": "anthropic", "model": "claude-haiku-4-5" },
+              "mid": { "upstream": "anthropic", "model": "claude-sonnet-4-5" },
+              "strong": { "upstream": "anthropic", "model": "claude-opus-4-1" } },
+  "passthrough": { "alias": "sabi-code" }
+}
+```
+
+An upstream declared `auth: passthrough` may not declare an `apiKey`: the credential is the
+harness's, and a second one here is exactly what this mode exists to avoid. A round with no
+credential on it, or a tier whose upstream holds its own key, is refused with a typed error rather
+than silently routed somewhere else. See the [adapter page](docs/adapters/README.md) for which
+harness exposes a base URL to repoint.
+
 ## Routing logic
 
 The deterministic policy classifies the current state first, then applies hard constraints before
 selecting a tier:
+
+Architecture reference — host event in, bounded decision out:
+
+![Sabi routing architecture: harness keeps its loop, adapter translates host events, Sabi core classifies the round and records evidence](docs/images/sabi-routing.svg)
 
 ~~~mermaid
 flowchart TD

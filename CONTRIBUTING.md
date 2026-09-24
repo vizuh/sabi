@@ -7,7 +7,7 @@ Small, verified pull requests beat large speculative ones.
 - **Verified vs unverified is explicit.** Cite exact repos, commits, dates and observed numbers for upstream claims. Never invent benchmarks, model capabilities, pricing or quota behavior — verify against live sources or label the claim unverified.
 - **Secrets never enter Git.** Provider keys live in the environment only. No credentials, cookies or raw usage logs in the repo or in PR text.
 - **One focused change per PR**, branched off `main`. Never force-push or rewrite shared history.
-- **Docs stay short and true.** `TODO — ask` beats invented detail. User-facing prose ships in English first; the PT-BR and ZH mirrors follow.
+- **Docs stay short and true.** `TODO — ask` beats invented detail. User-facing prose ships in English first; the PT-BR, ZH, JA and KO mirrors follow. English stays canonical for rates, quotas, and support claims.
 
 ## Gates (run before pushing)
 

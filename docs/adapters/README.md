@@ -57,7 +57,7 @@ different provider.
 | Adapter | Form | Current status | Optional entry point |
 | --- | --- | --- | --- |
 | [Command Code](command-code.md) | In-process mod | Shipped per-round model + effort routing | cmd mods add -g npm:@vizuh/sabi |
-| [OpenCode](opencode.md) | Local proxy + optional controller hook | Protocol-tested proxy; controller partial | npm start + npm run connect:opencode |
+| [OpenCode](opencode.md) | Local proxy + optional controller hook | Protocol-tested proxy; controller partial | sabi serve (or npm start from a checkout) + npm run connect:opencode |
 | [Oh My Pi](oh-my-pi.md) | OpenAI-compatible extension provider | Source + fixture contract + installed OMP 18.2.8 loopback smoke tested | `omp --extension ... --model sabi/sabi-code` |
 | [Hermes](hermes.md) | Native llm_request middleware + proxy | Pinned Hermes 0.21.3 path tested; auxiliary paths separate | Isolated profile |
 | [Prime Agent](prime-agent.md) | Custom OpenAI-compatible provider + probes | Proxy compatibility tested with mock; native timing experimental | Manual profile |

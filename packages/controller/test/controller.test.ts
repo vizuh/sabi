@@ -380,3 +380,28 @@ test('recovery capsule drops secret-like labels before handoff', () => {
   assert.deepEqual(capsule!.attemptedApproaches, ['safe retry'])
   assert.deepEqual(capsule!.verifiedFacts, [])
 })
+
+test('a stale clean point is never carried as a rollback bound', () => {
+  const stale = buildRecoveryCapsule({
+    failureSignature: 'typescript-error',
+    lastKnownCleanPoint: 'before-auth-migration',
+    sourceGeneration: 1,
+    currentGeneration: 2,
+  })
+  assert.ok(stale)
+  assert.equal(stale!.lastKnownCleanPoint, undefined)
+  const current = buildRecoveryCapsule({
+    failureSignature: 'typescript-error',
+    lastKnownCleanPoint: 'before-auth-migration',
+    sourceGeneration: 2,
+    currentGeneration: 2,
+  })
+  assert.ok(current)
+  assert.equal(current!.lastKnownCleanPoint, 'before-auth-migration')
+  const unanchored = buildRecoveryCapsule({
+    failureSignature: 'typescript-error',
+    lastKnownCleanPoint: 'before-auth-migration',
+  })
+  assert.ok(unanchored)
+  assert.equal(unanchored!.lastKnownCleanPoint, 'before-auth-migration')
+})

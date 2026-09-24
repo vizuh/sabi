@@ -1,6 +1,6 @@
 {
   "name": "@sabi/adapter-command-code",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "license": "MIT",
   "description": "Sabi inference adapter for Command Code, part of harness-independent adaptive routing for Claude Code, Codex, Command Code, Hermes, Oh My Pi, OpenCode and Orca.",

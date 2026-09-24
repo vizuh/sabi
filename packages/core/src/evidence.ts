@@ -1,5 +1,6 @@
 import { looksLikeCanary } from './telemetry.ts'
 import type {
+  ExecutionReceipt,
   EvidenceCode,
   EvidenceSource,
   EvidenceStatus,
@@ -65,6 +66,7 @@ const VERIFICATION_REASONS: ReadonlySet<string> = new Set([
   'scope-unknown',
   'user-denial',
   'contradicted',
+  'verification-receipt',
 ])
 
 function boundedText(value: unknown, maxChars: number): string | undefined {
@@ -188,6 +190,7 @@ export interface VerificationInput {
   summaryClaim?: boolean
   generation?: number
   receipt?: unknown
+  executionReceipt?: ExecutionReceipt
 }
 
 function validReceipt(value: unknown, generation: number): VerificationReceipt | undefined {
@@ -201,6 +204,35 @@ function validReceipt(value: unknown, generation: number): VerificationReceipt |
   return { id, status, source, generation: receiptGeneration, ...(item.valid === true ? { valid: true } : {}) }
 }
 
+/**
+ * Bridge a core `ExecutionReceipt` into the verification transition. An
+ * execution receipt is a structured `ValidationReceipt`-class proof, not an
+ * arbitrary claim. Statuses other than passed/failed are treated as missing.
+ */
+export function verificationFromExecutionReceipt(receipt: ExecutionReceipt, generation?: number): VerificationState {
+  const generationValue = generationOf(generation)
+  if (!receipt || typeof receipt !== 'object' || (receipt.status !== 'passed' && receipt.status !== 'failed')) {
+    return { status: 'unknown', reason: 'invalid-receipt', generation: generationValue }
+  }
+  return {
+    status: receipt.status,
+    reason: 'verification-receipt',
+    receiptId: receipt.operationId,
+    generation: generationValue,
+  }
+}
+
+/**
+ * Select the strongest execution receipt for a given operation id from a
+ * bounded collection. Deterministic and stable.
+ */
+export function strongestExecutionReceipt(receipts: ExecutionReceipt[], operationId: string): ExecutionReceipt | undefined {
+  const matches = receipts.filter((r) => r.operationId === operationId && (r.status === 'passed' || r.status === 'failed'))
+  if (matches.length === 0) return undefined
+  const passed = matches.find((r) => r.status === 'passed')
+  return passed ?? matches[matches.length - 1]
+}
+
 export function deriveVerificationState(input: VerificationInput = {}): VerificationState {
   const generation = generationOf(input.generation)
   const receiptCandidate = input.receipt
@@ -208,6 +240,9 @@ export function deriveVerificationState(input: VerificationInput = {}): Verifica
     const receipt = validReceipt(receiptCandidate, generation)
     if (receipt) return { status: receipt.status, receiptId: receipt.id, generation }
     return { status: 'unknown', reason: 'invalid-receipt', generation }
+  }
+  if (input.executionReceipt !== undefined) {
+    return verificationFromExecutionReceipt(input.executionReceipt, input.generation)
   }
   if (input.summaryClaim) return { status: 'unknown', reason: 'summary-without-receipt', generation }
   if (input.mutation) return { status: 'needed', reason: 'mutation-without-receipt', generation }
@@ -266,6 +301,7 @@ export interface TrajectoryEvidenceMetadata {
   generation?: number
   summaryClaim?: boolean
   verificationReceipt?: unknown
+  executionReceipt?: ExecutionReceipt
   scope?: ScopeInput
 }
 
@@ -273,15 +309,19 @@ export interface TrajectoryEvidenceMetadata {
 export function decorateTrajectoryState<T extends TrajectoryState>(state: T, metadata: TrajectoryEvidenceMetadata = {}): T {
   const generation = generationOf(metadata.generation ?? state.contextGeneration)
   const receipt = metadata.verificationReceipt
+  const executionReceipt = metadata.executionReceipt
   const verification = deriveVerificationState({
     mutation: state.roundKind === 'implementation',
     verificationAttempted: state.roundKind === 'verification',
     summaryClaim: metadata.summaryClaim,
     generation,
     receipt,
+    executionReceipt,
   })
   const scopeCoverage = metadata.scope ? buildScopeCoverage(metadata.scope) : undefined
-  const evidence = evidenceForTrajectory(state, { summaryClaim: metadata.summaryClaim, verificationReceipt: receipt !== undefined })
+  const verifierVerdict = receipt !== undefined
+    || (executionReceipt !== undefined && (executionReceipt.status === 'passed' || executionReceipt.status === 'failed'))
+  const evidence = evidenceForTrajectory(state, { summaryClaim: metadata.summaryClaim, verificationReceipt: verifierVerdict })
   return {
     ...state,
     ...(evidence.length > 0 ? { evidence } : {}),

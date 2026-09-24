@@ -3,7 +3,16 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { heartbeatSession, readSessionRegistry, recordSessionOutcome, registerSession, registryPath } from '../src/registry.ts'
+import {
+  executionReceiptsPath,
+  heartbeatSession,
+  readExecutionReceipts,
+  readSessionRegistry,
+  recordExecutionReceipt,
+  recordSessionOutcome,
+  registerSession,
+  registryPath,
+} from '../src/registry.ts'
 
 function workspace(): string {
   return mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-registry-'))
@@ -116,6 +125,143 @@ test('duplicate outcome delivery for the same session collapses to one bounded e
     assert.equal(readSessionRegistry(stateDir, 300_002).length, 1)
     assert.deepEqual(duplicate.lastCapsuleMeta, { failureSignature: 'typescript-error' })
     assert.deepEqual(duplicate.lastReceipt, { phase: 'completed', observedAt: '2026-09-20T12:00:00.000Z', requestId: 'req-1' })
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true })
+  }
+})
+
+test('execution receipts persist by operationId and survive a restart, sanitized', () => {
+  const stateDir = workspace()
+  try {
+    const stored = recordExecutionReceipt(stateDir, {
+      operationId: 'op-test-1',
+      source: 'test',
+      status: 'passed',
+      startedAt: 400_000,
+      durationMs: 120,
+      verifier: 'node --test',
+      exitCode: 0,
+      expectedScope: 3,
+      observedScope: 3,
+      changedFiles: ['/abs/path/src/a.ts', 'src/b.ts', 'src/b.ts'],
+    })
+    assert.equal(stored.operationId, 'op-test-1')
+    assert.equal(stored.scopeMismatch, false)
+    assert.deepEqual(stored.changedFiles, ['a.ts', 'b.ts'])
+    // Simulate a process restart: a fresh read sees the same receipt from disk.
+    const after = readExecutionReceipts(stateDir)
+    assert.equal(after.length, 1)
+    assert.deepEqual(after[0], stored)
+    const raw = readFileSync(executionReceiptsPath(stateDir), 'utf8')
+    assert.equal(raw.includes('/abs/path'), false)
+    assert.equal(raw.includes('op-test-1'), true)
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true })
+  }
+})
+
+test('duplicate execution receipt delivery collapses to one entry', () => {
+  const stateDir = workspace()
+  try {
+    const input = {
+      operationId: 'op-dup-1',
+      source: 'build' as const,
+      status: 'failed' as const,
+      startedAt: 410_000,
+      durationMs: 55,
+      exitCode: 1,
+    }
+    const first = recordExecutionReceipt(stateDir, input)
+    const duplicate = recordExecutionReceipt(stateDir, input)
+    assert.deepEqual(duplicate, first)
+    const all = readExecutionReceipts(stateDir)
+    assert.equal(all.length, 1)
+    assert.deepEqual(all[0], first)
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true })
+  }
+})
+
+test('an unknown receipt is strengthened by a later terminal verdict for the same operationId', () => {
+  const stateDir = workspace()
+  try {
+    recordExecutionReceipt(stateDir, {
+      operationId: 'op-late-1', source: 'sandbox', status: 'unknown', startedAt: 420_000, durationMs: 0,
+    })
+    const strengthened = recordExecutionReceipt(stateDir, {
+      operationId: 'op-late-1', source: 'test', status: 'passed', startedAt: 420_100, durationMs: 30, verifier: 'node --test', exitCode: 0,
+    })
+    assert.equal(strengthened.status, 'passed')
+    const all = readExecutionReceipts(stateDir)
+    assert.equal(all.length, 1)
+    assert.equal(all[0]!.status, 'passed')
+    assert.equal(all[0]!.verifier, 'node --test')
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true })
+  }
+})
+
+test('a contradictory terminal verdict never flips a stored execution receipt', () => {
+  const stateDir = workspace()
+  try {
+    recordExecutionReceipt(stateDir, {
+      operationId: 'op-flip-1', source: 'test', status: 'failed', startedAt: 430_000, durationMs: 40, exitCode: 1,
+    })
+    const afterContradiction = recordExecutionReceipt(stateDir, {
+      operationId: 'op-flip-1', source: 'test', status: 'passed', startedAt: 430_100, durationMs: 41, exitCode: 0,
+    })
+    assert.equal(afterContradiction.status, 'failed')
+    recordExecutionReceipt(stateDir, {
+      operationId: 'op-flip-2', source: 'lint', status: 'passed', startedAt: 431_000, durationMs: 10, exitCode: 0,
+    })
+    const secondContradiction = recordExecutionReceipt(stateDir, {
+      operationId: 'op-flip-2', source: 'lint', status: 'failed', startedAt: 431_100, durationMs: 11, exitCode: 2,
+    })
+    assert.equal(secondContradiction.status, 'passed')
+    const all = readExecutionReceipts(stateDir)
+    assert.equal(all.length, 2)
+    assert.equal(all.find((entry) => entry.operationId === 'op-flip-1')!.status, 'failed')
+    assert.equal(all.find((entry) => entry.operationId === 'op-flip-2')!.status, 'passed')
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true })
+  }
+})
+
+test('malformed execution receipts are rejected, never stored', () => {
+  const stateDir = workspace()
+  try {
+    assert.throws(() => recordExecutionReceipt(stateDir, {
+      source: 'test', status: 'passed', startedAt: 1, durationMs: 1,
+    }), /operationId/)
+    assert.throws(() => recordExecutionReceipt(stateDir, {
+      operationId: 'op-bad-source', source: 'not-a-source', status: 'passed', startedAt: 1, durationMs: 1,
+    }), /source/)
+    assert.throws(() => recordExecutionReceipt(stateDir, {
+      operationId: 'op-bad-status', source: 'test', status: 'green', startedAt: 1, durationMs: 1,
+    }), /status/)
+    assert.throws(() => recordExecutionReceipt(stateDir, {
+      operationId: 'op-bad-clock', source: 'test', status: 'passed', startedAt: 'now', durationMs: 1,
+    }), /startedAt/)
+    assert.equal(readExecutionReceipts(stateDir).length, 0)
+    assert.equal(existsSync(executionReceiptsPath(stateDir)), false)
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true })
+  }
+})
+
+test('execution receipt storage is bounded and keeps the most recent records', () => {
+  const stateDir = workspace()
+  try {
+    const total = 256 + 12
+    for (let index = 0; index < total; index += 1) {
+      recordExecutionReceipt(stateDir, {
+        operationId: `op-bounded-${index}`, source: 'git', status: 'passed', startedAt: 500_000 + index, durationMs: 1,
+      })
+    }
+    const all = readExecutionReceipts(stateDir)
+    assert.equal(all.length, 256)
+    assert.equal(all.some((entry) => entry.operationId === 'op-bounded-0'), false)
+    assert.equal(all.some((entry) => entry.operationId === `op-bounded-${total - 1}`), true)
   } finally {
     rmSync(stateDir, { recursive: true, force: true })
   }

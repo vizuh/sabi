@@ -14,7 +14,9 @@ const HERMES_CONFIG_EXAMPLE = path.join(ROOT, 'packages/adapters/hermes/config.s
 const HERMES_SABI_CONFIG_EXAMPLE = path.join(ROOT, 'packages/adapters/hermes/sabi.config.json.example')
 const HERMES_OPENROUTER_SABI_CONFIG_EXAMPLE = path.join(ROOT, 'packages/adapters/hermes/sabi.config.openrouter.json.example')
 
-export type SetupLanguage = 'en' | 'pt-BR'
+export type SetupLanguage = 'en' | 'pt-BR' | 'zh-CN' | 'ja' | 'ko'
+// Prompts ship in English and Portuguese; zh-CN/ja/ko resolve here so docs and flags
+// agree, while interactive prompts fall back to English.
 type HermesUpstream = 'hermes-nous' | 'openrouter'
 type ExplainMode = 'none' | 'local' | 'ai'
 
@@ -22,13 +24,21 @@ export function resolveLanguage(argv: string[]): SetupLanguage {
   const value = flagValue(argv, '--language')?.toLowerCase()
   if (value === 'pt' || value === 'pt-br' || value === 'pt_br') return 'pt-BR'
   if (value === 'en' || value === 'en-us' || value === 'en-gb') return 'en'
+  if (value === 'zh' || value === 'zh-cn' || value === 'zh_cn') return 'zh-CN'
+  if (value === 'ja' || value === 'ja-jp' || value === 'ja_jp') return 'ja'
+  if (value === 'ko' || value === 'ko-kr' || value === 'ko_kr') return 'ko'
   if (value !== undefined) {
-    console.error(`Unrecognized --language=${value}. Use en or pt-BR.`)
+    console.error(`Unrecognized --language=${value}. Use en, pt-BR, zh-CN, ja, or ko.`)
     process.exitCode = 1
     return 'en'
   }
   const locale = process.env.LC_ALL ?? process.env.LC_MESSAGES ?? process.env.LANG ?? ''
-  return locale.toLowerCase().startsWith('pt') ? 'pt-BR' : 'en'
+  const lower = locale.toLowerCase()
+  if (lower.startsWith('pt')) return 'pt-BR'
+  if (lower.startsWith('zh')) return 'zh-CN'
+  if (lower.startsWith('ja')) return 'ja'
+  if (lower.startsWith('ko')) return 'ko'
+  return 'en'
 }
 
 function text(language: SetupLanguage, english: string, portuguese: string): string {
