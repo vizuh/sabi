@@ -9,6 +9,7 @@ import {
   isFullyVerified,
   parseTrajectoryEvidence,
   serializeDecisionRecord,
+  strongestExecutionReceipt,
 } from '../src/index.ts'
 import type { ChatMessage, DecisionRecord, TrajectoryState } from '../src/types.ts'
 
@@ -115,4 +116,101 @@ test('legacy decision records serialize with optional evidence fields only', () 
   assert.ok(!encoded.includes('safe reason'))
   assert.ok(!encoded.includes('sk-live-'))
   assert.ok(JSON.parse(encoded).state)
+})
+
+test('an execution receipt drives a passed verification with receipt linkage', () => {
+  const state = extractTrajectoryState(body([
+    system,
+    { role: 'user', content: 'fix it' },
+    { role: 'assistant', tool_calls: [{ function: { name: 'edit_file', arguments: '{}' } }] },
+    { role: 'tool', content: 'updated' },
+  ], {
+    executionReceipt: {
+      operationId: 'build-9',
+      source: 'build',
+      status: 'passed',
+      startedAt: 1,
+      durationMs: 100,
+    },
+    generation: 0,
+  }))
+  assert.equal(state.verification?.status, 'passed')
+  assert.equal(state.verification?.receiptId, 'build-9')
+  assert.equal(state.verification?.reason, 'verification-receipt')
+  assert.equal(state.evidence?.some((e) => e.code === 'verification-receipt' && e.status === 'verified'), true)
+  assert.equal(isFullyVerified(state.verification, undefined, 0), true)
+})
+
+test('a failed execution receipt produces a failed verification', () => {
+  const state = extractTrajectoryState(body([
+    system,
+    { role: 'user', content: 'fix it' },
+    { role: 'assistant', tool_calls: [{ function: { name: 'edit_file', arguments: '{}' } }] },
+    { role: 'tool', content: 'updated' },
+  ], {
+    executionReceipt: {
+      operationId: 'build-10',
+      source: 'test',
+      status: 'failed',
+      startedAt: 1,
+      durationMs: 80,
+      exitCode: 2,
+    },
+    generation: 0,
+  }))
+  assert.equal(state.verification?.status, 'failed')
+  assert.equal(state.verification?.receiptId, 'build-10')
+})
+
+test('an unknown-status execution receipt does not close verification', () => {
+  const state = extractTrajectoryState(body([
+    system,
+    { role: 'user', content: 'fix it' },
+    { role: 'assistant', tool_calls: [{ function: { name: 'edit_file', arguments: '{}' } }] },
+    { role: 'tool', content: 'updated' },
+  ], {
+    executionReceipt: {
+      operationId: 'op-11',
+      source: 'sandbox',
+      status: 'unknown',
+      startedAt: 1,
+      durationMs: 0,
+    },
+    generation: 0,
+  }))
+  assert.equal(state.verification?.status, 'unknown')
+})
+
+test('a new-generation compaction invalidates a prior passed execution receipt', () => {
+  const state = extractTrajectoryState(body([
+    system,
+    { role: 'user', content: 'fix it' },
+    { role: 'assistant', tool_calls: [{ function: { name: 'edit_file', arguments: '{}' } }] },
+    { role: 'tool', content: 'updated' },
+  ], {
+    executionReceipt: {
+      operationId: 'build-12',
+      source: 'build',
+      status: 'passed',
+      startedAt: 1,
+      durationMs: 100,
+    },
+    generation: 0,
+  }))
+  assert.equal(state.verification?.status, 'passed')
+  applyMeasuredContext(state, { contextGeneration: 1 })
+  assert.equal(state.verification?.status, 'unknown')
+  assert.equal(state.verification?.reason, 'stale-generation')
+})
+
+test('strongestExecutionReceipt prefers passed over failed for the same id', () => {
+  const receipts = [
+    { operationId: 'op', source: 'test' as const, status: 'failed' as const, startedAt: 1, durationMs: 1, exitCode: 1 },
+    { operationId: 'op', source: 'build' as const, status: 'passed' as const, startedAt: 2, durationMs: 2 },
+    { operationId: 'op', source: 'lint' as const, status: 'failed' as const, startedAt: 3, durationMs: 3, exitCode: 2 },
+    { operationId: 'other', source: 'build' as const, status: 'passed' as const, startedAt: 4, durationMs: 4 },
+  ]
+  const chosen = strongestExecutionReceipt(receipts, 'op')
+  assert.equal(chosen?.status, 'passed')
+  assert.equal(strongestExecutionReceipt(receipts, 'missing'), undefined)
 })

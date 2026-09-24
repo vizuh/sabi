@@ -51,6 +51,8 @@ export type VerificationReason =
   | 'scope-unknown'
   | 'user-denial'
   | 'contradicted'
+  | 'verification-receipt'
+  | 'verification-receipt'
 export type ScopeCoverageSource = 'explicit' | 'inferred' | 'unknown'
 
 export interface ScopeCoverage {
@@ -185,6 +187,8 @@ export interface ChatRequestBody {
   observedScope?: string[]
   scope?: ScopeInput
   verificationReceipt?: VerificationReceipt
+  /** Structured execution receipt (spec 002); validated before it can close verification. */
+  executionReceipt?: ExecutionReceipt
   contextGeneration?: number
   summaryClaim?: boolean
   [key: string]: unknown
@@ -292,6 +296,12 @@ export interface RecoveryPlannerInput {
   currentProvider?: string
   safeRollback?: boolean
   hasFeedback?: boolean
+  /** Pinned-at-plan-time capability snapshot; omission means all-unknown (001 behavior). */
+  capabilities?: ExecutionCapabilities
+  /** Bounded clean-point label from a current-generation capsule; required for `rollback`. */
+  cleanPoint?: string
+  /** An alternate harness with declared capabilities is registered; enables `switch-harness`. */
+  alternateCapableHarness?: boolean
 }
 
 export interface CostRates {
@@ -410,9 +420,24 @@ export interface ControllerHarnessConfig {
   preferredModels?: string[]
 }
 
+export interface ControllerHarnessRoutingConfig {
+  /**
+   * When true, the controller prefers to spawn/delegate to a harness whose live model
+   * catalog exposes at least one explicit-free worker model (e.g. `opencode/muse-…-free`),
+   * as a tie-breaker after capacity but before static preference order. Sessions without a
+   * catalog are treated as neutral (score 0). This never overrides capacity gating — a
+   * quota-exhausted harness with free models still loses to a healthy one without.
+   *
+   * The score counts free worker models in the catalog, so more free options outrank fewer.
+   * Gated so a missing catalog does not cause a regression: score 0 = no penalty.
+   */
+  useFreeCatalog?: boolean
+}
+
 export interface ControllerConfig {
   preferredHarnesses?: string[]
   harnesses?: Record<string, ControllerHarnessConfig>
+  harnessRouting?: ControllerHarnessRoutingConfig
 }
 
 export interface SabiConfig {
@@ -642,4 +667,128 @@ export interface JudgeEvidence {
   priorFailure: JudgeEvidenceValue
   contextBoundary: JudgeEvidenceValue
   omitted: JudgeEvidenceSlotName[]
+}
+
+/**
+ * Normalized adapter manifest (spec 005). A manifest is a declaration, not a
+ * capability probe: Sabi consumes it, never verifies it against a live host.
+ * Unknown fields read as `unknown`; the adapter is still loadable.
+ */
+export type AdapterKind =
+  | 'command-code'
+  | 'opencode'
+  | 'hermes'
+  | 'oh-my-pi'
+  | 'prime-agent'
+  | 'deepseek-harness'
+  | 'orca'
+  | 'claude-code'
+  | 'codex'
+  | 'unknown'
+
+export interface AdapterManifest {
+  id: string
+  kind: AdapterKind
+  version: string
+  /** Adapter's own loop / runtime contract. Sabi never forks or patches it. */
+  loop: 'native' | 'proxy' | 'mod'
+  /** Declared evidence surface. Absence = all unknown. */
+  evidence?: ExecutionCapabilities
+  /** Explicitly declared, never inferred. */
+  capabilities?: AdapterCapability[]
+  /** Refused surfaces. A declared refusal beats a silent absence. */
+  refusals?: AdapterRefusal[]
+}
+
+export interface AdapterCapability {
+  key: string
+  declared: boolean
+}
+
+export interface AdapterRefusal {
+  surface: string
+  reason: string
+}
+
+/**
+ * Switching affinity. `required` means the host MUST NOT switch on its own;
+ * `preferred` is a cache/economics hint that still permits a switch; `none`
+ * leaves the decision to cost/capability/effort/failure/quality/latency.
+ */
+export type ContinuityLock = 'none' | 'preferred' | 'required'
+
+/**
+ * Normalized Trajectory IR (spec 005). Every harness/runtime emits one of these
+ * per round; translators map host events onto it. Fields a host cannot supply
+ * read as `unknown` — never as an invented default.
+ */
+export interface TrajectoryIR {
+  roundId: string
+  harness: AdapterKind
+  kind: RoundKind
+  failureLevel: FailureLevel
+  /** Bounded, allowlisted codes only. */
+  evidence: TrajectoryEvidence[]
+  verification?: VerificationState
+  capabilities?: ExecutionCapabilities
+  cache?: CacheObservation
+  receipt?: ExecutionReceipt
+  /** Fields the host could not translate. Never silently dropped. */
+  untranslatable: string[]
+}
+
+/**
+ * Normalized decision envelope (spec 005). One per planned round; the refusal
+ * record is the failure mode, not a missing envelope.
+ */
+export interface DecisionEnvelope {
+  envelopeId: string
+  roundId: string
+  harness: AdapterKind
+  action: RecoveryAction
+  reasonCode: RecoveryReasonCode
+  /** Ordered fallback chain. Empty = refuse. */
+  fallback: RecoveryAction[]
+  /** The model/provider this envelope serves; retained when a field is refused. */
+  model: string
+  upstream: string
+  effort?: string
+  /** Bounded deadline in ms, when one was planned. Absent = no deadline. */
+  deadlineMs?: number
+  /** Switching affinity. `required` binds the host; `preferred` is a hint. */
+  lock: ContinuityLock
+  /** Deterministic, never a model claim. */
+  verification?: VerificationState
+  capabilities?: ExecutionCapabilities
+  refused?: AdapterRefusal
+}
+
+export type ConformanceVerdict =
+  | 'conformant'
+  | 'lossy'
+  | 'unstable'
+  | 'leaking'
+  | 'refused'
+
+export interface ConformanceCheck {
+  id: string
+  name: string
+  /** Pure function of the IR and manifest; no host interaction. */
+  check: (ir: TrajectoryIR, manifest: AdapterManifest) => boolean
+}
+
+export interface ConformanceReport {
+  reportId: string
+  adapterId: string
+  generatedAt: string
+  verdict: ConformanceVerdict
+  checks: ConformanceCheckResult[]
+  /** Bounded. */
+  untranslatable: string[]
+}
+
+export interface ConformanceCheckResult {
+  checkId: string
+  verdict: ConformanceVerdict
+  detail?: string
 }

@@ -413,6 +413,7 @@ export function extractTrajectoryState(body: ChatRequestBody): TrajectoryState {
     generation: contextGeneration,
     summaryClaim: body.summaryClaim === true,
     verificationReceipt: body.verificationReceipt,
+    executionReceipt: body.executionReceipt,
     scope,
   })
 }

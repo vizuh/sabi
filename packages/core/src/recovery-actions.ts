@@ -1,3 +1,4 @@
+import { isCapable } from './capabilities.ts'
 import { isFullyVerified } from './evidence.ts'
 import type {
   RecoveryAction,
@@ -84,16 +85,33 @@ export function planRecovery(input: RecoveryPlannerInput): RecoveryPlan {
   if (input.exhaustedRoutes || !hasRoutes) return plan('ask-user', 'exhausted-routes', input)
 
   if (state.failure === 'transport') {
-    // A transport failure is not reasoning difficulty. Keep the intervention a retry while
-    // excluding the unavailable route/provider from the next selection.
+    // A transport failure is not reasoning difficulty. With a registered capable alternate the
+    // trajectory switches harness; otherwise keep the 001 retry while excluding the unavailable
+    // route/provider from the next selection.
+    if (input.alternateCapableHarness === true) {
+      return plan('switch-harness', 'transport', input, retriesRemaining > 0)
+    }
     return plan('retry-same', 'transport', input, retriesRemaining > 0)
   }
 
   if (verification?.status === 'unknown' || verification?.status === 'needed' || verification?.status === 'attempted') {
+    // Verify before repair: an unverified mutation gets a deterministic local verdict before any
+    // model intervention — but only when the harness declared verifier receipts. `unknown` never
+    // enables receipt-dependent actions; the fallback stays the 001 evidence gathering.
+    const unverifiedMutation = verification.status === 'needed' || verification.status === 'attempted'
+    if (unverifiedMutation && isCapable(input.capabilities, 'verifierReceipts')) {
+      return plan('verify-local', 'needs-verification', input)
+    }
     return plan('gather-evidence', verification.reason === 'stale-generation' ? 'stale-generation' : 'missing-evidence', input)
   }
 
   if (state.repeatedFailure === true || (state.failureStreak ?? 0) >= 2) {
+    // Roll back on repeated failure only with a current-generation clean point and declared
+    // deterministic edits; otherwise the 001 reflection/fresh-context chain is unchanged.
+    const cleanPoint = typeof input.cleanPoint === 'string' && input.cleanPoint.trim().length > 0
+    if (cleanPoint && isCapable(input.capabilities, 'deterministicEdit')) {
+      return plan('rollback', 'clean-point', input)
+    }
     return input.safeRollback
       ? plan('rollback-with-reflection', 'repeated-failure', input)
       : plan('fresh-context', 'repeated-failure', input)

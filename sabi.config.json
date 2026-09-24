@@ -81,6 +81,9 @@
     "harnesses": {
       "command-code": { "preferredModels": ["moonshotai/kimi-k3"] },
       "opencode": { "preferredModels": ["opencode-go/kimi-k3"] }
+    },
+    "harnessRouting": {
+      "useFreeCatalog": true
     }
   },
   "judge": {

@@ -114,6 +114,79 @@ test('discovered OpenCode spawn candidates carry the observed runtime catalog', 
   }
 })
 
+test('useFreeCatalog auto-selects a free worker model when no preferredModels are configured', () => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-autofree-cwd-'))
+  const harnessDir = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-autofree-bin-'))
+  const opencode = path.join(harnessDir, 'opencode')
+  writeFileSync(opencode, '#!/bin/sh\ncase "$1" in --version) echo 1.18.31-test;; models) printf "opencode/jev-1.13-free\\nopencode/muse-spark-1.3-contributor-free\\n";; esac\n')
+  chmodSync(opencode, 0o755)
+  const previousCommand = process.env.ORCA_CLI_COMMAND
+  const previousHandle = process.env.ORCA_TERMINAL_HANDLE
+  const previousHarnesses = process.env.SABI_CONTROLLER_HARNESSES
+  const previousPath = process.env.PATH
+  process.env.ORCA_CLI_COMMAND = fakeOrca(cwd)
+  process.env.ORCA_TERMINAL_HANDLE = 'term-idle'
+  process.env.SABI_CONTROLLER_HARNESSES = 'opencode'
+  process.env.PATH = `${harnessDir}${path.delimiter}${previousPath ?? ''}`
+  try {
+    const inventory = discoverAgents(cwd, {
+      controller: { harnessRouting: { useFreeCatalog: true } },
+    })
+    const candidate = inventory.spawnCandidates.find((entry) => entry.agent === 'opencode')
+    // The judge model is not a worker; the free worker is auto-selected.
+    assert.equal(candidate?.model, 'opencode/muse-spark-1.3-contributor-free')
+    assert.equal(candidate?.launchCommand, 'opencode --model opencode/muse-spark-1.3-contributor-free')
+    assert.equal(candidate?.modelRequired, undefined, 'auto-selection does not set the hard-required flag')
+  } finally {
+    if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
+    else process.env.ORCA_CLI_COMMAND = previousCommand
+    if (previousHandle === undefined) delete process.env.ORCA_TERMINAL_HANDLE
+    else process.env.ORCA_TERMINAL_HANDLE = previousHandle
+    if (previousHarnesses === undefined) delete process.env.SABI_CONTROLLER_HARNESSES
+    else process.env.SABI_CONTROLLER_HARNESSES = previousHarnesses
+    if (previousPath === undefined) delete process.env.PATH
+    else process.env.PATH = previousPath
+  }
+})
+
+test('explicit preferredModels still win over useFreeCatalog auto-selection', () => {
+  clearInventoryCache()
+  clearModelHealth()
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-autofree-preferred-'))
+  const harnessDir = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-autofree-bin-'))
+  const opencode = path.join(harnessDir, 'opencode')
+  writeFileSync(opencode, '#!/bin/sh\ncase "$1" in --version) echo 1.18.31-test;; models) printf "opencode/jev-1.13-free\\nopencode/muse-spark-1.3-contributor-free\\n";; esac\n')
+  chmodSync(opencode, 0o755)
+  const previousCommand = process.env.ORCA_CLI_COMMAND
+  const previousHandle = process.env.ORCA_TERMINAL_HANDLE
+  const previousHarnesses = process.env.SABI_CONTROLLER_HARNESSES
+  const previousPath = process.env.PATH
+  process.env.ORCA_CLI_COMMAND = fakeOrca(cwd)
+  process.env.ORCA_TERMINAL_HANDLE = 'term-idle'
+  process.env.SABI_CONTROLLER_HARNESSES = 'opencode'
+  process.env.PATH = `${harnessDir}${path.delimiter}${previousPath ?? ''}`
+  try {
+    const inventory = discoverAgents(cwd, {
+      controller: {
+        harnesses: { opencode: { preferredModels: ['opencode/muse-spark-1.3-contributor-free'] } },
+        harnessRouting: { useFreeCatalog: true },
+      },
+    })
+    const candidate = inventory.spawnCandidates.find((entry) => entry.agent === 'opencode')
+    assert.equal(candidate?.model, 'opencode/muse-spark-1.3-contributor-free')
+    assert.equal(candidate?.modelRequired, true, 'explicit preferredModels still sets the hard-required flag')
+  } finally {
+    if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
+    else process.env.ORCA_CLI_COMMAND = previousCommand
+    if (previousHandle === undefined) delete process.env.ORCA_TERMINAL_HANDLE
+    else process.env.ORCA_TERMINAL_HANDLE = previousHandle
+    if (previousHarnesses === undefined) delete process.env.SABI_CONTROLLER_HARNESSES
+    else process.env.SABI_CONTROLLER_HARNESSES = previousHarnesses
+    if (previousPath === undefined) delete process.env.PATH
+    else process.env.PATH = previousPath
+  }
+})
+
 test('a failed preferred OpenCode model moves selection to the next catalog model and fails open when all fail', () => {
   const first = 'opencode/muse-spark-1.3-free'
   const second = 'opencode/ling-3.0-flash-fin-free'

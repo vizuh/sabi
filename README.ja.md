@@ -13,7 +13,7 @@ Sabi はホストに依存しないルーティング層であり、別のエー
 
 [English](README.md) · [Português (BR)](README.pt-BR.md) · [中文](README.zh-CN.md) · **日本語** · [한국어](README.ko.md)
 
-[インストール](docs/install.md) · [統合](docs/adapters/README.md) · [証拠](docs/harnesses.md) · [Agent スキル](skills/sabi/SKILL.md) · [機械用索引](llms.txt)
+[インストール](docs/install.md) · [統合](docs/adapters/README.md) · [証拠](docs/harnesses.md) · [Agent スキル](SKILL.md) · [機械用索引](llms.txt)
 
 > [!TIP]
 > Sabi には2つの境界があります：推論ルーティング（ラウンドごとのモデル/プロバイダー選択）と controller ハンドオフ（継続/委譲/生成）。フックの導入はモデル切替の証明ではなく、カタログ掲載はプラン権限の証明ではなく、mock の成功は節約の証明ではありません。
@@ -42,7 +42,7 @@ sabi doctor
 
 ## ホスト AI / エージェントと使う
 
-インストールするエージェントには [SKILL.md](skills/sabi/SKILL.md) と[機械用索引](llms.txt)を渡します。正本の[ホスト AI フロー](docs/install.ai.md)はハーネスと経路を明示的に尋ね、収集するのはプロキシ経路の OpenRouter キーだけです。セットアップは `--language=en|pt-BR|zh-CN|ja|ko` を受け付けます。EN/PT-BR 以外の対話プロンプトは英語にフォールバックします。
+インストールするエージェントには [SKILL.md](SKILL.md) と[機械用索引](llms.txt)を渡します。正本の[ホスト AI フロー](docs/install.ai.md)はハーネスと経路を明示的に尋ね、収集するのはプロキシ経路の OpenRouter キーだけです。セットアップは `--language=en|pt-BR|zh-CN|ja|ko` を受け付けます。EN/PT-BR 以外の対話プロンプトは英語にフォールバックします。
 
 ## 任意の統合を選ぶ
 

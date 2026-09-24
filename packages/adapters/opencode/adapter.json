@@ -1,0 +1,26 @@
+{
+  "adapterProtocol": 2,
+  "id": "opencode",
+  "hostVersions": ">=1.18",
+  "kind": "opencode",
+  "version": "1.18.31",
+  "loop": "proxy",
+  "surfaces": {
+    "inference": true,
+    "controller": true
+  },
+  "capabilities": {
+    "sessionIdentity": true,
+    "turnIdentity": true,
+    "cancel": true,
+    "modelSwitch": true,
+    "effortSwitch": false,
+    "receipts": "partial"
+  },
+  "refusals": [
+    {
+      "surface": "paidSpend",
+      "reason": "OpenCode native lanes are subscription or catalog-scoped; Sabi never spends a paid provider credential on its behalf"
+    }
+  ]
+}

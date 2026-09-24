@@ -1,4 +1,137 @@
 # Handoff Notes
+
+## Spec 005 — Trajectory IR + Adapter SDK and Conformance — 2026-09-24
+
+Branch `feat/005-trajectory-ir-and-conformance` (PR #135, pushed). Phases 1, 3 and 4
+built; Phase 2 (compatibility shim over existing `TrajectoryState` consumers) and
+Phase 5 (convergence) remain.
+
+- **Phase 1 — IR boundary**: `packages/core/src/ir.ts` normalizes one host round
+  into `TrajectoryIR`. Proxy, mod and native shapes carrying the same observable
+  state produce byte-equivalent policy inputs; untranslatable fields are listed,
+  never silently dropped; unallowlisted evidence codes are refused. Types:
+  `TrajectoryIR`, `DecisionEnvelope`, `AdapterManifest`, `AdapterCapability`,
+  `AdapterRefusal`, `ContinuityLock`, `ConformanceVerdict`, `ConformanceCheck`,
+  `ConformanceReport`.
+- **Phase 3 — Decision envelope**: `packages/core/src/decision.ts` renders one
+  host-facing envelope per planned round. Fields a host cannot express are
+  refused with a reason and recorded in `refused`; the remainder still applies.
+  Undeclared capability reads as all-unknown, never as permissive. Fallback
+  chain is derived, never generated.
+- **Phase 4 — Manifests + conformance**: `packages/core/src/manifest.ts`
+  validates machine-readable `adapter.json` (accept / refuse-with-reason /
+  downgrade); `packages/core/src/conformance.ts` ships six shared checks with
+  four named verdicts; `sabi adapter verify <id>` runs the suite from the
+  built-in manifest. First manifest: `packages/adapters/opencode/adapter.json`.
+- **Catalog-aware free-model classification** (router): `route()` accepts
+  `RouteCapabilityContext` — optional live catalog, `minOutputTokens`,
+  `requiredModalities`. `servesRound` now gates on `usableFree`,
+  `catalogSupportsTools` and `catalogOutputCeiling`. Absent catalog =
+  declared-only, never refused, so routing is byte-identical to before without
+  one.
+
+Validation: `ir.test.ts` 5/5, `decision.test.ts` 7/7, `manifest.test.ts` 9/9,
+`conformance.test.ts` 7/7; `npm test` 698/696 (one pre-existing `modelRequired`
+failure, reproduces on pre-merge parent `80928e5`); typecheck clean apart from
+it. See `docs/decisions.md` (2026-09-24). Next: Phase 2 shim, then per-host IR
+migration (Hermes, OpenCode, Command Code translators).
+
+## Spec 012 — evidence-scored routing (L0–L4) — 2026-09-24 (uncommitted)
+
+Created `specs/012-evidence-scored-routing/` (spec.md, plan.md, tasks.md). This
+spec describes an additive evidence-scoring layer on top of the existing
+priority-ordered rule cascade — the `RouteLevel` L0–L4 enum with signal
+weights and score-to-tier thresholds from the user's escalation vision. The
+score is a pure per-round signal accumulator that suggests an initial tier; the
+existing hard gates (transport, stuck cap, judge veto, paid/free enforcement)
+remain authoritative. L2/FREE_ENSEMBLE depends on spec 003 (fanout); PAID_MID/
+PAID_STRONG require a paid-capable upstream opt-in. No code changes — this is
+spec/documentation only. See `log.md` entry [2026-09-24].
+
+## Specs 005–011 + roadmap Track B — 2026-09-23 (uncommitted)
+
+Seven new specs (005 IR/conformance, 006 continuity/reliability/durable, 007 ACP/A2A,
+008 protocols/objectives/evidence, 009 semantic plane, 010 shadow/telemetry, 011 HF),
+21 files, all Planned; roadmap extended with Track B quarters + prune-10% milestone.
+PR #123 verified on origin/main; stale worktree/branches cleaned. Next: build 002
+Phase 2/3, or start 005 Phase 1 / 010 waves 1–2 (both unblock downstream work) — no
+code touched yet.
+
+## Spec 002 Phase 1 built: receipts + capabilities green — 2026-09-23 (uncommitted)
+
+T001–T003 done: additive `ExecutionReceipt`/`ExecutionCapabilities`/extended actions in
+core types, new `receipts.ts` + `capabilities.ts`, 21/21 fixture tests pass, full suite
+644/1 (1 pre-existing failure, proven unrelated). Planner emits no new actions yet — that
+is 002 Phase 4. Next: Phase 2 receipt wiring (evidence transitions T011, registry T012)
+or Phase 3 capability gating (T020–T022).
+
+## Execution-scheduler specs + 12-month roadmap — 2026-09-23 (uncommitted)
+
+New: `specs/002-execution-evidence-substrate/`, `specs/003-verified-candidate-fanout/`,
+`specs/004-repo-context-and-measurement/` (spec+plan+tasks each, all Planned) and
+`docs/roadmap-12-month.md` (Q4 2026 substrate → Q1 2027 fanout → Q2 2027 context/measurement
+→ Q3 2027 promotion review). 001 verified 49/49 done; gaps verified by code grep (no
+fanout, no capabilities, minimal controller receipt, HTTP-only daemon). Next: start 002
+Phase 1 contracts, or review/adjust quarter scope first — no code touched yet.
+
+## Release 0.2.1 SHIPPED — 2026-09-23 (uncommitted)
+
+`@vizuh/sabi@0.2.1` live on npm (verified: neutral description, 14 keywords, route-table
+README). PR #118 merged (`63ef585`), tag `v0.2.1` pushed, workflow success + provenance,
+GitHub Release created. Release branch + worktree removed. Nothing further to do on this lane.
+
+## Neutral npm shop window for @vizuh/sabi — 2026-09-23 (uncommitted)
+
+`@vizuh/sabi` registry copy is now harness-neutral (no preferred harness); the tarball still
+installs only the Command Code mod. Changed: command-code `package.json` description + 14
+alphabetical keywords, command-code `README.md` route table (controller → `@vizuh/sabi-controller`,
+proxy → checkout guide), prime-agent rename to `@sabi/adapter-prime-agent`, lockfile resync,
+`AGENTS.md` adapter list + controller-publish guard (0.1.1 live). `pack.mjs` needed no change
+(passthrough verified by dry-build). Validation: pack staging correct, `npm test` 610/611 with the
+1 failure proven pre-existing (reproduces stashed). Next step needs Hugo: version bump + `v*` tag +
+`npm publish` for the new copy to reach the registry. No commit/push/publication done.
+
+## README/i18n/skill surface → PR #111 (native JA/KO) — 2026-09-23
+
+Pushed as https://github.com/vizuh/sabi/pull/111 from branch `docs/ja-ko-native-skill` (cut from
+`origin/main` in a throwaway worktree, since removed) — merged 2026-09-23 as `9528467` (CI green). JA/KO are now full native mirrors, not stubs;
+entry-point wording updated in CONTRIBUTING/SKILL/EN-README/setup comment. Branch validation:
+typecheck clean, setup 28/28. log/handoff entries kept in worktree, out of the PR. Stashes
+`ja-ko-pr-scope` + `readme-i18n-wip` kept until merge.
+## Cross-harness free-catalog routing preference — 2026-09-23
+
+Added an opt-in tie-breaker so the controller can prefer to SPAWN/DELEGATE to the harness whose
+**live model catalog** exposes the most explicit-free worker models (e.g. OpenCode Muse, Hermes Nous,
+Command Code Go-plan free tiers). Config knob: `controller.harnessRouting.useFreeCatalog: true`
+(added to the shipped `sabi.config.json`).
+
+- `packages/core/src/types.ts`: `ControllerConfig.harnessRouting?.useFreeCatalog`.
+- `packages/core/src/config.ts`: validation.
+- `packages/controller/src/agents.ts`: `catalogFreeWorkerCount()` helper + `useFreeCatalog` threaded
+  through `best()` → `planAgentRoute()`. Sort order: capacity → preference → **free-catalog count**
+  → extra capabilities → recency → id. Missing catalog = score 0 (neutral). Sessions always score 0.
+- `packages/controller/src/controller.ts`: `bestSession`/`bestHarness`/`fallbackTarget`/`selectRoute`
+  all thread the flag; the retry reroute loop uses it too.
+- 5 new tests in `agent-route.test.ts`.
+
+Intra-harness routing is untouched — the proxy/mod path for Hermes, OMP, OpenCode, and the Command Code
+mod still schedule models inside their own loops. Only the controller's cross-harness SPAWN/DELEGATE
+decisions gain the catalog signal. Explicit `preferredHarnesses` still outranks the free-catalog tiebreak
+when they conflict.
+
+Validation: `npm run typecheck` clean; `npm test` 605/605 (controller 145/145). No commit, push,
+deployment, or publication.
+
+## README/i18n/skill surface (awesome-jev pattern) — 2026-09-23
+
+Uncommitted docs-only slice borrowing the `logicrw/awesome-jev-projects` README/repo/setup structure
+(header nav, boundary TIP, skill + machine index, generated-locale discipline) without its content.
+EN/PT-BR/ZH share one header (5-locale nav, quick nav, TIP, alt-text image); new concise JA/KO entry
+points defer to EN; new `SKILL.md` + `llms.txt`; controller manifest gains keywords/bugs; setup accepts
+`--language=en|pt-BR|zh-CN|ja|ko` with EN fallback outside EN/PT-BR. Validation: typecheck clean,
+setup tests 28/28; full parallel suite flakes are pre-existing (pass isolated, baseline fails too).
+Shared-checkout note: concurrent hooks commit `6b7adbb` landed mid-session; stash round-trip fully
+restored, stash `readme-i18n-wip` kept as backup, stale stashed hook copies superseded by the commit.
 ## Effort observability (record-only) — 2026-09-23
 
 First slice of proxy-side effort routing, chosen to avoid colliding with the active
@@ -7,8 +140,8 @@ is now recorded (`observeEffort`, server record creation, bounded persistence, `
 `by effort` line) without changing routing, dispatch, or forwarding — Sabi still never injects
 reasoning controls. Scheduling stays a follow-up pending that router work + live verification.
 Validation: `npm test` 597/597 (7 new), typecheck clean. Rationale in `docs/decisions.md`,
-entry in `log.md`. Isolated on this branch via cherry-pick onto `origin/main`; no other lane's
-work included.
+entry in `log.md`. Uncommitted; unrelated workstream files (`controller` updates,
+`router.ts`, `compatibility.test.ts`) untouched.
 ## Free-only across every adapter + 10-mark router gap-check — 2026-09-23
 
 Hugo's rule (OpenRouter serves free or Jev only) now holds across every shipped profile, not just
@@ -1132,56 +1265,3 @@ hook was repaired in place and `sabi updates` now passes its hooks preflight.
 Open question for Hugo: Sabi gates the Claude hook on `which claude` (presence). Detecting a Claude
 *subscription* would mean reading `~/.claude/.credentials.json`, which Sabi does not do — the
 harness gate stays presence-based unless he asks for the boundary change.
-
-## Claude and Codex held to their own subscriptions — 2026-09-23
-
-Operator rule recorded and guarded: Claude Code and Codex are used through their own subscriptions,
-and Sabi never writes a provider base URL, an API key or a model override into either harness. The
-rule already held (no shipped code writes those variables; the installed Claude Code has no `env`
-override and Codex declares no `base_url`), so nothing changed at runtime — the guard tests in
-`packages/controller/test/hooks.test.ts` now fail if that ever drifts.
-
-## Transport deadline no longer ends a stream silently — 2026-09-23
-
-A deadline after headers called `res.destroy()` instead of writing the SSE error frame every other
-mid-stream failure writes, so the client saw only "socket connection was closed unexpectedly". That
-text was not a known transport condition, so the round read as a task failure and re-escalated to
-the tier that had just timed out — ten 120s rounds in one session. Both ends fixed: the deadline
-writes the frame, and a dropped connection is a named transport condition. The remaining lever is
-configuration: `strong` points at a 550B model on a free lane, which cannot answer a 60k+ context
-inside 120s.
-## Sabi keeps itself current — 2026-09-23
-
-The daemon makes one registry check per day into the cache every other surface reads offline
-(`SABI_UPDATE_CHECK=off` disables it); the installed Claude and Codex hooks surface an available
-update once per window as a `systemMessage`; `sabi status` reports it; and `sabi upgrade` now also
-refreshes the adapter copies it owns instead of only replacing the bundle. Validated 12/12 in
-`updates.test.ts` plus a live hook smoke test.
-
-Unreleased: npm serves `@vizuh/sabi-controller@0.1.0`, so none of the controller work from
-2026-09-23 reaches users until a `controller-v*` tag is pushed (see
-`.github/workflows/controller-release.yml`).
-
-## Borrowed harness authentication — 2026-09-23
-
-`POST /v1/messages` and `POST /v1/responses` are live on the proxy: the harness's own wire format,
-routed by Sabi, forwarded with the harness's own credential to the provider it belongs to. Sabi
-holds no key on this path; `auth: passthrough` upstreams are forbidden from declaring one. Refusal
-is explicit when there is no credential on the round or the tier's upstream is keyed.
-
-Verified by `packages/server/test/passthrough.test.ts` (9/9) and `packages/core/test/config.test.ts`
-(28/28). Not verified against a live paid subscription — protocol and refusal evidence only.
-
-For Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:8787 claude`, with an `anthropic` upstream at
-`auth: passthrough` and tiers pointing at Anthropic model ids.
-
-## The proxy ships with the controller — 2026-09-23
-
-`sabi serve` runs the proxy from the installed controller package (`dist/server.mjs`, built by
-`pack.mjs` as a second entry), so no clone is needed; a checkout still resolves
-`packages/server/src/index.ts` and `npm start` keeps working. `--host`, `--port` and `--cwd` pass
-through; stdio is inherited so Ctrl-C behaves like `npm start`.
-
-Verified by the controller package test (bundle present, command advertised) and a CLI test that
-spawns `sabi serve --port=0` and hits `/healthz`. Foreground only — there is no supervision of a
-running proxy yet, so a server-side change needs a restart.

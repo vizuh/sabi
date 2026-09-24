@@ -1435,3 +1435,124 @@ free-tier calls.
 
 7 new tests (helper unit, report aggregation, two proxy end-to-end including pass-through
 proof); full suite and typecheck green at the time of writing (see `log.md`).
+
+## 2026-09-24 — OpenRouter free-model selection classified by live catalog capability
+
+### Context
+
+Hugo's standing rule — the OpenRouter upstream serves free models and Jev only — is
+enforced as a hard gate (`isFreeModel` / `servesUpstreamBilling` / `paidModelsAllowed: false`).
+But free-model *selection* was static: `sabi.config.json` names exactly three `:free` ids
+(`poolside/laguna-s-2.1:free`, `dots-studio/dots-3-note-preview:free`,
+`nvidia/nemotron-3-ultra-550b-a55b-a55b:free`), and the router picked a tier by name alone.
+It never consulted the live OpenRouter catalog, so a renamed, removed, or capability-drifted
+free model would still be dispatched — and the capability scorer already written in
+`free-quality.ts` (`freeQualityCandidates`, with tool support, structured output, reasoning
+support, context window and output ceiling scoring) was only ever called from the
+`--free-quality` setup wizard.
+
+### Decision
+
+Wire the catalog into the router as a planning input, and classify every free tier against
+live capability evidence instead of the `:free` suffix:
+
+- `route()` now accepts `RouteCapabilityContext` — an optional live `catalog`, a
+  `minOutputTokens` requirement, and `requiredModalities`. All three are inputs, never
+  routing decisions on their own.
+- The `servesRound` predicate gains three catalog-aware gates:
+  - `usableFree` — a `:free` id is only usable when the live catalog confirms zero prompt
+    and completion price plus text input/output modalities. Absent catalog = declared-only,
+    never refused (fail-open, matching the evidence philosophy).
+  - `catalogSupportsTools` — a tier must advertise `tools` in `supported_parameters` when a
+    catalog is present. Absent catalog = unknown, never refused.
+  - `catalogOutputCeiling` — a tier must declare enough output capacity when
+    `minOutputTokens` is set, using `top_provider.max_completion_tokens` first and falling
+    back to `context_length`. Absent catalog falls back to declared `maxOutputTokens`.
+- A `TrajectoryIR` boundary is added (`packages/core/src/ir.ts`, spec 005 Phase 1): host
+  rounds translate into one normalized shape. Proxy, mod and native shapes carrying the same
+  observable state produce the same IR; untranslatable fields are listed, never silently
+  dropped; unallowlisted evidence codes are refused, not normalized.
+
+### Why
+
+Free-model eligibility was already enforced; free-model *selection* was not. The scorer
+existed but was unreachable from the hot path. This closes that gap without spending
+anything: no new provider request, no paid fallback, no config change.
+
+### Validation
+
+New failing-first fixtures in `packages/core/test/ir.test.ts` (5/5): three-shape
+equivalence, unknown-harness reads as all-unknown, untranslatable listing, allowlisted
+evidence propagation, and unallowlisted-code refusal. `npm test` 675/676 — the one
+remaining failure (`explicit preferredModels still win over useFreeCatalog auto-selection`)
+is pre-existing and unrelated: it reproduces identically on the pre-merge parent commit
+`80928e5` (644/645), and is a `modelRequired` type/test drift in `inventory.test.ts`,
+not a routing regression. `npm run typecheck` clean apart from that same pre-existing error.
+
+### Tradeoff
+
+Catalog-aware gating only fires when a live catalog is supplied. Without one, routing is
+exactly as before — the three declared tiers win on name. This is deliberate: a catalog is
+evidence, and Sabi never refuses a route for lack of evidence. The path to full dynamic
+free-model selection is now open; it needs the server to pass a catalog into `route()`,
+which is a separate wiring task.
+
+## 2026-09-24 — Decision envelope and adapter conformance suite (spec 005 Phase 3–4)
+
+### Context
+
+The Trajectory IR is the way in; the Decision envelope is the way out. With the
+IR boundary landed, the symmetric output was missing: hosts still consumed N
+bespoke decision shapes, and adapter conformance was prose in `maintainers.md`
+rather than a measured suite. The synthesis is explicit that this eliminates
+more bugs than thousands of lines of router logic.
+
+### Decision
+
+- **Decision envelope** (`packages/core/src/decision.ts`): `renderDecisionEnvelope`
+  renders one host-facing envelope per planned round — action, model, provider,
+  effort, deadline, lock/affinity, fallback chain, reason. Fields a host cannot
+  express are refused with a reason and recorded in `refused`; the remainder of
+  the decision still applies, so a refusal never silently drops the whole
+  envelope. An undeclared capability reads as all-unknown, never as permissive.
+  The fallback chain is derived (`fallbackFor`), never generated: a fixed order
+  Sabi falls back through when the primary action is unavailable.
+- **Adapter manifest** (`packages/core/src/manifest.ts`): `loadAdapterManifest`
+  validates a machine-readable `adapter.json` with explicit outcomes — accept,
+  refuse-with-reason (stale protocol, missing fields, over-claiming), and
+  downgrade (undeclared capability, adapter still loads degraded). A manifest is
+  a declaration, never a capability probe: Sabi consumes it.
+- **Conformance suite** (`packages/core/src/conformance.ts`): six shared checks
+  (`manifest-valid`, `evidence-allowlisted`, `untranslatable-listed`,
+  `unknown-not-invented`, `no-secret-leak`, `receipt-bounded`) plus four named
+  verdicts — conformant / lossy / unstable / leaking / refused. Fixture adapters
+  prove each verdict; `summarizeConformance` aggregates across adapters.
+- **`sabi adapter verify <id>`** (`packages/controller/src/cli.ts`): runs the
+  shared suite for one adapter from its built-in manifest. Pure, no host
+  interaction — the suite doubles as a golden compatibility test.
+- First manifest shipped: `packages/adapters/opencode/adapter.json`
+  (`adapterProtocol: 2`, surfaces, capability claims, and an explicit
+  `paidSpend` refusal).
+
+### Why
+
+The IR alone does not fix the adapter explosion; the decision shape does. And
+conformance turns `maintainers.md` from documentation into a legible, repeatable
+gate. Both are additive: no existing routing, dispatch, or host behavior changed.
+
+### Validation
+
+`packages/core/test/decision.test.ts` (7/7), `manifest.test.ts` (9/9),
+`conformance.test.ts` (7/7), `ir.test.ts` (5/5). `npm test` **698/696** — the
+one remaining failure is the same pre-existing `modelRequired` drift
+(`explicit preferredModels still win over useFreeCatalog auto-selection`),
+which reproduces identically on the pre-merge parent `80928e5` (644/645) and is
+unrelated to this work. `npm run typecheck` clean apart from it.
+
+### Tradeoff
+
+The CLI `verify` path builds a fixture IR from the built-in harness manifest
+rather than reading a live adapter's `adapter.json`. That keeps the suite pure
+(no host interaction, isolated-profile safe), but it means `sabi adapter verify`
+validates the *declared* contract, not a shipped manifest file. Reading a
+shipped manifest is the next step once two adapters ship `adapter.json`.

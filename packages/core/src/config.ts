@@ -423,9 +423,18 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
   const controller = config.controller
   if (controller !== undefined) {
     if (!isObject(controller)) throw new Error(`Sabi config ${source}: controller must be an object`)
-    const controllerFields = new Set(['preferredHarnesses', 'harnesses'])
+    const controllerFields = new Set(['preferredHarnesses', 'harnesses', 'harnessRouting'])
     for (const field of Object.keys(controller)) {
       if (!controllerFields.has(field)) throw new Error(`Sabi config ${source}: controller.${field} is not a supported field`)
+    }
+    if (controller.harnessRouting !== undefined) {
+      if (!isObject(controller.harnessRouting)) throw new Error(`Sabi config ${source}: controller.harnessRouting must be an object`)
+      for (const field of Object.keys(controller.harnessRouting)) {
+        if (field !== 'useFreeCatalog') throw new Error(`Sabi config ${source}: controller.harnessRouting.${field} is not a supported field`)
+      }
+      if (controller.harnessRouting.useFreeCatalog !== undefined && typeof controller.harnessRouting.useFreeCatalog !== 'boolean') {
+        throw new Error(`Sabi config ${source}: controller.harnessRouting.useFreeCatalog must be a boolean`)
+      }
     }
     const validateStrings = (value: unknown, label: string): void => {
       if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !item.trim())) {
