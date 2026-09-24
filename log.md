@@ -1784,3 +1784,34 @@ requires spec 003 fanout (degrades to L1 if absent); PAID_MID/PAID_STRONG
 respect `paidModelsAllowed: false` at the `ensureRouteCompatible` choke point.
 Existing test suite: 676 tests, 675 pass, 1 pre-existing failure
 (controller/inventory.test.ts, unrelated). No code changes — docs/spec only.
+
+## [2026-09-24] change | Spec 010 shadow routing mirror, bounded store, operational metrics
+
+PRs #136 and #137, both merged. Spec 010 Phases 1–6.
+
+Phase 1–4, #136: `ShadowRecord`/`RetentionPolicy`/`MetricSeries` types;
+`shadow.ts` mirror builder with divergence reasons and a write-time sanitizer;
+`shadow-store.ts` bounded store with push-time compaction and drop accounting;
+`metrics.ts` with allowlisted, length-bounded labels; `sabi shadow on|off|status`;
+corpus slicing by divergence class, tier, rule and outcome.
+
+Phase 3/5 follow-ups, #137: the toggle was decorative — nothing read
+`.sabi/shadow.json`. `SabiServerOptions` now takes a `ShadowSink` and the server
+observes each completed decision after dispatch; a throwing sink is swallowed so
+a mirror outage can never fail a completed round. `ShadowMirror` quarantines a
+refused record with the reason instead of dropping it silently. A proposal equal
+to the actual route is recorded as agreement rather than dropped before
+comparison, so the corpus can distinguish agreement from absence.
+
+Also fixed in #136: `modelRequired` was computed and used to gate availability
+but never propagated onto the spawn candidate, and `AgentHarness` did not
+declare the field. That produced a TS2339 typecheck failure on `main` since
+`80928e5` and was failing CI. Fixed at the source, not accommodated in the test.
+
+Validation: 29/29 spec 010 tests (19 in #136, 10 in #137); `npm test` 739/739,
+zero failures; `npm run typecheck` clean; `npm run eval` exits 0 (8 tasks /
+10 rounds, pass 5 / fail 3, blocked 0 — fixture evidence, never a benchmark).
+
+Known gap: no production `ShadowMirror` is constructed from
+`.sabi/shadow.json` yet. The wiring point exists and is tested; the controller
+side is a follow-up.

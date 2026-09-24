@@ -1,5 +1,34 @@
 # Handoff Notes
 
+## Spec 010 — shadow routing mirror + operational metrics — 2026-09-24 (merged)
+
+Phases 1–6 complete across PRs #136 and #137 (both merged to `main`).
+
+- **Mirror** (`packages/core/src/shadow.ts`): `buildShadowRecord`,
+  `divergenceReason`, `sanitizeShadowRecord`. The mirror records Sabi's own
+  decision beside the candidate set; it never intercepts or reroutes.
+- **Bounded store** (`shadow-store.ts`): `InMemoryShadowStore` compacts on push
+  so the cap is never exceeded even transiently, with before/after/dropped
+  accounting; `countByDivergence` and `sliceBy` for the corpus.
+- **Metrics** (`metrics.ts`): `InMemoryMetrics` with allowlisted, length-bounded
+  labels; unallowlisted keys are dropped, never coerced.
+- **Sink** (`shadow-sink.ts`): `ShadowMirror` translates defensively and
+  quarantines a refused record with the reason. A proposal equal to the actual
+  route is recorded as agreement, not absence.
+- **Server wiring**: `SabiServerOptions.shadow` takes a `ShadowSink`; the server
+  observes after dispatch, and a throwing sink is swallowed. The server does not
+  read `.sabi/shadow.json` — the controller owns that state and passes a sink in.
+- **CLI**: `sabi shadow on | off | status`.
+
+Validation: 29/29 spec 010 tests; `npm test` 739/739, zero failures; typecheck
+clean; `npm run eval` exits 0 (8 tasks / 10 rounds, pass 5 / fail 3, blocked 0 —
+fixture evidence, never a benchmark).
+
+Known gap, stated rather than implied: no production `ShadowMirror` is
+constructed from `.sabi/shadow.json` yet. The wiring point exists and is tested;
+the controller side is a follow-up.
+
+
 ## Spec 005 — Trajectory IR + Adapter SDK and Conformance — 2026-09-24
 
 Branch `feat/005-trajectory-ir-and-conformance` (PR #135, pushed). Phases 1, 3 and 4
