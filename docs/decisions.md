@@ -1556,3 +1556,53 @@ rather than reading a live adapter's `adapter.json`. That keeps the suite pure
 (no host interaction, isolated-profile safe), but it means `sabi adapter verify`
 validates the *declared* contract, not a shipped manifest file. Reading a
 shipped manifest is the next step once two adapters ship `adapter.json`.
+
+## 2026-09-24 — The shadow mirror observes; it never influences (spec 010 T021/T041)
+
+### Context
+
+#136 shipped `sabi shadow on | off | status` writing `.sabi/shadow.json`, but
+nothing read it. The toggle was decorative: turning mirroring on changed no
+runtime behavior, which is exactly the kind of claim that reads as delivered and
+is not. Separately, the write-time sanitizer dropped secret-like keys but had
+nowhere to put a record it refused — a rejected record was a silent drop.
+
+### Decision
+
+- **The server takes a sink, not a state file.** `SabiServerOptions.shadow`
+  accepts a `ShadowSink`; the server observes each completed decision *after*
+  the round has already been dispatched. The controller owns
+  `.sabi/shadow.json` and passes a sink in. The server therefore has no
+  dependency on controller state, and the wiring point is testable in isolation.
+- **A throwing sink is swallowed.** Mirror pressure is not routing pressure. A
+  mirror outage can never fail, delay, or retry a round that already completed.
+- **Quarantine, not silent drop.** `ShadowMirror.observe` translates
+  defensively: a record whose failure evidence fails the allowlist is quarantined
+  with the reason. Later healthy records are unaffected.
+- **Agreement is distinct from absence.** A proposal equal to the actual route is
+  recorded, not dropped before comparison. Dropping it made the corpus unable to
+  distinguish "the mirror agreed" from "the mirror never proposed", which
+  inflated apparent divergence.
+
+### Why
+
+The spec's own rule is that mirroring observes and never intercepts. Encoding
+that as a post-dispatch call on an injected sink makes the boundary structural
+rather than a convention someone has to remember. Quarantine gives the operator
+a reason string instead of a gap in the corpus.
+
+### Validation
+
+`shadow-sink.test.ts` 10/10 — records the observed decision, does not mutate its
+input, records divergence without applying it, enforces the store cap with drop
+accounting, quarantines an unallowlisted-code record with the reason, and keeps
+mirroring healthy records afterwards. All 010 tests 29/29. `npm test` 739/739,
+zero failures. `npm run typecheck` clean. `npm run eval` exits 0: 8 tasks, 10
+rounds, pass 5 / fail 3, blocked 0 — fixture evidence, not a benchmark, and
+unchanged in character from the pre-existing baseline.
+
+### Known gap
+
+Nothing constructs a `ShadowMirror` from `.sabi/shadow.json` in production yet.
+The wiring point exists and is tested; the controller side is a follow-up. This
+is stated in the PR body rather than left for someone to discover.

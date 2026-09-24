@@ -41,8 +41,12 @@
 
 ## Phase 6: Convergence
 
-- [ ] T050 Full suite, typecheck, eval; checklist; decisions/handoff/log
-  (mirrors labeled, never benchmarks).
+- [X] T050 Full suite, typecheck, eval; checklist; decisions/handoff/log
+  (mirrors labeled, never benchmarks). Suite 739/739, typecheck clean, eval exits 0
+  (8 tasks / 10 rounds, pass 5 / fail 3, blocked 0 — fixture evidence, not a
+  benchmark). See `docs/decisions.md` 2026-09-24 and `docs/handoff.md`.
+  Remaining: no production `ShadowMirror` is constructed from `.sabi/shadow.json`;
+  the wiring point exists and is tested, the controller side is a follow-up.
 
 ## Dependencies
 
