@@ -80,6 +80,18 @@ export interface SabiServerOptions {
   judgeClient?: JudgeClient
   /** Total wall-clock budget, including upload, judge and response stream. Default: 120 s. */
   requestTimeoutMs?: number
+  /**
+   * Shadow mirror sink (spec 010 T041). Present only when mirroring is on. The server
+   * never reads the on/off state itself: the controller owns `.sabi/shadow.json` and
+   * passes a sink in. A sink failure must never fail a round, so callers get a
+   * fail-open contract.
+   */
+  shadow?: ShadowSink
+}
+
+/** Mirror sink: observes a completed decision, never influences it. */
+export interface ShadowSink {
+  observe(record: DecisionRecord): void
 }
 
 export interface SabiServer {
@@ -571,6 +583,15 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     rememberUsage(state, record)
     rememberFailure(state, record)
     appendDecision(record, state.logFile)
+    // The mirror observes; it never influences. A sink that throws is swallowed here so a
+    // mirror outage can never fail or delay a round that already completed.
+    if (state.options.shadow) {
+      try {
+        state.options.shadow.observe(record)
+      } catch {
+        // Mirror pressure is not routing pressure.
+      }
+    }
     state.recent.push(record)
     if (state.recent.length > RECENT_LIMIT) state.recent.splice(0, state.recent.length - RECENT_LIMIT)
     if (state.options.verbose !== false) {

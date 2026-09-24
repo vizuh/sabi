@@ -20,8 +20,10 @@
 ## Phase 3: Bounds (US1 continued)
 
 - [X] T020 Retention with export-first compaction; gap/drop accounting.
-- [ ] T021 Write-time sanitizer with quarantine + reasons; routing
-  unaffected fixtures.
+- [X] T021 Write-time sanitizer with quarantine + reasons; routing
+  unaffected fixtures. `ShadowMirror.observe` translates defensively: a record
+  whose evidence fails the allowlist is quarantined with the reason rather
+  than written into the corpus, and later healthy records are unaffected.
 
 ## Phase 4: Metrics (US2)
 
@@ -33,7 +35,9 @@
 
 - [X] T040 Slicing by class/model/harness/divergence with counts +
   provenance; report views.
-- [ ] T041 CLI `sabi shadow on/off` + status.
+- [X] T041 CLI `sabi shadow on/off` + status; the server takes a `ShadowSink`
+  option and observes each completed decision. A sink that throws is swallowed
+  so a mirror outage can never fail a completed round.
 
 ## Phase 6: Convergence
 
