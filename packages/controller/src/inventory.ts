@@ -441,6 +441,7 @@ export function discoverAgents(
       ...(launchCommand ? { launchCommand } : {}),
       ...(catalog ? { catalog } : {}),
       ...(selectedModelHealth ? { modelHealth: selectedModelHealth } : {}),
+      ...(modelRequired ? { modelRequired } : {}),
       capabilities: ['coding'],
       // Catalog membership identifies a model, but does not prove plan capacity. A fixed
       // preferred model needs a live session signal before it is safe to spawn.
