@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync, spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,7 +29,7 @@ import { runSurplusReview } from './surplus.ts'
 import { checkForUpdate, readCachedUpdate, startUpdateRefresh, takeUpdateNotice } from './updates.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'updates' | 'serve' | 'upgrade' | 'uninstall' | 'adapter'
+type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'updates' | 'serve' | 'upgrade' | 'uninstall' | 'shadow' | 'adapter'
 
 const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'updates', 'serve', 'upgrade', 'uninstall', 'adapter'])
 const CLI_VERSION = process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
@@ -849,6 +849,7 @@ async function main(): Promise<void> {
   if (command === 'serve') return runServe(args)
   if (command === 'upgrade') return runUpgrade(args)
   if (command === 'uninstall') return runUninstall(args)
+  if (command === 'shadow') return runShadow(args)
   if (command === 'adapter') return runAdapter(args)
   await runRoute(args)
 }
@@ -908,6 +909,58 @@ function runAdapter(argv: string[]): void {
   )
 }
 
+
+/**
+ * `sabi shadow on|off|status` toggles the routing mirror (spec 010 US3, T041).
+ * The mirror observes Sabi's own decision and the candidate set it considered;
+ * it never intercepts, reroutes, or influences execution. Toggling it off is
+ * the proof: the same request produces the same decision either way.
+ */
+function runShadow(argv: string[]): void {
+  const action = argv.find((arg) => !arg.startsWith('--')) ?? 'status'
+  const statePath = shadowStatePath(resolvedCwd(argv))
+  if (action === 'on') {
+    writeShadowState(statePath, { enabled: true, startedAt: new Date().toISOString() })
+    console.log(`shadow routing on — mirroring to ${statePath}`)
+    return
+  }
+  if (action === 'off') {
+    writeShadowState(statePath, { enabled: false })
+    console.log('shadow routing off — mirroring stopped')
+    return
+  }
+  if (action === 'status') {
+    const state = readShadowState(statePath)
+    if (!state) {
+      console.log('shadow routing: not configured')
+      return
+    }
+    console.log(`shadow routing: ${state.enabled ? 'on' : 'off'}`)
+    if (state.startedAt) console.log(`  started: ${state.startedAt}`)
+    return
+  }
+  throw new Error(`unsupported shadow action '${action}'`)
+}
+
+function shadowStatePath(cwd: string): string {
+  return path.join(cwd, '.sabi', 'shadow.json')
+}
+
+function readShadowState(p: string): { enabled: boolean; startedAt?: string } | undefined {
+  if (!existsSync(p)) return undefined
+  try {
+    const raw = JSON.parse(readFileSync(p, 'utf8')) as { enabled?: unknown; startedAt?: unknown }
+    if (typeof raw.enabled !== 'boolean') return undefined
+    return { enabled: raw.enabled, startedAt: typeof raw.startedAt === 'string' ? raw.startedAt : undefined }
+  } catch {
+    return undefined
+  }
+}
+
+function writeShadowState(p: string, state: { enabled: boolean; startedAt?: string }): void {
+  mkdirSync(path.dirname(p), { recursive: true })
+  writeFileSync(p, JSON.stringify(state, null, 2))
+}
 
 void main().catch((error: unknown) => {
   console.error(`[SABI] failed — ${(error as Error).message}`)

@@ -7,31 +7,31 @@
 
 ## Phase 1: Mirror contracts (blocks implementation)
 
-- [ ] T001 Add `ShadowRecord`, `RetentionPolicy`, `MetricSeries` types
+- [X] T001 Add `ShadowRecord`, `RetentionPolicy`, `MetricSeries` types
   (additive) + on/off equivalence fixture skeletons.
 
 ## Phase 2: Mirror (US1)
 
-- [ ] T010 Implement `packages/core/src/shadow.ts` writer with
+- [X] T010 Implement `packages/core/src/shadow.ts` writer with
   byte-equivalence guard fixtures (routing identical on/off).
-- [ ] T011 Divergence flags (actual vs proposed with reasons); candidate
+- [X] T011 Divergence flags (actual vs proposed with reasons); candidate
   set capture.
 
 ## Phase 3: Bounds (US1 continued)
 
-- [ ] T020 Retention with export-first compaction; gap/drop accounting.
+- [X] T020 Retention with export-first compaction; gap/drop accounting.
 - [ ] T021 Write-time sanitizer with quarantine + reasons; routing
   unaffected fixtures.
 
 ## Phase 4: Metrics (US2)
 
-- [ ] T030 Implement `packages/core/src/metrics.ts` operational series
+- [X] T030 Implement `packages/core/src/metrics.ts` operational series
   (latencies, TTFT, retries, provider state, switches, locks, errors).
-- [ ] T031 Bounded labels, redaction fixtures, outage-series fixtures.
+- [X] T031 Bounded labels, redaction fixtures, outage-series fixtures.
 
 ## Phase 5: Corpus (US3)
 
-- [ ] T040 Slicing by class/model/harness/divergence with counts +
+- [X] T040 Slicing by class/model/harness/divergence with counts +
   provenance; report views.
 - [ ] T041 CLI `sabi shadow on/off` + status.
 

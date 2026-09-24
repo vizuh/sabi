@@ -792,3 +792,57 @@ export interface ConformanceCheckResult {
   verdict: ConformanceVerdict
   detail?: string
 }
+
+/**
+ * Shadow routing mirror (spec 010). One record per routed round; the mirror
+ * observes Sabi's own decision and the candidate set it considered. It never
+ * intercepts, reroutes, or influences execution — collection only, labeled as
+ * such, never presented as a benchmark.
+ */
+export interface ProposedRoute {
+  tier: string
+  upstream: string
+  upstreamModel: string
+}
+
+export interface CandidateRoute extends ProposedRoute {
+  score?: number
+}
+
+export type ShadowDivergence = 'none' | 'proposed-differs' | 'no-proposal'
+
+export interface ShadowRecord {
+  kind: 'shadow'
+  ts: string
+  sessionId: string
+  mode: 'shadow' | 'backtested'
+  actual: ProposedRoute
+  proposed: ProposedRoute[]
+  candidates: CandidateRoute[]
+  divergence: ShadowDivergence
+  divergenceReason?: string
+  state: TrajectoryState
+  rule: string
+  tier: string
+  outcome: string
+}
+
+export interface RetentionPolicy {
+  maxRecords: number
+  /** Oldest records are compacted first; export happens before compaction. */
+  exportFirst: boolean
+  dropAccounting: boolean
+}
+
+export interface MetricSample {
+  ts: string
+  value: number
+  /** Bounded label set; never raw strings. */
+  labels: Record<string, string>
+}
+
+export interface MetricSeries {
+  name: string
+  unit: string
+  samples: MetricSample[]
+}
