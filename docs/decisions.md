@@ -1435,3 +1435,64 @@ free-tier calls.
 
 7 new tests (helper unit, report aggregation, two proxy end-to-end including pass-through
 proof); full suite and typecheck green at the time of writing (see `log.md`).
+
+## 2026-09-24 — OpenRouter free-model selection classified by live catalog capability
+
+### Context
+
+Hugo's standing rule — the OpenRouter upstream serves free models and Jev only — is
+enforced as a hard gate (`isFreeModel` / `servesUpstreamBilling` / `paidModelsAllowed: false`).
+But free-model *selection* was static: `sabi.config.json` names exactly three `:free` ids
+(`poolside/laguna-s-2.1:free`, `dots-studio/dots-3-note-preview:free`,
+`nvidia/nemotron-3-ultra-550b-a55b-a55b:free`), and the router picked a tier by name alone.
+It never consulted the live OpenRouter catalog, so a renamed, removed, or capability-drifted
+free model would still be dispatched — and the capability scorer already written in
+`free-quality.ts` (`freeQualityCandidates`, with tool support, structured output, reasoning
+support, context window and output ceiling scoring) was only ever called from the
+`--free-quality` setup wizard.
+
+### Decision
+
+Wire the catalog into the router as a planning input, and classify every free tier against
+live capability evidence instead of the `:free` suffix:
+
+- `route()` now accepts `RouteCapabilityContext` — an optional live `catalog`, a
+  `minOutputTokens` requirement, and `requiredModalities`. All three are inputs, never
+  routing decisions on their own.
+- The `servesRound` predicate gains three catalog-aware gates:
+  - `usableFree` — a `:free` id is only usable when the live catalog confirms zero prompt
+    and completion price plus text input/output modalities. Absent catalog = declared-only,
+    never refused (fail-open, matching the evidence philosophy).
+  - `catalogSupportsTools` — a tier must advertise `tools` in `supported_parameters` when a
+    catalog is present. Absent catalog = unknown, never refused.
+  - `catalogOutputCeiling` — a tier must declare enough output capacity when
+    `minOutputTokens` is set, using `top_provider.max_completion_tokens` first and falling
+    back to `context_length`. Absent catalog falls back to declared `maxOutputTokens`.
+- A `TrajectoryIR` boundary is added (`packages/core/src/ir.ts`, spec 005 Phase 1): host
+  rounds translate into one normalized shape. Proxy, mod and native shapes carrying the same
+  observable state produce the same IR; untranslatable fields are listed, never silently
+  dropped; unallowlisted evidence codes are refused, not normalized.
+
+### Why
+
+Free-model eligibility was already enforced; free-model *selection* was not. The scorer
+existed but was unreachable from the hot path. This closes that gap without spending
+anything: no new provider request, no paid fallback, no config change.
+
+### Validation
+
+New failing-first fixtures in `packages/core/test/ir.test.ts` (5/5): three-shape
+equivalence, unknown-harness reads as all-unknown, untranslatable listing, allowlisted
+evidence propagation, and unallowlisted-code refusal. `npm test` 675/676 — the one
+remaining failure (`explicit preferredModels still win over useFreeCatalog auto-selection`)
+is pre-existing and unrelated: it reproduces identically on the pre-merge parent commit
+`80928e5` (644/645), and is a `modelRequired` type/test drift in `inventory.test.ts`,
+not a routing regression. `npm run typecheck` clean apart from that same pre-existing error.
+
+### Tradeoff
+
+Catalog-aware gating only fires when a live catalog is supplied. Without one, routing is
+exactly as before — the three declared tiers win on name. This is deliberate: a catalog is
+evidence, and Sabi never refuses a route for lack of evidence. The path to full dynamic
+free-model selection is now open; it needs the server to pass a catalog into `route()`,
+which is a separate wiring task.

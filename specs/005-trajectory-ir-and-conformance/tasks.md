@@ -7,14 +7,15 @@ contract; current `TrajectoryState` consumers keep working via shim.
 
 ## Phase 1: IR contracts (blocks implementation)
 
-- [ ] T001 Add `TrajectoryIR`, `DecisionEnvelope`, `AdapterManifest`, and
+- [X] T001 Add `TrajectoryIR`, `DecisionEnvelope`, `AdapterManifest`, and
   `ConformanceReport` types to `packages/core/src/types.ts` (additive).
-- [ ] T002 Failing-first equivalence fixtures in
-  `packages/core/test/ir.test.ts` (three harness shapes → same IR).
+- [X] T002 Failing-first equivalence fixtures in
+  `packages/core/test/ir.test.ts` (three harness shapes → same IR): 5/5 pass.
 
 ## Phase 2: IR + shim (US1)
 
-- [ ] T010 Implement `packages/core/src/ir.ts` translators with
+- [X] T010 Translator `packages/core/src/ir.ts` with unknown-marking, allowlisted
+  evidence refusal and conflict handling; equivalence fixtures green. Implement `packages/core/src/ir.ts` translators with
   unknown-marking and conflict handling.
 - [ ] T011 Implement the `TrajectoryState` compatibility shim; regression
   tests prove current consumers unchanged.

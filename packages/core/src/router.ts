@@ -5,6 +5,7 @@ import { decideTier } from './policy.ts'
 import { planRecovery } from './recovery-actions.ts'
 import { applyMeasuredContext, extractTrajectoryState } from './state.ts'
 import type { ChatRequestBody, ExecutionCapabilities, FailureLevel, ModelModality, RouteDecision, SabiConfig } from './types.ts'
+import type { OpenRouterCatalogModel } from './free-quality.ts'
 
 export { ensureRouteCompatible, isEnabledUpstream, SabiRouteError } from './compatibility.ts'
 
@@ -85,7 +86,21 @@ export interface RouteContext {
   capabilities?: ExecutionCapabilities
 }
 
-export function route(body: ChatRequestBody, config: SabiConfig, context: RouteContext = {}): RouteDecision {
+
+/**
+ * What a caller can add that the request body cannot show: a measured context from the previous
+ * round, a live model catalog, and an output-capacity requirement. These are planning inputs,
+ * never routing decisions on their own.
+ */
+export interface RouteCapabilityContext {
+  /** Live OpenRouter catalog, when one has been observed for this planning pass. */
+  catalog?: OpenRouterCatalogModel[]
+  /** Required output ceiling, in tokens. Absent = no constraint. */
+  minOutputTokens?: number
+  /** Required input modalities. */
+  requiredModalities?: readonly string[]
+}
+export function route(body: ChatRequestBody, config: SabiConfig, context: RouteContext & RouteCapabilityContext = {}): RouteDecision {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new SabiRouteError('request must be a JSON object')
   }
@@ -130,11 +145,54 @@ export function route(body: ChatRequestBody, config: SabiConfig, context: RouteC
   // policy and capability checks, while the bounded action is carried for the host/controller.
   const required = state.inputModalities ?? []
   const requestedOutput = requestedOutputTokens(body)
+  const catalogById: Record<string, OpenRouterCatalogModel> = Object.fromEntries(
+    (context.catalog ?? []).map((m) => [m.id ?? '', m]),
+  )
+  const catalogOf = (modelId: string): OpenRouterCatalogModel | undefined => catalogById[modelId]
+  const zeroPrice = (value: unknown): boolean => {
+    const n = Number(value)
+    return Number.isFinite(n) && n === 0
+  }
+  const textModalities = (entry: OpenRouterCatalogModel | undefined, key: 'input_modalities' | 'output_modalities'): string[] =>
+    Array.isArray(entry?.architecture?.[key])
+      ? entry.architecture![key].filter((item): item is string => typeof item === 'string')
+      : []
+  /** A free model is only usable when the live catalog confirms it: zero price + text I/O.
+   * Absent catalog = declared-only, never refused. */
+  const usableFree = (modelId: string): boolean => {
+    if (!modelId.endsWith(':free')) return true
+    const entry = catalogOf(modelId)
+    if (!entry) return true
+    return zeroPrice(entry.pricing?.prompt) && zeroPrice(entry.pricing?.completion)
+      && textModalities(entry, 'input_modalities').includes('text')
+      && textModalities(entry, 'output_modalities').includes('text')
+  }
+  /** Required tool support, when the live catalog is present. Absent catalog = unknown, never refused. */
+  const catalogSupportsTools = (modelId: string): boolean => {
+    const entry = catalogOf(modelId)
+    if (!entry || !Array.isArray(entry.supported_parameters)) return true
+    const supported = new Set(entry.supported_parameters.filter((item): item is string => typeof item === 'string'))
+    return supported.has('tools')
+  }
+  /** Required output ceiling, when the live catalog is present. */
+  const catalogOutputCeiling = (modelId: string): number | undefined => {
+    const entry = catalogOf(modelId)
+    if (!entry) return undefined
+    const top = Number(entry.top_provider?.max_completion_tokens)
+    if (Number.isFinite(top) && top > 0) return top
+    const win = Number(entry.context_length)
+    return Number.isFinite(win) && win > 0 ? win : undefined
+  }
   const servesRound = (entry: (typeof config.models)[string]): boolean =>
     isEnabledUpstream(config.upstreams[entry.upstream]) &&
     servesUpstreamBilling(config.upstreams[entry.upstream], entry) &&
     servesInputModalities(entry.capabilities?.inputModalities, required) &&
-    outputFits(entry, requestedOutput)
+    outputFits(entry, requestedOutput) &&
+    usableFree(entry.model) &&
+    catalogSupportsTools(entry.model) &&
+    (context.minOutputTokens === undefined
+      || (catalogOutputCeiling(entry.model) ?? entry.maxOutputTokens) === undefined
+      || (catalogOutputCeiling(entry.model) ?? entry.maxOutputTokens)! >= context.minOutputTokens)
   // A substitute has to *declare* the capacity it is being chosen for. An undeclared ceiling still
   // serves the tier the policy itself picked (legacy metadata omissions), but it must never win a
   // promotion: unknown capacity would otherwise beat a tier that proves it can serve, and hand a

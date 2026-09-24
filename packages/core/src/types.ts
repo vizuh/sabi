@@ -668,3 +668,112 @@ export interface JudgeEvidence {
   contextBoundary: JudgeEvidenceValue
   omitted: JudgeEvidenceSlotName[]
 }
+
+/**
+ * Normalized adapter manifest (spec 005). A manifest is a declaration, not a
+ * capability probe: Sabi consumes it, never verifies it against a live host.
+ * Unknown fields read as `unknown`; the adapter is still loadable.
+ */
+export type AdapterKind =
+  | 'command-code'
+  | 'opencode'
+  | 'hermes'
+  | 'oh-my-pi'
+  | 'prime-agent'
+  | 'deepseek-harness'
+  | 'orca'
+  | 'claude-code'
+  | 'codex'
+  | 'unknown'
+
+export interface AdapterManifest {
+  id: string
+  kind: AdapterKind
+  version: string
+  /** Adapter's own loop / runtime contract. Sabi never forks or patches it. */
+  loop: 'native' | 'proxy' | 'mod'
+  /** Declared evidence surface. Absence = all unknown. */
+  evidence?: ExecutionCapabilities
+  /** Explicitly declared, never inferred. */
+  capabilities?: AdapterCapability[]
+  /** Refused surfaces. A declared refusal beats a silent absence. */
+  refusals?: AdapterRefusal[]
+}
+
+export interface AdapterCapability {
+  key: string
+  declared: boolean
+}
+
+export interface AdapterRefusal {
+  surface: string
+  reason: string
+}
+
+/**
+ * Normalized Trajectory IR (spec 005). Every harness/runtime emits one of these
+ * per round; translators map host events onto it. Fields a host cannot supply
+ * read as `unknown` — never as an invented default.
+ */
+export interface TrajectoryIR {
+  roundId: string
+  harness: AdapterKind
+  kind: RoundKind
+  failureLevel: FailureLevel
+  /** Bounded, allowlisted codes only. */
+  evidence: TrajectoryEvidence[]
+  verification?: VerificationState
+  capabilities?: ExecutionCapabilities
+  cache?: CacheObservation
+  receipt?: ExecutionReceipt
+  /** Fields the host could not translate. Never silently dropped. */
+  untranslatable: string[]
+}
+
+/**
+ * Normalized decision envelope (spec 005). One per planned round; the refusal
+ * record is the failure mode, not a missing envelope.
+ */
+export interface DecisionEnvelope {
+  envelopeId: string
+  roundId: string
+  harness: AdapterKind
+  action: RecoveryAction
+  reasonCode: RecoveryReasonCode
+  /** Ordered fallback chain. Empty = refuse. */
+  fallback: RecoveryAction[]
+  /** Deterministic, never a model claim. */
+  verification?: VerificationState
+  capabilities?: ExecutionCapabilities
+  refused?: AdapterRefusal
+}
+
+export type ConformanceVerdict =
+  | 'conformant'
+  | 'lossy'
+  | 'unstable'
+  | 'leaking'
+  | 'refused'
+
+export interface ConformanceCheck {
+  id: string
+  name: string
+  /** Pure function of the IR; no host interaction. */
+  check: (ir: TrajectoryIR) => boolean
+}
+
+export interface ConformanceReport {
+  reportId: string
+  adapterId: string
+  generatedAt: string
+  verdict: ConformanceVerdict
+  checks: ConformanceCheckResult[]
+  /** Bounded. */
+  untranslatable: string[]
+}
+
+export interface ConformanceCheckResult {
+  checkId: string
+  verdict: ConformanceVerdict
+  detail?: string
+}
