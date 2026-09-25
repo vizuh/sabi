@@ -212,11 +212,17 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, info: Co
   }
 }
 
+function resolveDaemonAddress(options: DaemonOptions): { host: string; port: number } {
+  return {
+    host: options.host ?? process.env.SABI_CONTROLLER_HOST?.trim() ?? '127.0.0.1',
+    port: options.port ?? configuredNumber(process.env.SABI_CONTROLLER_PORT, DEFAULT_PORT),
+  }
+}
+
 export async function createControllerDaemon(options: DaemonOptions = {}): Promise<ControllerDaemon> {
   const stateDir = path.resolve(options.stateDir ?? controllerStateDir())
-  const host = options.host ?? process.env.SABI_CONTROLLER_HOST?.trim() ?? '127.0.0.1'
+  const { host, port: requestedPort } = resolveDaemonAddress(options)
   if (!isLoopbackControllerHost(host)) throw new Error('Sabi controller daemon is loopback-only; refusing non-loopback host')
-  const requestedPort = options.port ?? configuredNumber(process.env.SABI_CONTROLLER_PORT, DEFAULT_PORT)
   mkdirSync(stateDir, { recursive: true, mode: 0o700 })
 
   // ponytail: keep the authenticated IPC loopback-only; add a Unix socket only when cross-platform
@@ -278,7 +284,31 @@ export async function createControllerDaemon(options: DaemonOptions = {}): Promi
 }
 
 export async function runForegroundControllerDaemon(options: DaemonOptions = {}): Promise<void> {
-  const daemon = await createControllerDaemon(options)
+  const stateDir = path.resolve(options.stateDir ?? controllerStateDir())
+  const requested = resolveDaemonAddress(options)
+  let daemon: ControllerDaemon
+  try {
+    daemon = await createControllerDaemon(options)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error
+    // ponytail: a second launcher (systemd restart, a manual `sabi daemon
+    // --foreground`, …) racing the same address is not a conflict if the
+    // incumbent recorded in daemon.json is a healthy Sabi daemon *for that
+    // same address* — exit clean instead of crash-looping the service that
+    // lost the race. The address match matters: a stale daemon.json left
+    // behind by a daemon that died without running close() (e.g. SIGKILL)
+    // could otherwise point at an unrelated healthy daemon on a different
+    // port, and we'd wrongly treat that as "someone already serves this
+    // port" and walk away from a port nothing is actually listening on.
+    const incumbent = readDaemonInfo(stateDir)
+    const sameAddress = incumbent?.host === requested.host && incumbent?.port === requested.port
+    const health = sameAddress ? await requestControllerDaemon('/health', { info: incumbent, timeoutMs: 1000 }) : undefined
+    if (health?.ok === true && health.service === 'sabi-controller' && health.pid === incumbent?.pid) {
+      console.log(`Sabi controller daemon already running (pid ${incumbent?.pid}) on http://${incumbent?.host}:${incumbent?.port} — exiting`)
+      return
+    }
+    throw error
+  }
   console.log(`Sabi controller daemon listening on http://${daemon.info.host}:${daemon.info.port}`)
   console.log(`  state: ${daemon.info.stateDir}`)
   await new Promise<void>((resolve) => {

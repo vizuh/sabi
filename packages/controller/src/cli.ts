@@ -22,7 +22,7 @@ import { runConformance, summarizeConformance, mergeConformanceChecks, CONFORMAN
 import { readSessionRegistry } from './registry.ts'
 import { defaultControllerLogPath, readControllerDecisions, summarizeControllerReplay } from './log.ts'
 import { dispatchControllerRequest, inventorySnapshot } from './runtime.ts'
-import { installUserService, restartUserService, type UserServiceResult } from './service.ts'
+import { inspectSystemdUnit, installUserService, restartUserService, type UserServiceResult } from './service.ts'
 import { uninstallController, upgradeController } from './lifecycle.ts'
 import { checkHookHealth, installHooks, runHookCommand, type InstallableHost, type InstalledHook } from './hooks.ts'
 import { runSurplusReview } from './surplus.ts'
@@ -176,6 +176,42 @@ function runSessions(argv: string[]): void {
   for (const session of result.sessions) console.log(`${session.id} · ${session.harness} · ${session.lifecycle} · ${session.worktree}`)
 }
 
+// Linux-only, best-effort: readDaemonInfo + /health (the `daemon` check above)
+// only proves *something* answers on the port right now, not that the
+// systemd unit meant to own it got there cleanly. Skipped entirely when
+// systemctl or the unit is unavailable — this is diagnostic, not a gate.
+function doctorSystemdCheck(): Array<{ name: string; ok: boolean; detail: string }> {
+  if (process.platform !== 'linux') return []
+  const unit = inspectSystemdUnit()
+  if (!unit) return []
+  if (unit.activeState === 'active' && unit.subState === 'running') {
+    return [{ name: 'systemd unit', ok: true, detail: `active/running (${unit.restarts} restart(s) lifetime)` }]
+  }
+  // Actively restarting/starting is the crash-loop shape this check exists to
+  // catch: EADDRINUSE against something that never resolves.
+  if (unit.subState === 'auto-restart' || unit.activeState === 'activating') {
+    return [{
+      name: 'systemd unit',
+      ok: false,
+      detail: `${unit.activeState}/${unit.subState}, ${unit.restarts} restart(s) — likely a second process (e.g. a manual 'sabi daemon --foreground') holding the port; stop it, then 'systemctl --user restart sabi-controller.service'`,
+    }]
+  }
+  if (unit.activeState === 'failed') {
+    return [{
+      name: 'systemd unit',
+      ok: false,
+      detail: `failed after ${unit.restarts} restart(s) — see 'journalctl --user -u sabi-controller.service', then 'systemctl --user reset-failed sabi-controller.service && systemctl --user restart sabi-controller.service'`,
+    }]
+  }
+  // Any other state (inactive/dead, etc.) is not itself a failure: it's what
+  // this same fix produces when the unit's own daemon loses an address race
+  // to an already-healthy incumbent and exits 0 rather than restart-looping
+  // (see daemon.ts's EADDRINUSE handling). The 'daemon' check above already
+  // proves whether Sabi is actually reachable; don't send the operator to
+  // kill a working daemon that just isn't the one systemd is tracking.
+  return [{ name: 'systemd unit', ok: true, detail: `${unit.activeState}/${unit.subState} — see the 'daemon' check for whether Sabi is actually reachable` }]
+}
+
 async function runDoctor(argv: string[]): Promise<void> {
   const cwd = resolvedCwd(argv)
   const daemon = await inspectControllerDaemon()
@@ -200,6 +236,7 @@ async function runDoctor(argv: string[]): Promise<void> {
           ? `stale: ${staleHooks.map(({ harness, detail }) => `${harness} (${detail})`).join('; ')}`
           : `${installedHooks.map(({ harness }) => harness).join(', ')} resolve`,
     },
+    ...doctorSystemdCheck(),
   ]
   const result = { cwd, runtime: snapshot.runtime, checks }
   if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
