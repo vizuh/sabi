@@ -39,6 +39,8 @@ export function systemdUnit(entrypoint: string, stateDir: string): string {
   return `[Unit]
 Description=Sabi controller daemon
 After=default.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -74,6 +76,46 @@ function installSystemd(entrypoint: string, stateDir: string, env: NodeJS.Proces
   } catch (error) {
     try { rmSync(file, { force: true }) } catch { /* preserve the original service error */ }
     return { backend: 'systemd-user', installed: false, running: false, path: file, detail: (error as Error).message }
+  }
+}
+
+export interface SystemdUnitState {
+  activeState: string
+  subState: string
+  restarts: number
+}
+
+function parseSystemdShow(output: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const line of output.split('\n')) {
+    const separator = line.indexOf('=')
+    if (separator === -1) continue
+    result[line.slice(0, separator)] = line.slice(separator + 1)
+  }
+  return result
+}
+
+// Best-effort visibility for `sabi doctor`: a healthy daemon reachable over
+// loopback says nothing about *how* it got there — a unit stuck restart-looping
+// on a port conflict looks identical to a normal daemon once something else
+// happens to hold the port. Returns undefined (never throws) when systemctl or
+// the unit itself is unavailable, so callers just skip the check.
+export function inspectSystemdUnit(env: NodeJS.ProcessEnv = process.env): SystemdUnitState | undefined {
+  const binary = env.SABI_SYSTEMCTL?.trim() || commandPath('systemctl', env)
+  if (!binary) return undefined
+  try {
+    const output = execFileSync(binary, ['--user', 'show', 'sabi-controller.service', '-p', 'ActiveState', '-p', 'SubState', '-p', 'NRestarts'], {
+      encoding: 'utf8',
+      env,
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    const parsed = parseSystemdShow(output)
+    const restarts = Number(parsed.NRestarts)
+    if (!parsed.ActiveState || !Number.isFinite(restarts)) return undefined
+    return { activeState: parsed.ActiveState, subState: parsed.SubState ?? '', restarts }
+  } catch {
+    return undefined
   }
 }
 

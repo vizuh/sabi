@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import os from 'node:os'
 import path from 'node:path'
 import {
+  inspectSystemdUnit,
   installUserService,
   installUserServiceForPlatform,
   launchAgentPlist,
@@ -19,6 +20,28 @@ test('systemd user unit uses absolute paths and the user-scoped state directory'
   assert.match(unit, /ExecStart=.*\/tmp\/Sabi Install\/dist\/cli\.mjs.*daemon --foreground/)
   assert.match(unit, /Environment=SABI_CONTROLLER_HOME=.*\/tmp\/sabi state/)
   assert.match(unit, /Restart=on-failure/)
+  // A genuine (non-Sabi) port conflict must stop retrying instead of
+  // restart-looping forever — this is what caused the crash-loop incident.
+  assert.match(unit, /StartLimitIntervalSec=60/)
+  assert.match(unit, /StartLimitBurst=5/)
+})
+
+test('inspectSystemdUnit reports the unit state and restart count from systemctl show', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-systemd-inspect-'))
+  try {
+    const systemctl = path.join(root, 'systemctl')
+    writeFileSync(systemctl, '#!/bin/sh\nprintf "ActiveState=active\\nSubState=running\\nNRestarts=3\\n"\n')
+    chmodSync(systemctl, 0o755)
+    const state = inspectSystemdUnit({ ...process.env, SABI_SYSTEMCTL: systemctl })
+    assert.deepEqual(state, { activeState: 'active', subState: 'running', restarts: 3 })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('inspectSystemdUnit returns undefined instead of throwing when systemctl is unavailable', () => {
+  const state = inspectSystemdUnit({ ...process.env, SABI_SYSTEMCTL: '/nonexistent/systemctl', PATH: '/nonexistent' })
+  assert.equal(state, undefined)
 })
 
 test('service installation can be explicitly disabled without touching the host', () => {
