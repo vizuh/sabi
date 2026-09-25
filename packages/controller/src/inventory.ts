@@ -260,7 +260,11 @@ function lifecycleFromEntry(entry: OrcaTerminalEntry, tuiIdle: boolean | undefin
 }
 
 function observedScreen(handle: string): string {
-  const result = readOrcaTerminal(handle, 80)
+  // Explicit timeout, not the 30s ACTION_TIMEOUT_MS default: this runs once per terminal,
+  // sequentially, inside SESSION_ENRICHMENT_BUDGET_MS — an unbounded call here defeats that
+  // budget on its very first iteration, since the budget check only stops a *next* call from
+  // starting, not an in-flight one from running long.
+  const result = readOrcaTerminal(handle, 80, { timeoutMs: 500 })
   return parseTerminalReadReceipt(result.result)?.terminal.tail.join('\n') ?? ''
 }
 
@@ -296,21 +300,29 @@ export function configuredHarnesses(controller?: ControllerConfig): Array<{
     : configured.map((agent) => ({ agent, command: agent }))
   const useFreeCatalog = controller?.harnessRouting?.useFreeCatalog === true
   const preferredOrder = controller?.preferredHarnesses
-  const orderedDefinitions = preferredOrder?.length
-    ? [...definitions].sort((a, b) => {
-      const ai = preferredOrder.indexOf(a.agent)
-      const bi = preferredOrder.indexOf(b.agent)
-      return (ai === -1 ? preferredOrder.length : ai) - (bi === -1 ? preferredOrder.length : bi)
-    })
-    : definitions
+  const hasExplicitPreferredModels = (agent: string): boolean => Boolean(controller?.harnesses?.[agent]?.preferredModels?.length)
+  // An explicit `preferredModels` entry is an operator opt-in, not a discovery guess — it must
+  // never lose its probe to the shared budget below just because an earlier harness in the list
+  // (e.g. useFreeCatalog's blanket sweep) consumed it first. Sort those, and preferredOrder after
+  // them, ahead of everything else.
+  const orderedDefinitions = [...definitions].sort((a, b) => {
+    const explicitRank = Number(hasExplicitPreferredModels(b.agent)) - Number(hasExplicitPreferredModels(a.agent))
+    if (explicitRank !== 0) return explicitRank
+    if (!preferredOrder?.length) return 0
+    const ai = preferredOrder.indexOf(a.agent)
+    const bi = preferredOrder.indexOf(b.agent)
+    return (ai === -1 ? preferredOrder.length : ai) - (bi === -1 ? preferredOrder.length : bi)
+  })
   const catalogProbeDeadline = Date.now() + HARNESS_CATALOG_PROBE_BUDGET_MS
   return orderedDefinitions.filter(({ command }) => executableExists(command)).map(({ agent, command }) => {
     const preferredModels = controller?.harnesses?.[agent]?.preferredModels
     // Only probe catalogs with a verified local command contract. Other harnesses may interpret
     // --list-models as a normal invocation; a configured preference remains an explicit opt-in.
-    // When useFreeCatalog is on we also probe so we can auto-select a free worker model.
-    const shouldProbe = (agent === 'opencode' || agent === 'command-code' || Boolean(preferredModels?.length) || useFreeCatalog)
-      && Date.now() < catalogProbeDeadline
+    // opencode, command-code and an explicit preferredModels entry are unconditional — same as
+    // before the budget existed. Only useFreeCatalog's blanket, unopinionated sweep across every
+    // configured harness is bounded by it.
+    const shouldProbe = agent === 'opencode' || agent === 'command-code' || Boolean(preferredModels?.length)
+      || (useFreeCatalog && Date.now() < catalogProbeDeadline)
     const catalog = shouldProbe ? localCatalog(agent, command) : undefined
     // Explicit preferredModels win; otherwise, when useFreeCatalog is on, fall back to the first
     // healthy free worker in the live catalog. No model is ever guessed or inferred from price.

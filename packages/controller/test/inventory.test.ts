@@ -228,6 +228,54 @@ test('a shared budget bounds sequential harness catalog probes instead of summin
   }
 })
 
+test('an explicit preferredModels harness is never starved of its catalog probe by the shared budget', () => {
+  // A code-review finding on the fix above: gating every catalog probe behind the shared budget
+  // meant an operator's explicit `harnesses[agent].preferredModels` opt-in could silently lose its
+  // probe to useFreeCatalog's blanket sweep if listed after other harnesses — flipping a pinned,
+  // healthy harness to unavailable for a reason that has nothing to do with its own health.
+  // 'pinned' is declared last and would be starved by 'slow1'/'slow2' consuming the whole budget
+  // if explicit preferredModels harnesses were not probed unconditionally and first.
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-catalog-priority-cwd-'))
+  const harnessDir = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-catalog-priority-bin-'))
+  for (const name of ['slow1', 'slow2']) {
+    const bin = path.join(harnessDir, name)
+    writeFileSync(bin, `#!/bin/sh\ncase "$1" in --version) echo 1.0.0;; --list-models) sleep 2; echo "${name}/free-worker:free";; esac\n`)
+    chmodSync(bin, 0o755)
+  }
+  const pinned = path.join(harnessDir, 'pinned')
+  writeFileSync(pinned, '#!/bin/sh\ncase "$1" in --version) echo 1.0.0;; --list-models) echo "pinned/exact-model";; esac\n')
+  chmodSync(pinned, 0o755)
+  const previousCommand = process.env.ORCA_CLI_COMMAND
+  const previousHandle = process.env.ORCA_TERMINAL_HANDLE
+  const previousHarnesses = process.env.SABI_CONTROLLER_HARNESSES
+  const previousPath = process.env.PATH
+  process.env.ORCA_CLI_COMMAND = fakeOrca(cwd)
+  process.env.ORCA_TERMINAL_HANDLE = 'term-idle'
+  process.env.SABI_CONTROLLER_HARNESSES = 'slow1,slow2,pinned'
+  process.env.PATH = `${harnessDir}${path.delimiter}${previousPath ?? ''}`
+  try {
+    clearInventoryCache()
+    const inventory = discoverAgents(cwd, {
+      controller: {
+        harnesses: { pinned: { preferredModels: ['pinned/exact-model'] } },
+        harnessRouting: { useFreeCatalog: true },
+      },
+    })
+    const candidate = inventory.spawnCandidates.find((entry) => entry.agent === 'pinned')
+    assert.equal(candidate?.model, 'pinned/exact-model')
+    assert.equal(candidate?.modelRequired, true)
+  } finally {
+    if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
+    else process.env.ORCA_CLI_COMMAND = previousCommand
+    if (previousHandle === undefined) delete process.env.ORCA_TERMINAL_HANDLE
+    else process.env.ORCA_TERMINAL_HANDLE = previousHandle
+    if (previousHarnesses === undefined) delete process.env.SABI_CONTROLLER_HARNESSES
+    else process.env.SABI_CONTROLLER_HARNESSES = previousHarnesses
+    if (previousPath === undefined) delete process.env.PATH
+    else process.env.PATH = previousPath
+  }
+})
+
 test('a failed preferred OpenCode model moves selection to the next catalog model and fails open when all fail', () => {
   const first = 'opencode/muse-spark-1.3-free'
   const second = 'opencode/ling-3.0-flash-fin-free'
@@ -265,6 +313,27 @@ if (args[0] === 'worktree' && args[1] === 'ps') {
   result = {}
 }
 console.log(JSON.stringify({ id: 'fake', ok: true, result }))
+`
+  writeFileSync(script, source)
+  chmodSync(script, 0o755)
+  return script
+}
+
+function fakeOrcaSlowRead(cwd: string, sleepSeconds: number): string {
+  // A real OS-level `sleep`, not a JS busy-wait: spawnSync's timeout kills the child with a
+  // signal, and only a process actually blocked in a syscall (not spinning the event loop) dies
+  // promptly on it — a Node busy-wait can't process the signal until it yields, defeating the
+  // very timeout this test exists to prove.
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-inventory-slow-'))
+  const script = path.join(dir, 'orca-ide')
+  const source = `#!/bin/sh
+case "$1 $2" in
+  "worktree ps") echo '{"id":"fake-slow","ok":true,"result":{"worktrees":[{"path":${JSON.stringify(cwd)},"branch":"main"}]}}' ;;
+  "terminal list") echo '{"id":"fake-slow","ok":true,"result":{"terminals":[{"handle":"term-idle","worktreePath":${JSON.stringify(cwd)},"branch":"main","connected":true,"writable":true,"orphaned":false,"title":"idle session","agentIdentity":"claude"}]}}' ;;
+  "terminal read") sleep ${sleepSeconds}; echo '{"id":"fake-slow","ok":true,"result":{"terminal":{"tail":["OK"]}}}' ;;
+  "terminal wait") echo '{"id":"fake-slow","ok":true,"result":{"wait":{"satisfied":true,"status":"running"}}}' ;;
+  *) echo '{"id":"fake-slow","ok":true,"result":{}}' ;;
+esac
 `
   writeFileSync(script, source)
   chmodSync(script, 0o755)
@@ -311,6 +380,36 @@ test('historical screen errors do not block an idle live session', () => {
     else process.env.ORCA_CLI_COMMAND = previousCommand
     if (previousHandle === undefined) delete process.env.ORCA_TERMINAL_HANDLE
     else process.env.ORCA_TERMINAL_HANDLE = previousHandle
+  }
+})
+
+test('a slow terminal read cannot inherit the 30s default and block discoverAgents', () => {
+  // A code-review finding: the shared SESSION_ENRICHMENT_BUDGET_MS check only stops a *next*
+  // terminal's enrichment from starting — it never bounded the first call, and observedScreen()
+  // had no explicit timeout, so it inherited runOrcaCommand's 30s ACTION_TIMEOUT_MS default. A
+  // single slow `terminal read` reproduced the exact hook-timeout bug this whole fix targets.
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-slow-read-cwd-'))
+  const previousCommand = process.env.ORCA_CLI_COMMAND
+  const previousHandle = process.env.ORCA_TERMINAL_HANDLE
+  const previousHarnesses = process.env.SABI_CONTROLLER_HARNESSES
+  process.env.ORCA_CLI_COMMAND = fakeOrcaSlowRead(cwd, 4)
+  process.env.ORCA_TERMINAL_HANDLE = 'term-idle'
+  // Isolate from configuredHarnesses() probing real opencode/command-code binaries on this
+  // machine (unconditionally probed by agent name, unrelated to what this test checks) — a
+  // nonexistent harness name means zero real subprocess calls from that path.
+  process.env.SABI_CONTROLLER_HARNESSES = 'sabi-test-nonexistent-harness'
+  try {
+    const startedAt = Date.now()
+    discoverAgents(cwd, { now: Date.now() })
+    const elapsedMs = Date.now() - startedAt
+    assert.ok(elapsedMs < 2000, `expected observedScreen's own timeout to bound this well under the 4s the fake read sleeps for, took ${elapsedMs}ms`)
+  } finally {
+    if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
+    else process.env.ORCA_CLI_COMMAND = previousCommand
+    if (previousHandle === undefined) delete process.env.ORCA_TERMINAL_HANDLE
+    else process.env.ORCA_TERMINAL_HANDLE = previousHandle
+    if (previousHarnesses === undefined) delete process.env.SABI_CONTROLLER_HARNESSES
+    else process.env.SABI_CONTROLLER_HARNESSES = previousHarnesses
   }
 })
 
