@@ -276,8 +276,8 @@ export function waitOrcaTerminal(
   )
 }
 
-export function readOrcaTerminal(handle: string, limit = 200): OrcaCommandResult {
-  return runOrcaCommand(['terminal', 'read', '--terminal', handle, '--screen', '--limit', String(limit), '--json'])
+export function readOrcaTerminal(handle: string, limit = 200, opts: { timeoutMs?: number } = {}): OrcaCommandResult {
+  return runOrcaCommand(['terminal', 'read', '--terminal', handle, '--screen', '--limit', String(limit), '--json'], opts)
 }
 
 export function createOrcaRun(objective: string, from?: string): OrcaCommandResult {
