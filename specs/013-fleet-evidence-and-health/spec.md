@@ -12,6 +12,12 @@ which is a four-branch integer mapping. The synthesis argues for scoped failure
 classification, honest success detection, immediate local circuits, a
 consume-only health overlay with a TTL, and opt-in pseudonymous telemetry.
 
+**Naming**: this subsystem is **Sabi Evidence**, not "telemetry". Telemetry
+describes how the data arrives; evidence describes why it is collected. The
+`EvidenceSource` model, `RouteIdentity`, and the consequence ladder are defined
+in the companion service spec and are normative here — a local observation is
+evidence too, and the local router is an evidence source, not just a consumer.
+
 **Relationship to 010**: 010 is *shadow routing* — mirror live decisions
 without changing them, then turn mirrors into evaluation. This spec is the
 **live reaction path**: it changes what the router does on the next round. 010's
@@ -270,6 +276,15 @@ router with consent declined.
 No control-plane dependency may appear on the request path. Every feed read,
 consent check, and telemetry send MUST be off the critical path and bounded in
 time.
+
+### R8 — Suppression implies a recovery observer
+
+The moment a route can be suppressed, the recovery-observation problem exists: a
+suppressed route receives no traffic, so nothing can observe that it recovered.
+A bounded exploration share MUST be reserved, and the active probe MUST run
+independently of fleet traffic. This is a correctness requirement of
+suppression, not an optimisation, and it MUST be in place before fleet
+suppression is enabled.
 
 ## Out of Scope
 
