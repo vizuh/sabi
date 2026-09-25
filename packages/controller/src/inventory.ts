@@ -56,7 +56,10 @@ const DEFAULT_HARNESSES: Array<{ agent: string; command: string }> = [
 
 const MODEL_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._:/-]*[A-Za-z0-9._/-])?$/
 const MODEL_LIST_HEADERS = new Set(['available', 'models', 'open', 'source', 'built-in', 'other'])
-const MODEL_CATALOG_TIMEOUT_MS = 10_000
+// Was 10s: fine for an explicit, human-triggered `sabi setup --free-quality`, but this same
+// function is on the hot path of every routing decision (discoverAgents -> configuredHarnesses),
+// which a Claude/Codex hook calls with a ~10s host-side budget for the *whole* round trip.
+const MODEL_CATALOG_TIMEOUT_MS = 3_000
 const MODEL_CATALOG_TTL_MS = 60_000
 const MODEL_CATALOG_MAX_MODELS = 256
 // ponytail: a short process cache avoids two slow CLI probes per request; lower the TTL or add an
@@ -65,6 +68,24 @@ const localCatalogCache = new Map<string, { catalog: HarnessCatalogDescriptor | 
 const catalogModelIds = new WeakMap<HarnessCatalogDescriptor, string[]>()
 const INVENTORY_TTL_MS = 2_000
 const inventoryCache = new Map<string, { inventory: AgentInventory; storedAt: number }>()
+// ponytail: `tuiIdleState` waits up to 1s per terminal (not a cheap read), sequentially, for
+// every terminal Orca tracks fleet-wide — with N terminals open that's up to N seconds inside a
+// hook call with a 10s host timeout, and it gets worse as more Orca sessions open. Confirmed live
+// on 2026-09-25: 7 terminals produced a 12-23s discoverAgents() call and a Claude Code
+// UserPromptSubmit hook timeout. Budget the whole enrichment phase instead of each call; a
+// terminal skipped under budget pressure degrades to the pre-existing "unknown" fallback
+// (`lifecycleFromEntry` → 'active', `capacityFromText('')` → 'available'), not a new code path.
+const SESSION_ENRICHMENT_BUDGET_MS = 1_500
+// Same failure mode, second source: `useFreeCatalog` makes every discoverAgents() call probe
+// every configured harness's live model catalog with `--list-models`/`models`, sequentially, each
+// individually capped at MODEL_CATALOG_TIMEOUT_MS but with no budget across the whole set.
+// Measured live on 2026-09-25: codex/claude/opencode/command-code/hermes/omp/pi summed to ~11.6s
+// even with none of them hanging (0.4-4.4s each) — the per-call cap does not bound the loop. A
+// harness skipped under budget pressure degrades to the pre-existing "not probed" catalog:undefined
+// state every non-opencode/non-command-code harness already has by default. The budget only stops
+// a *new* call from starting; one already in flight can still overshoot it by up to its own
+// MODEL_CATALOG_TIMEOUT_MS, which is why that ceiling was also cut down above.
+const HARNESS_CATALOG_PROBE_BUDGET_MS = 1_500
 
 export function parseModelList(output: string): string[] {
   const models = new Set<string>()
@@ -244,7 +265,10 @@ function observedScreen(handle: string): string {
 }
 
 function tuiIdleState(handle: string): boolean | undefined {
-  const result = waitOrcaTerminal(handle, 'tui-idle', 1000)
+  // 500ms, not 1000ms: this runs once per terminal, sequentially, inside a hot routing path with
+  // a shared SESSION_ENRICHMENT_BUDGET_MS across the whole set — a smaller per-call ceiling
+  // shrinks how far one in-flight call can overshoot that budget.
+  const result = waitOrcaTerminal(handle, 'tui-idle', 500)
   return parseTerminalWaitReceipt(result.result)?.satisfied
 }
 
@@ -271,12 +295,22 @@ export function configuredHarnesses(controller?: ControllerConfig): Array<{
     ? DEFAULT_HARNESSES
     : configured.map((agent) => ({ agent, command: agent }))
   const useFreeCatalog = controller?.harnessRouting?.useFreeCatalog === true
-  return definitions.filter(({ command }) => executableExists(command)).map(({ agent, command }) => {
+  const preferredOrder = controller?.preferredHarnesses
+  const orderedDefinitions = preferredOrder?.length
+    ? [...definitions].sort((a, b) => {
+      const ai = preferredOrder.indexOf(a.agent)
+      const bi = preferredOrder.indexOf(b.agent)
+      return (ai === -1 ? preferredOrder.length : ai) - (bi === -1 ? preferredOrder.length : bi)
+    })
+    : definitions
+  const catalogProbeDeadline = Date.now() + HARNESS_CATALOG_PROBE_BUDGET_MS
+  return orderedDefinitions.filter(({ command }) => executableExists(command)).map(({ agent, command }) => {
     const preferredModels = controller?.harnesses?.[agent]?.preferredModels
     // Only probe catalogs with a verified local command contract. Other harnesses may interpret
     // --list-models as a normal invocation; a configured preference remains an explicit opt-in.
     // When useFreeCatalog is on we also probe so we can auto-select a free worker model.
-    const shouldProbe = agent === 'opencode' || agent === 'command-code' || Boolean(preferredModels?.length) || useFreeCatalog
+    const shouldProbe = (agent === 'opencode' || agent === 'command-code' || Boolean(preferredModels?.length) || useFreeCatalog)
+      && Date.now() < catalogProbeDeadline
     const catalog = shouldProbe ? localCatalog(agent, command) : undefined
     // Explicit preferredModels win; otherwise, when useFreeCatalog is on, fall back to the first
     // healthy free worker in the live catalog. No model is ever guessed or inferred from price.
@@ -411,11 +445,19 @@ export function discoverAgents(
       })
       .filter((entry): entry is readonly [string, string | undefined] => entry !== undefined),
   )
-  const sessions = terminalEntries
+  // Enrichment (`observedScreen`/`tuiIdleState`) is a real subprocess round trip per terminal,
+  // not a lookup — put the caller's own current terminal first so it never loses that data to
+  // the budget below, whichever else does.
+  const orderedTerminalEntries = currentHandle
+    ? [...terminalEntries].sort((a, b) => Number(stringValue(b.handle) === currentHandle) - Number(stringValue(a.handle) === currentHandle))
+    : terminalEntries
+  const enrichmentDeadline = Date.now() + SESSION_ENRICHMENT_BUDGET_MS
+  const sessions = orderedTerminalEntries
     .map((entry) => {
       const handle = stringValue(entry.handle)
-      const observed = handle ? observedScreen(handle) : ''
-      const tuiIdle = handle ? tuiIdleState(handle) : undefined
+      const withinBudget = Date.now() < enrichmentDeadline
+      const observed = handle && withinBudget ? observedScreen(handle) : ''
+      const tuiIdle = handle && withinBudget ? tuiIdleState(handle) : undefined
       const worktree = stringValue(entry.worktreePath)
       return worktree
         ? makeSession(entry, worktree, branches.get(path.resolve(worktree)), currentHandle, Boolean(options.stuckSession), now, observed, tuiIdle)

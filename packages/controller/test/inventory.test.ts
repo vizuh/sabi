@@ -187,6 +187,47 @@ test('explicit preferredModels still win over useFreeCatalog auto-selection', ()
   }
 })
 
+test('a shared budget bounds sequential harness catalog probes instead of summing their individual timeouts', () => {
+  // Confirmed live on 2026-09-25: with useFreeCatalog on, discoverAgents() probed
+  // codex/claude/opencode/command-code/hermes/omp/pi sequentially, each capped only
+  // individually, summing to ~11.6s inside a Claude Code hook with a ~10s host timeout. Two
+  // harnesses that each take 2s prove the fix: without a shared budget this takes >=4s; with
+  // it, only the first harness's probe is allowed to start and the second is skipped outright.
+  const cwd = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-catalog-budget-cwd-'))
+  const harnessDir = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-catalog-budget-bin-'))
+  for (const name of ['alpha', 'beta']) {
+    const bin = path.join(harnessDir, name)
+    writeFileSync(bin, `#!/bin/sh\ncase "$1" in --version) echo 1.0.0;; --list-models) sleep 2; echo "${name}/free-worker:free";; esac\n`)
+    chmodSync(bin, 0o755)
+  }
+  const previousCommand = process.env.ORCA_CLI_COMMAND
+  const previousHandle = process.env.ORCA_TERMINAL_HANDLE
+  const previousHarnesses = process.env.SABI_CONTROLLER_HARNESSES
+  const previousPath = process.env.PATH
+  process.env.ORCA_CLI_COMMAND = fakeOrca(cwd)
+  process.env.ORCA_TERMINAL_HANDLE = 'term-idle'
+  process.env.SABI_CONTROLLER_HARNESSES = 'alpha,beta'
+  process.env.PATH = `${harnessDir}${path.delimiter}${previousPath ?? ''}`
+  try {
+    clearInventoryCache()
+    const startedAt = Date.now()
+    const inventory = discoverAgents(cwd, { controller: { harnessRouting: { useFreeCatalog: true } } })
+    const elapsedMs = Date.now() - startedAt
+    assert.ok(elapsedMs < 3500, `expected the shared budget to bound the two 2s probes to well under their 4s sum, took ${elapsedMs}ms`)
+    const agents = inventory.spawnCandidates.map((entry) => entry.agent)
+    assert.deepEqual(agents, ['alpha', 'beta'])
+  } finally {
+    if (previousCommand === undefined) delete process.env.ORCA_CLI_COMMAND
+    else process.env.ORCA_CLI_COMMAND = previousCommand
+    if (previousHandle === undefined) delete process.env.ORCA_TERMINAL_HANDLE
+    else process.env.ORCA_TERMINAL_HANDLE = previousHandle
+    if (previousHarnesses === undefined) delete process.env.SABI_CONTROLLER_HARNESSES
+    else process.env.SABI_CONTROLLER_HARNESSES = previousHarnesses
+    if (previousPath === undefined) delete process.env.PATH
+    else process.env.PATH = previousPath
+  }
+})
+
 test('a failed preferred OpenCode model moves selection to the next catalog model and fails open when all fail', () => {
   const first = 'opencode/muse-spark-1.3-free'
   const second = 'opencode/ling-3.0-flash-fin-free'
