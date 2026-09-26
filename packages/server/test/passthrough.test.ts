@@ -194,6 +194,24 @@ test('a tier whose upstream holds its own key cannot serve a borrowed round', as
   assert.equal(seen.length, 0)
 })
 
+test('passthrough.models isolates the borrowed round from the shared tiers', async (t) => {
+  const { seen, post, sabi } = await fixture(t, undefined, {}, (config) => {
+    // The shared 'cheap' tier is repointed at a non-passthrough upstream — the same setup that
+    // makes the previous test refuse — proving what serves this round is the isolated
+    // passthrough tier set, not an accidental fallback to the shared one.
+    config.models.cheap = { upstream: 'keyed', model: 'mock-keyed' }
+    config.passthrough = {
+      models: { cheap: { upstream: 'borrowed', model: 'mock-anthropic-isolated' } },
+      policy: { unclassified: 'cheap' },
+    }
+  })
+  const response = await post('messages', anthropicBody())
+  assert.equal(response.status, 200)
+  assert.equal(seen[0]?.body.model, 'mock-anthropic-isolated')
+  assert.equal(sabi.recent[0]?.upstreamModel, 'mock-anthropic-isolated')
+  assert.equal(sabi.recent[0]?.tier, 'cheap')
+})
+
 test('the OpenAI-compatible route is unchanged by the borrowed routes', async (t) => {
   // The OpenAI route expects a chat completion, so this fixture's upstream replies in that shape.
   const { seen, baseUrl } = await fixture(t, (seen, res) => {

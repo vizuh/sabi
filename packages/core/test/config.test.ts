@@ -472,3 +472,42 @@ test('a borrowed upstream holds no credential, and its alias must be adaptive', 
     /passthrough\.aliases is not a supported field/,
   )
 })
+
+test('passthrough.models isolates a borrowed round onto its own tier set, validated like the shared one', () => {
+  const borrowed = {
+    ...minimal,
+    upstreams: { borrowed: { baseURL: 'http://127.0.0.1:2', auth: 'passthrough' }, mock: minimal.upstreams.mock },
+    aliases: { 'sabi-code': 'auto' },
+  }
+  // Isolated tiers never collide with the shared ones by name: the shared 'cheap' still points at
+  // the free 'mock' upstream, untouched.
+  const withPassthroughModels = {
+    ...borrowed,
+    passthrough: { models: { cheap: { upstream: 'borrowed', model: 'claude-haiku-4-5' } }, policy: { unclassified: 'cheap' } },
+  }
+  const config = validateConfig(withPassthroughModels)
+  assert.equal(config.passthrough!.models!.cheap!.upstream, 'borrowed')
+  assert.equal(config.models.cheap!.upstream, 'mock')
+
+  // policy.unclassified must resolve within passthrough.models, not the shared models — a tier
+  // that only exists on the shared side is exactly the collision this feature exists to avoid.
+  assert.throws(
+    () => validateConfig({ ...borrowed, passthrough: { models: { strong: { upstream: 'borrowed', model: 'claude-opus-4-1' } }, policy: { unclassified: 'cheap' } } }),
+    /passthrough policy rule 'unclassified' targets unknown tier 'cheap'/,
+  )
+  // No 'unclassified' rule at all (not even inherited): the router's own literal 'cheap' fallback
+  // must still resolve within the isolated tier set, not the shared one.
+  assert.throws(
+    () => validateConfig({ ...borrowed, passthrough: { models: { strong: { upstream: 'borrowed', model: 'claude-opus-4-1' } }, policy: {} } }),
+    /\(passthrough\): policy\.unclassified must resolve to a declared tier/,
+  )
+  assert.throws(
+    () => validateConfig({ ...borrowed, passthrough: { models: {} } }),
+    /no passthrough\.models declared/,
+  )
+  // policy alone, without models, has nothing isolated to route through.
+  assert.throws(
+    () => validateConfig({ ...borrowed, passthrough: { policy: { unclassified: 'cheap' } } }),
+    /passthrough\.policy requires passthrough\.models/,
+  )
+})

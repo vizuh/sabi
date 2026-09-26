@@ -39,6 +39,37 @@ test('inspectSystemdUnit reports the unit state and restart count from systemctl
   }
 })
 
+test('inspectSystemdUnit queries the given unit name instead of the hardcoded controller unit', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-systemd-inspect-unit-'))
+  try {
+    const systemctl = path.join(root, 'systemctl')
+    // $3 is the unit name ('--user show <unit> ...'); asserting on it proves the
+    // requested unit reached systemctl rather than the hardcoded default.
+    writeFileSync(systemctl, '#!/bin/sh\n[ "$3" = "sabi-proxy.service" ] || exit 1\nprintf "ActiveState=active\\nSubState=running\\nNRestarts=0\\n"\n')
+    chmodSync(systemctl, 0o755)
+    const state = inspectSystemdUnit({ ...process.env, SABI_SYSTEMCTL: systemctl }, 'sabi-proxy.service')
+    assert.deepEqual(state, { activeState: 'active', subState: 'running', restarts: 0 })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('inspectSystemdUnit treats a not-found unit as unavailable, not as stopped', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'sabi-controller-systemd-inspect-notfound-'))
+  try {
+    const systemctl = path.join(root, 'systemctl')
+    // What real systemctl prints for a unit with no unit file: exit 0, LoadState=not-found,
+    // ActiveState=inactive, SubState=dead. Reporting that as a real 'stopped' unit would read as
+    // a failure for something that was never installed in the first place.
+    writeFileSync(systemctl, '#!/bin/sh\nprintf "LoadState=not-found\\nActiveState=inactive\\nSubState=dead\\nNRestarts=0\\n"\n')
+    chmodSync(systemctl, 0o755)
+    const state = inspectSystemdUnit({ ...process.env, SABI_SYSTEMCTL: systemctl }, 'sabi-proxy.service')
+    assert.equal(state, undefined)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('inspectSystemdUnit returns undefined instead of throwing when systemctl is unavailable', () => {
   const state = inspectSystemdUnit({ ...process.env, SABI_SYSTEMCTL: '/nonexistent/systemctl', PATH: '/nonexistent' })
   assert.equal(state, undefined)

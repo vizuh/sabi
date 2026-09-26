@@ -238,6 +238,56 @@ function validateModelMetadata(value: unknown, label: string): void {
   }
 }
 
+/** Shared by the top-level `models` and `passthrough.models` — a borrowed round's isolated tier
+ * set is validated exactly like the shared one it stands in for. */
+function validateModels(
+  models: Record<string, unknown>,
+  upstreams: Record<string, unknown>,
+  source: string,
+  isPassthrough: boolean,
+): void {
+  const modelsLabel = isPassthrough ? 'passthrough.models' : 'models'
+  const tierLabel = isPassthrough ? 'passthrough model tier' : 'model tier'
+  if (!Object.keys(models).length) throw new Error(`Sabi config ${source}: no ${modelsLabel} declared`)
+  for (const [name, model] of Object.entries(models) as [string, Record<string, unknown> | undefined][]) {
+    validateModelMetadata(model, `Sabi config ${source}: ${tierLabel} '${name}'`)
+    if (!model || typeof model.model !== 'string' || !model.model) {
+      throw new Error(`Sabi config ${source}: ${tierLabel} '${name}' has no model id`)
+    }
+    if (typeof model.upstream !== 'string' || !Object.hasOwn(upstreams, model.upstream)) {
+      throw new Error(`Sabi config ${source}: ${tierLabel} '${name}' references unknown upstream '${String(model.upstream)}'`)
+    }
+  }
+}
+
+/** Shared by the top-level `policy` and `passthrough.policy` (see {@link validateModels}). */
+function validatePolicyRules(
+  models: Record<string, unknown>,
+  policy: Record<string, unknown>,
+  source: string,
+  isPassthrough: boolean,
+): void {
+  const ruleLabel = isPassthrough ? 'passthrough policy rule' : 'policy rule'
+  const knownRules = new Set<string>(POLICY_ORDER)
+  for (const [condition, tier] of Object.entries(policy)) {
+    if (!knownRules.has(condition)) {
+      throw new Error(`Sabi config ${source}: ${ruleLabel} '${condition}' is not a known rule (${POLICY_ORDER.join(', ')})`)
+    }
+    if (typeof tier !== 'string' || (tier !== 'off' && !Object.hasOwn(models, tier))) {
+      throw new Error(`Sabi config ${source}: ${ruleLabel} '${condition}' targets unknown tier '${String(tier)}'`)
+    }
+  }
+}
+
+function validateUnclassifiedFallback(models: Record<string, unknown>, policy: Record<string, unknown>, source: string): void {
+  const fallbackTier = typeof policy.unclassified === 'string' && policy.unclassified !== 'off'
+    ? policy.unclassified
+    : 'cheap'
+  if (!Object.hasOwn(models, fallbackTier)) {
+    throw new Error(`Sabi config ${source}: policy.unclassified must resolve to a declared tier (got '${String(policy.unclassified)}')`)
+  }
+}
+
 export function validateConfig(value: unknown, source = '<inline>'): SabiConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`Sabi config ${source}: expected a JSON object`)
@@ -288,16 +338,7 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
     }
   }
 
-  if (!Object.keys(models).length) throw new Error(`Sabi config ${source}: no models declared`)
-  for (const [name, model] of Object.entries(models)) {
-    validateModelMetadata(model, `Sabi config ${source}: model tier '${name}'`)
-    if (!model || typeof model.model !== 'string' || !model.model) {
-      throw new Error(`Sabi config ${source}: model tier '${name}' has no model id`)
-    }
-    if (typeof model.upstream !== 'string' || !Object.hasOwn(upstreams, model.upstream)) {
-      throw new Error(`Sabi config ${source}: model tier '${name}' references unknown upstream '${model.upstream}'`)
-    }
-  }
+  validateModels(models, upstreams, source, false)
 
   if (!Object.keys(aliases).length) throw new Error(`Sabi config ${source}: no aliases declared`)
   for (const [alias, target] of Object.entries(aliases)) {
@@ -306,27 +347,12 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
     }
   }
 
-  const knownRules = new Set<string>(POLICY_ORDER)
-  for (const [condition, tier] of Object.entries(policy)) {
-    if (!knownRules.has(condition)) {
-      throw new Error(`Sabi config ${source}: policy rule '${condition}' is not a known rule (${POLICY_ORDER.join(', ')})`)
-    }
-    if (typeof tier !== 'string' || (tier !== 'off' && !Object.hasOwn(models, tier))) {
-      throw new Error(`Sabi config ${source}: policy rule '${condition}' targets unknown tier '${tier}'`)
-    }
-  }
+  validatePolicyRules(models, policy, source, false)
   // The router falls back to `policy.unclassified`, then to a literal 'cheap'. A config whose
   // tiers are not literally called `cheap` would otherwise 500 on the first unmatched round,
   // so when an adaptive (`auto`) alias exists the effective fallback must resolve to a
   // declared tier at load time. Fixed-alias-only configs (no `auto`) never take this path.
-  if (Object.values(aliases).includes('auto')) {
-    const fallbackTier = typeof policy.unclassified === 'string' && policy.unclassified !== 'off'
-      ? policy.unclassified
-      : 'cheap'
-    if (!Object.hasOwn(models, fallbackTier)) {
-      throw new Error(`Sabi config ${source}: policy.unclassified must resolve to a declared tier (got '${String(policy.unclassified)}')`)
-    }
-  }
+  if (Object.values(aliases).includes('auto')) validateUnclassifiedFallback(models, policy, source)
 
   const transportFallback = config.transportFallback
   if (transportFallback !== undefined) {
@@ -342,7 +368,9 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
   if (passthrough !== undefined) {
     if (!isObject(passthrough)) throw new Error(`Sabi config ${source}: passthrough must be an object`)
     for (const field of Object.keys(passthrough)) {
-      if (field !== 'alias') throw new Error(`Sabi config ${source}: passthrough.${field} is not a supported field`)
+      if (field !== 'alias' && field !== 'models' && field !== 'policy') {
+        throw new Error(`Sabi config ${source}: passthrough.${field} is not a supported field`)
+      }
     }
     if (passthrough.alias !== undefined) {
       if (typeof passthrough.alias !== 'string' || !passthrough.alias.trim()) {
@@ -353,6 +381,22 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
       if (aliases[passthrough.alias] !== 'auto') {
         throw new Error(`Sabi config ${source}: passthrough.alias '${passthrough.alias}' must name an alias targeting 'auto'`)
       }
+    }
+    // `models` gives a borrowed round its own tier set instead of the shared one (see the
+    // `passthrough` field doc in types.ts for why: repointing the shared tiers would break free
+    // routing for every OpenAI-compatible harness). `policy` alone, without `models`, would mean
+    // a rule name resolves against the *shared* tiers while every other rule still does too —
+    // there is no isolated-but-partial state, so `policy` requires `models`.
+    if (passthrough.policy !== undefined && passthrough.models === undefined) {
+      throw new Error(`Sabi config ${source}: passthrough.policy requires passthrough.models — otherwise there is nothing isolated to route through`)
+    }
+    if (passthrough.models !== undefined) {
+      if (!isObject(passthrough.models)) throw new Error(`Sabi config ${source}: passthrough.models must be an object`)
+      const passthroughPolicy = (passthrough.policy ?? policy) as Record<string, unknown>
+      if (!isObject(passthroughPolicy)) throw new Error(`Sabi config ${source}: passthrough.policy must be an object`)
+      validateModels(passthrough.models as Record<string, unknown>, upstreams, source, true)
+      validatePolicyRules(passthrough.models as Record<string, unknown>, passthroughPolicy, source, true)
+      validateUnclassifiedFallback(passthrough.models as Record<string, unknown>, passthroughPolicy, `${source} (passthrough)`)
     }
   }
 
@@ -378,7 +422,7 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
           throw new Error(`Sabi config ${source}: judge.callOn must be an array of policy rule names`)
         }
         for (const rule of judge.callOn) {
-          if (!knownRules.has(rule)) {
+          if (!(POLICY_ORDER as readonly string[]).includes(rule)) {
             throw new Error(`Sabi config ${source}: judge.callOn rule '${rule}' is not a known rule (${POLICY_ORDER.join(', ')})`)
           }
         }

@@ -4,6 +4,7 @@ import {
   appendDecision,
   ensureRouteCompatible,
   hashIdentity,
+  passthroughAlias,
   route,
   SabiRouteError,
   sanitizeReason,
@@ -180,18 +181,6 @@ function hasCredential(headers: Record<string, string>): boolean {
   return CREDENTIAL_HEADERS.some((name) => Boolean(headers[name]))
 }
 
-/**
- * The alias whose policy serves a borrowed round. The incoming model id is the harness's own label
- * and is not an alias, so the operator names the adaptive alias explicitly — `passthrough.alias`,
- * defaulting to `sabi-code` when that alias is adaptive.
- */
-export function passthroughAlias(config: SabiConfig): string {
-  const configured = config.passthrough?.alias?.trim()
-  if (configured) return configured
-  const adaptive = Object.keys(config.aliases).filter((alias) => config.aliases[alias] === 'auto')
-  return adaptive.includes('sabi-code') ? 'sabi-code' : adaptive[0] ?? ''
-}
-
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   const body = JSON.stringify(payload)
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(body) })
@@ -269,8 +258,15 @@ export async function handlePassthrough(
     return refuse(res, 401, 'no credential on the request: a borrowed upstream forwards the credential the harness sent')
   }
 
-  const decision = route(view, config, {})
-  const entry: ModelEntry | undefined = Object.hasOwn(config.models, decision.tier) ? config.models[decision.tier] : undefined
+  // A borrowed round routes on its own tier set when one is declared, so wiring a passthrough
+  // upstream never repoints the shared cheap/mid/strong tiers every OpenAI-compatible harness
+  // routes through. Absent config.passthrough.models, this is `config` itself — same object,
+  // current behavior unchanged.
+  const routingConfig: SabiConfig = config.passthrough?.models
+    ? { ...config, models: config.passthrough.models, policy: config.passthrough.policy ?? config.policy }
+    : config
+  const decision = route(view, routingConfig, {})
+  const entry: ModelEntry | undefined = Object.hasOwn(routingConfig.models, decision.tier) ? routingConfig.models[decision.tier] : undefined
   if (!entry) return refuse(res, 500, `policy rule '${decision.rule}' maps to unknown tier '${decision.tier}'`)
   const upstream = config.upstreams[entry.upstream]
   if (!upstream || upstream.auth !== 'passthrough') {
@@ -278,7 +274,7 @@ export async function handlePassthrough(
       `tier '${decision.tier}' is served by upstream '${entry.upstream}', which does not borrow authentication; ` +
       'a borrowed round needs an upstream declared with auth:passthrough')
   }
-  ensureRouteCompatible(view, config, decision)
+  ensureRouteCompatible(view, routingConfig, decision)
 
   const url = joinUrl(upstream.baseURL, adapter.path)
   const upstreamResponse = await fetch(url, {

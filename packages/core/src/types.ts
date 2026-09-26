@@ -467,9 +467,17 @@ export interface SabiConfig {
    * Borrowed harness authentication. `alias` names the adaptive alias whose policy serves rounds
    * that arrive in a harness's native wire format; the incoming model id is the harness's own label
    * and is not an alias. Defaults to `sabi-code` when that alias is adaptive.
+   *
+   * `models`/`policy` let a borrowed round route through its own tier set instead of the top-level
+   * `models`/`policy` every other harness shares. Without this, wiring a passthrough upstream (e.g.
+   * Anthropic, for Claude Code's own credential) means repointing the shared `cheap`/`mid`/`strong`
+   * tiers — which breaks free routing for every OpenAI-compatible harness using the same tiers.
+   * Omitted: falls back to the top-level `models`/`policy`, current behavior unchanged.
    */
   passthrough?: {
     alias?: string
+    models?: Record<string, ModelEntry>
+    policy?: Record<string, string>
   }
 }
 

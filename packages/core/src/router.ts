@@ -54,6 +54,20 @@ export function normalizeAlias(model: unknown): string {
   const raw = String(model ?? '').trim()
   return raw.includes('/') ? raw.slice(raw.lastIndexOf('/') + 1) : raw
 }
+
+/**
+ * The alias whose policy serves a borrowed round. The incoming model id is the harness's own label
+ * and is not an alias, so the operator names the adaptive alias explicitly — `passthrough.alias`,
+ * defaulting to `sabi-code` when that alias is adaptive. Shared by the server's borrowed-auth route
+ * and `sabi doctor`'s passthrough check, so the two can never disagree about which alias this is.
+ */
+export function passthroughAlias(config: SabiConfig): string {
+  const configured = config.passthrough?.alias?.trim()
+  if (configured) return configured
+  const adaptive = Object.keys(config.aliases).filter((alias) => config.aliases[alias] === 'auto')
+  return adaptive.includes('sabi-code') ? 'sabi-code' : adaptive[0] ?? ''
+}
+
 function requestedOutputTokens(body: ChatRequestBody): number | undefined {
   const value = body.max_completion_tokens ?? body.max_tokens
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined

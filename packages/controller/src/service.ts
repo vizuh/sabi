@@ -100,17 +100,21 @@ function parseSystemdShow(output: string): Record<string, string> {
 // on a port conflict looks identical to a normal daemon once something else
 // happens to hold the port. Returns undefined (never throws) when systemctl or
 // the unit itself is unavailable, so callers just skip the check.
-export function inspectSystemdUnit(env: NodeJS.ProcessEnv = process.env): SystemdUnitState | undefined {
+export function inspectSystemdUnit(env: NodeJS.ProcessEnv = process.env, unit = 'sabi-controller.service'): SystemdUnitState | undefined {
   const binary = env.SABI_SYSTEMCTL?.trim() || commandPath('systemctl', env)
   if (!binary) return undefined
   try {
-    const output = execFileSync(binary, ['--user', 'show', 'sabi-controller.service', '-p', 'ActiveState', '-p', 'SubState', '-p', 'NRestarts'], {
+    const output = execFileSync(binary, ['--user', 'show', unit, '-p', 'LoadState', '-p', 'ActiveState', '-p', 'SubState', '-p', 'NRestarts'], {
       encoding: 'utf8',
       env,
       timeout: 5000,
       stdio: ['ignore', 'pipe', 'ignore'],
     })
     const parsed = parseSystemdShow(output)
+    // `show` on a unit with no unit file still exits 0 (LoadState=not-found), so a caller
+    // asking about an optional unit (e.g. one it never installs itself) can tell "doesn't
+    // exist" from "exists but stopped" instead of reporting a misleading inactive/dead.
+    if (parsed.LoadState === 'not-found') return undefined
     const restarts = Number(parsed.NRestarts)
     if (!parsed.ActiveState || !Number.isFinite(restarts)) return undefined
     return { activeState: parsed.ActiveState, subState: parsed.SubState ?? '', restarts }
