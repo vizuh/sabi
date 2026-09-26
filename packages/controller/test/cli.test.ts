@@ -247,18 +247,125 @@ test('replay summarizes recorded decisions without executing another request', (
 
 test('doctor and config report local boundaries without reading secrets', () => {
   const cwd = workspace()
-  const doctor = run(['doctor', '--json'], cwd)
+  // SABI_PORT pins the proxy check at a port nothing listens on, and SABI_CONFIG pins config
+  // resolution at a path this empty workspace never creates — otherwise loadConfig's own search
+  // falls through past the (nonexistent) workspace config to this machine's real
+  // ~/.config/sabi/sabi.config.json (or any ancestor one), so this test is only hermetic on a
+  // machine with no such file. Neither is set by run()'s own baseline isolation.
+  const doctor = run(['doctor', '--json'], cwd, { SABI_PORT: '1', SABI_HOST: '127.0.0.1', SABI_CONFIG: path.join(cwd, 'sabi.config.json') })
   assert.equal(doctor.status, 0)
   const doctorRecord = JSON.parse(doctor.stdout)
   assert.equal(doctorRecord.runtime.daemon, 'not-configured')
   assert.equal(doctorRecord.checks.some((check: { name: string }) => check.name === 'node'), true)
   assert.equal(doctorRecord.checks.some((check: { name: string }) => check.name === 'hooks'), true)
+  const proxyCheck = doctorRecord.checks.find((check: { name: string }) => check.name === 'proxy')
+  assert.equal(proxyCheck.ok, false)
+  const passthroughCheck = doctorRecord.checks.find((check: { name: string }) => check.name === 'passthrough')
+  assert.equal(passthroughCheck.ok, false)
+  assert.match(passthroughCheck.detail, /Sabi config not found/)
 
   const config = run(['config', '--json'], cwd)
   assert.equal(config.status, 0)
   const configRecord = JSON.parse(config.stdout)
   assert.equal(configRecord.cwd, cwd)
   assert.match(configRecord.controllerLogPath, /controller-decisions\.jsonl$/)
+})
+
+test('doctor reports the proxy reachable and borrowed-auth wired when the config declares a passthrough upstream', async () => {
+  const cwd = workspace()
+  const server = createServer((_request, response) => {
+    response.setHeader('content-type', 'application/json')
+    response.end(JSON.stringify({ ok: true }))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  assert.ok(address && typeof address === 'object')
+  const config = {
+    server: { host: '127.0.0.1', port: address.port },
+    upstreams: {
+      anthropic: { baseURL: 'https://api.anthropic.com', auth: 'passthrough' },
+      openrouter: { baseURL: 'https://openrouter.ai/api/v1', apiKey: '$OPENROUTER_API_KEY' },
+    },
+    models: { mid: { upstream: 'anthropic', model: 'claude-sonnet-4-5' } },
+    aliases: { 'sabi-code': 'auto' },
+    policy: { verification: 'mid', unclassified: 'mid' },
+  }
+  writeFileSync(path.join(cwd, 'sabi.config.json'), JSON.stringify(config, null, 2))
+  try {
+    // runAsync, not run/spawnSync: spawnSync blocks this process's event loop
+    // for the CLI subprocess's whole lifetime, so the fake server above (same
+    // process) could never accept the subprocess's connection in time.
+    const doctor = await runAsync(['doctor', '--json'], cwd, { SABI_PORT: String(address.port), SABI_HOST: '127.0.0.1' })
+    assert.equal(doctor.status, 0, doctor.stderr)
+    const doctorRecord = JSON.parse(doctor.stdout)
+    const proxyCheck = doctorRecord.checks.find((check: { name: string }) => check.name === 'proxy')
+    assert.equal(proxyCheck.ok, true)
+    const passthroughCheck = doctorRecord.checks.find((check: { name: string }) => check.name === 'passthrough')
+    assert.equal(passthroughCheck.ok, true)
+    assert.match(passthroughCheck.detail, /mid→anthropic/)
+  } finally {
+    server.close()
+  }
+})
+
+test('doctor flags an adaptive alias with no passthrough-capable upstream', () => {
+  const cwd = workspace()
+  const config = {
+    upstreams: { openrouter: { baseURL: 'https://openrouter.ai/api/v1', apiKey: '$OPENROUTER_API_KEY' } },
+    models: { mid: { upstream: 'openrouter', model: 'free/mid' } },
+    aliases: { 'sabi-code': 'auto' },
+    policy: { verification: 'mid', unclassified: 'mid' },
+  }
+  writeFileSync(path.join(cwd, 'sabi.config.json'), JSON.stringify(config, null, 2))
+  const doctor = run(['doctor', '--json'], cwd, { SABI_PORT: '1', SABI_HOST: '127.0.0.1' })
+  assert.equal(doctor.status, 0, doctor.stderr)
+  const passthroughCheck = JSON.parse(doctor.stdout).checks.find((check: { name: string }) => check.name === 'passthrough')
+  assert.equal(passthroughCheck.ok, false)
+  assert.match(passthroughCheck.detail, /no reachable tier served by an upstream declared auth:passthrough/)
+})
+
+test('doctor resolves passthrough through the isolated tier set, not the shared one it shadows', () => {
+  const cwd = workspace()
+  const config = {
+    upstreams: {
+      openrouter: { baseURL: 'https://openrouter.ai/api/v1', apiKey: '$OPENROUTER_API_KEY' },
+      anthropic: { baseURL: 'https://api.anthropic.com', auth: 'passthrough' },
+    },
+    // The shared 'mid' tier is NOT passthrough-capable — proves the check follows
+    // passthrough.models, not a false positive from "some upstream somewhere is passthrough".
+    models: { mid: { upstream: 'openrouter', model: 'free/mid' } },
+    aliases: { 'sabi-code': 'auto' },
+    policy: { unclassified: 'mid' },
+    passthrough: { models: { mid: { upstream: 'anthropic', model: 'claude-sonnet-4-5' } }, policy: { unclassified: 'mid' } },
+  }
+  writeFileSync(path.join(cwd, 'sabi.config.json'), JSON.stringify(config, null, 2))
+  const doctor = run(['doctor', '--json'], cwd, { SABI_PORT: '1', SABI_HOST: '127.0.0.1' })
+  assert.equal(doctor.status, 0, doctor.stderr)
+  const passthroughCheck = JSON.parse(doctor.stdout).checks.find((check: { name: string }) => check.name === 'passthrough')
+  assert.equal(passthroughCheck.ok, true)
+  assert.match(passthroughCheck.detail, /mid→anthropic/)
+})
+
+test('doctor does not false-positive on a passthrough upstream no reachable tier actually uses', () => {
+  const cwd = workspace()
+  const config = {
+    upstreams: {
+      openrouter: { baseURL: 'https://openrouter.ai/api/v1', apiKey: '$OPENROUTER_API_KEY' },
+      // A passthrough-capable upstream exists in the config, but nothing in the reachable tier
+      // set (policy.unclassified's target, or the router's own literal-'cheap' fallback) points
+      // at it — "some upstream somewhere is passthrough" alone must not read as wired.
+      anthropic: { baseURL: 'https://api.anthropic.com', auth: 'passthrough' },
+    },
+    // 'strong' is declared but no policy rule (and neither fallback tier) ever routes to it.
+    models: { mid: { upstream: 'openrouter', model: 'free/mid' }, strong: { upstream: 'anthropic', model: 'claude-opus-4-1' } },
+    aliases: { 'sabi-code': 'auto' },
+    policy: { unclassified: 'mid' },
+  }
+  writeFileSync(path.join(cwd, 'sabi.config.json'), JSON.stringify(config, null, 2))
+  const doctor = run(['doctor', '--json'], cwd, { SABI_PORT: '1', SABI_HOST: '127.0.0.1' })
+  assert.equal(doctor.status, 0, doctor.stderr)
+  const passthroughCheck = JSON.parse(doctor.stdout).checks.find((check: { name: string }) => check.name === 'passthrough')
+  assert.equal(passthroughCheck.ok, false)
 })
 
 test('setup can opt out of user hooks without mutating harness configuration', () => {

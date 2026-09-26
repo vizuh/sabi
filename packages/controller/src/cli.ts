@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync, spawn } from 'node:child_process'
+import { request as httpRequest } from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { appendCouncilLedgerReceipt, councilPreGate, createCouncilPlanReceipt, configureFreeQuality, defaultConfigPath, loadConfig, newCouncilLedgerReceipt, readCouncilLedgerReceipts, readSurplusReviewReceipts, surplusResources, type CouncilEvidenceLevel, type CouncilIndependence, type CouncilIntent, type CouncilMode, type CouncilPlan, type CouncilPlanReason, type CouncilReceiptSource, type CouncilReceiptStatus, type CouncilStage, type SurplusReviewIntent } from '@sabi/core'
+import { appendCouncilLedgerReceipt, councilPreGate, createCouncilPlanReceipt, configureFreeQuality, defaultConfigPath, loadConfig, newCouncilLedgerReceipt, passthroughAlias, readCouncilLedgerReceipts, readSurplusReviewReceipts, surplusResources, type CouncilEvidenceLevel, type CouncilIndependence, type CouncilIntent, type CouncilMode, type CouncilPlan, type CouncilPlanReason, type CouncilReceiptSource, type CouncilReceiptStatus, type CouncilStage, type SabiConfig, type SurplusReviewIntent } from '@sabi/core'
 import {
   controllerPreferencesPath,
   controllerStateDir,
@@ -212,6 +213,97 @@ function doctorSystemdCheck(): Array<{ name: string; ok: boolean; detail: string
   return [{ name: 'systemd unit', ok: true, detail: `${unit.activeState}/${unit.subState} — see the 'daemon' check for whether Sabi is actually reachable` }]
 }
 
+// The inference proxy (default 127.0.0.1:8787) is a separate process from the
+// controller daemon this file otherwise checks — 'daemon'/'systemd unit' above
+// can be all-green while the proxy itself is stopped, which is exactly what
+// happened 2026-09-23..25 (stopped manually, doctor never noticed). GET
+// /healthz with a short timeout; resolves false rather than throwing so a
+// stopped or unreachable proxy is a normal, reportable doctor result.
+function probeHttpHealthz(host: string, port: number, timeoutMs = 1000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = httpRequest({ host, port, path: '/healthz', method: 'GET', timeout: timeoutMs }, (res) => {
+      res.resume()
+      res.on('end', () => resolve((res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300))
+    })
+    req.on('error', () => resolve(false))
+    req.on('timeout', () => req.destroy())
+    req.end()
+  })
+}
+
+const LOOPBACK_HOST_ALIASES = new Set(['127.0.0.1', 'localhost', '::1', '::ffff:127.0.0.1'])
+
+// config.server.host is a BIND address ('0.0.0.0' is common and valid there); the server's own
+// loopback guard (isLoopbackHost in server.ts) only ever accepts a request whose Host header is
+// one of the four loopback forms, so probing the raw bind address would 403 a perfectly healthy
+// proxy. Doctor always dials a loopback form, honouring an explicit override only when it already
+// is one.
+function proxyProbeHost(config: SabiConfig | undefined): string {
+  const configured = process.env.SABI_HOST?.trim() || config?.server?.host?.trim()
+  return configured && LOOPBACK_HOST_ALIASES.has(configured.toLowerCase()) ? configured : '127.0.0.1'
+}
+
+function proxyProbePort(config: SabiConfig | undefined): number {
+  // Same precedence as packages/server/src/index.ts's own SABI_PORT resolution (nullish, not
+  // `||`), so a configured `port: 0` (OS-assigned) isn't mistaken for unset.
+  return Number(process.env.SABI_PORT ?? config?.server?.port ?? 8787)
+}
+
+async function doctorProxyCheck(config: SabiConfig | undefined): Promise<{ name: string; ok: boolean; detail: string }[]> {
+  const host = proxyProbeHost(config)
+  const port = proxyProbePort(config)
+  // Independent checks — the network probe and the systemd lookup don't depend on each other, so
+  // a stopped proxy doesn't also pay the network timeout before the cheap local shell-out runs.
+  const [reachable, unit] = await Promise.all([
+    probeHttpHealthz(host, port),
+    Promise.resolve(process.platform === 'linux' ? inspectSystemdUnit(process.env, 'sabi-proxy.service') : undefined),
+  ])
+  // Nothing in this repo installs sabi-proxy.service (only sabi-controller.service, via
+  // installUserService) — inspectSystemdUnit already returns undefined for a unit systemd has
+  // never heard of, so this only ever names a unit an operator set up by hand.
+  const unitDetail = unit ? `, unit ${unit.activeState}/${unit.subState}` : ''
+  return [{
+    name: 'proxy',
+    ok: reachable,
+    detail: reachable
+      ? `http://${host}:${port}/healthz reachable${unitDetail}`
+      : `http://${host}:${port}/healthz unreachable${unitDetail} — borrowed-auth and every OpenAI-compatible harness route through this port; start it with 'sabi serve' (or 'systemctl --user start sabi-proxy.service' if that unit exists)`,
+  }]
+}
+
+// Reachability alone doesn't prove the Claude Code borrowed-auth recipe (docs/adapters/claude-code.md)
+// actually works: it also needs an adaptive alias whose EFFECTIVE tier set — passthrough.models
+// when declared, else the shared top-level models — resolves at least one reachable tier to an
+// upstream declared `auth: 'passthrough'`. Checking only "some upstream somewhere is passthrough"
+// (this check's first cut) reads green even when every tier that alias can actually reach points
+// at an ordinary keyed upstream, which is refused at dispatch. Static config check — doesn't
+// require the proxy to be running.
+function doctorPassthroughCheck(config: SabiConfig | undefined, configError: string | undefined): { name: string; ok: boolean; detail: string }[] {
+  if (!config) return [{ name: 'passthrough', ok: false, detail: configError ?? 'no config loaded — cannot tell whether borrowed-auth is wired' }]
+  const alias = passthroughAlias(config)
+  const aliasOk = Boolean(alias) && config.aliases[alias] === 'auto'
+  if (!aliasOk) {
+    return [{ name: 'passthrough', ok: false, detail: `no adaptive alias for borrowed rounds (passthrough.alias or an 'auto' alias, e.g. 'sabi-code')` }]
+  }
+  // Mirrors passthrough.ts's own routingConfig overlay exactly: passthrough.models present means
+  // that (and passthrough.policy, defaulting to the shared policy) is what a borrowed round
+  // actually routes through — never the shared models on their own.
+  const models = config.passthrough?.models ?? config.models
+  const policy = config.passthrough?.models ? (config.passthrough?.policy ?? config.policy) : config.policy
+  const reachableTiers = new Set(Object.values(policy).filter((tier) => tier !== 'off'))
+  const fallbackTier = typeof policy.unclassified === 'string' && policy.unclassified !== 'off' ? policy.unclassified : 'cheap'
+  reachableTiers.add(fallbackTier)
+  const passthroughTiers = [...reachableTiers].flatMap((tier) => {
+    const entry = models[tier]
+    return entry !== undefined && config.upstreams[entry.upstream]?.auth === 'passthrough' ? [`${tier}→${entry.upstream}`] : []
+  })
+  const ok = passthroughTiers.length > 0
+  const detail = ok
+    ? `alias '${alias}' → auto, reachable tier(s) served by a passthrough upstream: ${passthroughTiers.join(', ')}`
+    : `alias '${alias}' has no reachable tier served by an upstream declared auth:passthrough — borrowed-auth requests are refused before dispatch (see docs/adapters/claude-code.md)`
+  return [{ name: 'passthrough', ok, detail }]
+}
+
 async function runDoctor(argv: string[]): Promise<void> {
   const cwd = resolvedCwd(argv)
   const daemon = await inspectControllerDaemon()
@@ -222,6 +314,9 @@ async function runDoctor(argv: string[]): Promise<void> {
   const hookHealth = checkHookHealth({ env: process.env })
   const installedHooks = hookHealth.filter(({ installed }) => installed)
   const staleHooks = hookHealth.filter(({ stale }) => stale)
+  let config: SabiConfig | undefined
+  let configError: string | undefined
+  try { config = loadConfig(defaultConfigPath({ cwd })) } catch (error) { configError = (error as Error).message }
   const checks = [
     { name: 'node', ok: nodeMajor >= 22, detail: `${process.versions.node} (requires >=22)` },
     { name: 'daemon', ok: daemon.state === 'running', detail: daemon.state },
@@ -237,6 +332,8 @@ async function runDoctor(argv: string[]): Promise<void> {
           : `${installedHooks.map(({ harness }) => harness).join(', ')} resolve`,
     },
     ...doctorSystemdCheck(),
+    ...await doctorProxyCheck(config),
+    ...doctorPassthroughCheck(config, configError),
   ]
   const result = { cwd, runtime: snapshot.runtime, checks }
   if (jsonRequested(argv)) console.log(JSON.stringify(result, null, 2))
