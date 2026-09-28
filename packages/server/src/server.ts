@@ -503,7 +503,8 @@ async function handleRequest(state: ServerState, req: IncomingMessage, res: Serv
     res.writeHead(200)
     // Same baseline as `sabi report`: the strong tier, else the first configured model.
     const { models } = state.options.config
-    res.end(renderDashboard(state.recent, (models.strong ?? Object.values(models)[0])?.cost))
+    const lang = url.searchParams.get('lang') === 'pt-BR' ? 'pt-BR' : 'en'
+    res.end(renderDashboard(state.recent, (models.strong ?? Object.values(models)[0])?.cost, lang))
     return
   }
   sendError(res, 404, `no route for ${req.method} ${path}`, 'not_found')
