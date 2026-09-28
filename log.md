@@ -1873,3 +1873,16 @@ surface it proposes). That spec lands via a companion PR (#144), not this one
 — at this commit `specs/012/013/016` are not yet on `main` (flagged by
 automated PR review, corrected 2026-09-27). Decision logged in
 `docs/decisions.md` (2026-09-27). No code changed; docs only.
+
+## [2026-09-29] spec | 018 Claude Task Brief: free-lane preparation, fresh Claude execution
+
+Drafted `specs/018-claude-task-brief/spec.md`. A host harness on the free tier
+explores the task; Sabi checks its findings by reading (never runs commands),
+renders a brief from a deterministic template, and starts a fresh Claude Code
+session as a controller `SPAWN` pointing at it. Rule: facts require evidence;
+plans do not become facts. Explicitly out of scope: switching models inside,
+or compressing, a live Claude session (cache and preserved-thinking costs).
+Grounded in Anthropic's prompting best practices, the context-engineering and
+long-running-harness articles, the Claude Code CLI reference and the Agent
+Skills overview, each fetched 2026-09-28 and cited in the spec. Success
+criteria are hypotheses; nothing is measured yet. Docs only.
