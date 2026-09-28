@@ -22,6 +22,7 @@ import {
   SabiRouteError,
   sanitizeError,
   sanitizeReason,
+  scheduleEffort,
   sessionIdFor,
   telemetryPolicy,
   type ChatRequestBody,
@@ -579,6 +580,10 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
   res.once('close', disconnected)
   let record: DecisionRecord | undefined
   let decision: RouteDecision | undefined
+  // Hoisted out of the `try` below: the effort helper is defined next to `saveDecision` — where the
+  // other writers of `record` live — and reads this value, so declaring it inside the try would put
+  // the definition site in TS2304 territory. It is per round, exactly like `record` and `decision`.
+  let judgeRecord: JudgeRecord | undefined
   let finished = false
   let stage: 'request' | 'route' | 'judge' | 'upstream' = 'request'
   const responseFinished = async () => {
@@ -636,6 +641,34 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       },
     })
   }
+  /**
+   * The single writer of the six effort fields. Called once after routing (including any judge
+   * override) and again on a successful transport fallback, where the final tier — and therefore the
+   * ladder the percentage resolves against — has changed. When the final tier resolves no ladder, or
+   * the feature is off, the fields are cleared instead of left describing the previous tier.
+   *
+   * This does not touch the request the upstream receives: `buildUpstreamBody` is unchanged, so the
+   * wire's effort field still carries exactly what the client sent.
+   */
+  const applyEffortSchedule = (target: RouteDecision): void => {
+    if (!record) return
+    const schedule = scheduleEffort(config, target, judgeRecord)
+    if (schedule) {
+      record.effortPercent = schedule.percent
+      record.effortPlanned = schedule.planned
+      record.effortIndex = schedule.index
+      record.effortLevel = schedule.level
+      record.effortLadder = schedule.ladder
+      record.effortReason = schedule.reason
+      return
+    }
+    delete record.effortPercent
+    delete record.effortPlanned
+    delete record.effortIndex
+    delete record.effortLevel
+    delete record.effortLadder
+    delete record.effortReason
+  }
 
   try {
     const identity = requestIdentity(req)
@@ -663,7 +696,6 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
 
     // Judge is a separate, bounded execution-evaluation lane. Cache affinity owns the
     // conversation route; a retained same-cycle model must not be replaced by the evaluator.
-    let judgeRecord: JudgeRecord | undefined
     stage = 'judge'
     if (decision.mode === 'auto' && decision.cache?.action !== 'keep' && config.judge && judgeTriggers(decision, config.judge)) {
       // The judge endpoint is an explicit egress surface: raw instruction/tool text leaves
@@ -695,6 +727,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     }
     record.judge = judgeRecord
     saveDecision(decision)
+    applyEffortSchedule(decision)
     stage = 'route'
     // Jev may change the selected tier. It must not bypass the shared compatibility gate.
     // Dispatch, not planning: by the time a request reaches the server a
@@ -778,6 +811,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
           decision = attempt
           fallbackTier = attempt.tier
           saveDecision(decision)
+          applyEffortSchedule(decision)
           upstreamResponse = retry
           break
         }

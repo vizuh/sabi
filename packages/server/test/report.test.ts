@@ -127,3 +127,17 @@ test('report aggregates recorded effort without inventing it for legacy rows', (
   assert.deepEqual(out.byEffort, { high: 2 })
   assert.equal(out.unspecifiedEffort, 1)
 })
+
+test('report aggregates the scheduled level and counts rounds with no schedule', () => {
+  const out = report([
+    { ...row, effort: 'medium', effortSource: 'client', effortPercent: 13, effortIndex: 0, effortLevel: 'low', effortLadder: ['low', 'medium', 'high'] },
+    { ...row, effort: 'medium', effortSource: 'client', effortPercent: 67, effortIndex: 3, effortLevel: 'xhigh', effortLadder: ['low', 'medium', 'high', 'xhigh', 'max'] },
+    { ...row, effortPercent: 47, effortIndex: 2, effortLevel: 'high' },
+    { ...row },
+  ])
+  assert.deepEqual(out.byScheduledLevel, { low: 1, high: 1, xhigh: 1 })
+  assert.equal(out.unscheduledRounds, 1)
+  // The recorded (wire) effort stays a separate axis: a schedule never rewrites it.
+  assert.deepEqual(out.byEffort, { medium: 2 })
+  assert.equal(out.unspecifiedEffort, 2)
+})

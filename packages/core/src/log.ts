@@ -173,6 +173,19 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/** Level names, ladder items and the reason token list are provider-declared, never prose. */
+const EFFORT_NAME = /^[A-Za-z0-9._-]+$/
+
+/** Integer percentage in 0-100, or `undefined` when the value is not one. Never coerced. */
+function boundedPercent(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100 ? value : undefined
+}
+
+/** Ladder position in 0-7, or `undefined`. A ladder is capped at 8 levels by validation. */
+function boundedLadderIndex(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 7 ? value : undefined
+}
+
 function sanitizeState(state: TrajectoryState, config?: TelemetryConfig): TrajectoryState {
   const policy = telemetryPolicy(config)
   const failureEvidence = boundedStringList(state.failureEvidence, 8, 64).filter((value) => policy.allowlisted(value))
@@ -216,6 +229,19 @@ function sanitizeState(state: TrajectoryState, config?: TelemetryConfig): Trajec
 export function sanitizeDecisionRecord(record: DecisionRecord, config?: TelemetryConfig): DecisionRecord {
   const policy = telemetryPolicy(config)
   const state = isPlainObject(record.state) ? sanitizeState(record.state as TrajectoryState, config) : undefined
+  // The effort schedule is written by exactly one producer (the server's applyEffortSchedule). Every
+  // bound is structural: a value that does not fit its shape is dropped rather than coerced, so a
+  // forged record cannot smuggle prose into the JSONL through these fields.
+  const effortPercent = boundedPercent(record.effortPercent)
+  const effortPlanned = boundedPercent(record.effortPlanned)
+  const effortIndex = boundedLadderIndex(record.effortIndex)
+  const effortLevel = typeof record.effortLevel === 'string' && EFFORT_NAME.test(record.effortLevel)
+    ? record.effortLevel.slice(0, 32)
+    : undefined
+  const boundedLadder = boundedStringList(record.effortLadder, 8, 32).map((level) => level.slice(0, 32))
+  const effortLadder = boundedLadder.length > 0 && boundedLadder.every((level) => EFFORT_NAME.test(level))
+    ? boundedLadder
+    : undefined
   const sanitized: Partial<DecisionRecord> = {
     ts: record.ts,
     sessionId: record.sessionId,
@@ -239,6 +265,16 @@ export function sanitizeDecisionRecord(record: DecisionRecord, config?: Telemetr
     ...(typeof record.effort === 'string' && record.effort.trim() ? { effort: record.effort.trim().slice(0, 64) } : {}),
     ...(record.effortSource === 'client' || record.effortSource === 'scheduled' || record.effortSource === 'unspecified'
       ? { effortSource: record.effortSource }
+      : {}),
+    ...(effortPercent !== undefined ? { effortPercent } : {}),
+    ...(effortPlanned !== undefined ? { effortPlanned } : {}),
+    ...(effortIndex !== undefined ? { effortIndex } : {}),
+    ...(effortLevel !== undefined ? { effortLevel } : {}),
+    ...(effortLadder !== undefined ? { effortLadder } : {}),
+    // The reason is a fixed-vocabulary token list (e.g. `kind:implementation+hard-failure`), not
+    // free prose: sanitizeReason would rewrite it, so it is filtered by its own character class.
+    ...(typeof record.effortReason === 'string'
+      ? { effortReason: record.effortReason.replace(/[^A-Za-z0-9:._+-]/g, '').slice(0, 120) }
       : {}),
     usage: record.usage,
     cost: record.cost,

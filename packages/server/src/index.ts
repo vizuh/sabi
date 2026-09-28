@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { defaultConfigPath, defaultLogPath, loadConfig, loadConfiguredSecrets } from '@sabi/core'
+import { defaultConfigPath, defaultLogPath, effectiveMode, loadConfig, loadConfiguredSecrets } from '@sabi/core'
 import { createSabiServer, credentialWarnings } from './server.ts'
 
 const config = loadConfig()
@@ -39,6 +39,15 @@ for (const [tier, model] of Object.entries(config.models)) {
 }
 if (judge?.enabled) {
   console.log(`  judge  : ${judge.model ?? 'jev-latest'} at ${judge.baseURL} (on: ${(judge.callOn ?? ['failure', 'unclassified']).join(', ')})`)
+}
+// The effort schedule is observational in this build: the percentage and the level are recorded per
+// round, but `reasoning_effort` on the wire is still exactly what the client sent. A mode that says
+// otherwise is a configuration that promises an injection this build does not perform, so it says so
+// out loud instead of silently ignoring `fill`/`override`.
+const effortMode = effectiveMode(config)
+console.log(`[sabi] effort : ${effortMode} (percentual 0-100 sobre a escada do tier; sem injecao no corpo nesta build)`)
+if (effortMode === 'fill' || effortMode === 'override') {
+  console.log(`  WARN   : effort mode '${effortMode}' declara injecao, que nao existe nesta build — o valor do cliente e preservado`)
 }
 if (missingKeys.length) {
   console.log(`  WARN   : missing upstream credentials for ${missingKeys.join(', ')} — those requests will fail`)

@@ -25,7 +25,9 @@ const byTier = new Map<string, number>()
 const byRule = new Map<string, number>()
 const byModel = new Map<string, number>()
 const byEffort = new Map<string, number>()
+const byScheduledLevel = new Map<string, number>()
 let unspecifiedEffort = 0
+let unscheduledRounds = 0
 let promptTokens = 0
 let completionTokens = 0
 let cachedTokens = 0
@@ -68,6 +70,11 @@ for (const row of rows) {
   byModel.set(row.upstreamModel, (byModel.get(row.upstreamModel) ?? 0) + 1)
   if (typeof row.effort === 'string' && row.effort.trim()) byEffort.set(row.effort, (byEffort.get(row.effort) ?? 0) + 1)
   else unspecifiedEffort += 1
+  // The scheduled level answers the question the observe mode exists to ask: what would Sabi have
+  // picked per round, and how often does it leave the floor. Rounds with no schedule (feature off,
+  // or a tier resolving no ladder) are counted, never silently folded into a level.
+  if (typeof row.effortLevel === 'string' && row.effortLevel.trim()) byScheduledLevel.set(row.effortLevel, (byScheduledLevel.get(row.effortLevel) ?? 0) + 1)
+  else unscheduledRounds += 1
   if (row.cache) {
     cacheCounts[row.cache.cacheStatus] += 1
     if (row.cache.action === 'keep') cacheRetained += 1
@@ -186,6 +193,8 @@ if (asJson) {
         byModel: Object.fromEntries(byModel),
         byEffort: Object.fromEntries(byEffort),
         unspecifiedEffort,
+        byScheduledLevel: Object.fromEntries(byScheduledLevel),
+        unscheduledRounds,
         promptTokens,
         completionTokens,
         cachedTokens,
@@ -226,6 +235,7 @@ if (asJson) {
   console.log(`by rule   ${formatMap(byRule)}`)
   console.log(`by model  ${formatMap(byModel)}`)
   console.log(`by effort ${formatMap(byEffort)} · unspecified ${unspecifiedEffort}`)
+  console.log(`scheduled ${formatMap(byScheduledLevel)} · unscheduled ${unscheduledRounds}`)
   console.log(`cache     hits ${cacheCounts.hit} · misses ${cacheCounts.miss} · unknown ${cacheCounts.unknown} · retained ${cacheRetained} · switched ${cacheSwitched} · reprocessed ${cacheReprocessTokens.toLocaleString()} tok`)
   if (judgeCalls > 0) {
     const avg = judgeLatencyCount ? Math.round(judgeLatencyMs / judgeLatencyCount) : 0

@@ -427,6 +427,41 @@ export interface TelemetryConfig {
   captureChars?: number
 }
 
+export type EffortMode = 'off' | 'observe' | 'fill' | 'override'
+
+export interface EffortSchedulingScale {
+  min: 0
+  max: 100
+}
+
+export interface EffortSchedulingJudgePercent {
+  trivial: number
+  standard: number
+  demanding: number
+}
+
+export interface EffortSchedulingJudge {
+  weight: number
+  minConfidence: number
+  percent: EffortSchedulingJudgePercent
+}
+
+/**
+ * Round-level effort scheduling. The block is either entirely absent (feature inert) or complete:
+ * every member here is required, and an unknown member is a validation error, so there is no
+ * partial `effortScheduling` state for the runtime to interpret.
+ */
+export interface EffortSchedulingConfig {
+  enabled: boolean
+  mode: EffortMode
+  scale: EffortSchedulingScale
+  bands: 'uniform'
+  ladders: Record<string, string[]>
+  curve: Record<string, number>
+  floorLevel: Record<string, string>
+  judge: EffortSchedulingJudge
+}
+
 export interface ControllerHarnessConfig {
   preferredModels?: string[]
 }
@@ -480,6 +515,7 @@ export interface SabiConfig {
   compatibility?: CompatibilityConfig
   judge?: JudgeConfig
   telemetry?: TelemetryConfig
+  effortScheduling?: EffortSchedulingConfig
   controller?: ControllerConfig
   harness?: {
     provenance?: string
@@ -622,12 +658,25 @@ export interface DecisionRecord {
   sessionKnown?: boolean
   /** Server-generated request identity, independent of session grouping. */
   requestId?: string
-  /** Where the recorded reasoning effort came from. `scheduled` is reserved for a future
-   * effort-scheduling slice; only `client` and `unspecified` are written today. */
+  /** Where the recorded reasoning effort came from. `client` = the request named it; `scheduled` =
+   * Sabi decided it from the round's difficulty percentage and the tier's declared ladder;
+   * `unspecified` = neither. */
   effortSource?: EffortSource
   /** Client-requested reasoning effort for this round, when exactly one control form named one.
    * Record-only: Sabi never injects or rewrites it today. */
   effort?: string
+  /** Scheduled effort for this round, as a percentage of the chosen model's declared ladder. */
+  effortPercent?: number
+  /** The same percentage before the per-tier curve and the clamp were applied. */
+  effortPlanned?: number
+  /** Position of the chosen level inside `effortLadder`. */
+  effortIndex?: number
+  /** The concrete level this round was scheduled for. */
+  effortLevel?: string
+  /** The ladder the percentage was resolved against (the tier's, in order). */
+  effortLadder?: string[]
+  /** Fixed-vocabulary token list explaining the percentage, e.g. `kind:implementation+hard-failure`. */
+  effortReason?: string
   client?: 'hermes' | 'opencode' | 'kilo-cli' | 'kilo-vscode' | 'prime-agent' | 'deepseek-harness' | 'command-code' | 'sabi-surplus' | 'unknown'
   /** Hashed client turn identity; never raw prompt text or credentials. */
   turnId?: string

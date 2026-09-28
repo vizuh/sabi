@@ -288,6 +288,111 @@ function validateUnclassifiedFallback(models: Record<string, unknown>, policy: R
   }
 }
 
+const EFFORT_SCHEDULING_MODES = ['off', 'observe', 'fill', 'override']
+const EFFORT_SCHEDULING_KEYS = ['enabled', 'mode', 'scale', 'bands', 'ladders', 'curve', 'floorLevel', 'judge']
+const EFFORT_SCHEDULING_JUDGE_KEYS = ['trivial', 'standard', 'demanding']
+const EFFORT_LEVEL_NAME = /^[A-Za-z0-9._-]{1,32}$/
+
+/**
+ * Validate the `effortScheduling` block (V1-V21). Runs only when the block is present; every member
+ * inside it is required and an unknown member is a load-time error, so there is no partial state to
+ * interpret at runtime. V9 and V15 iterate the DECLARED TIERS, which is what turns `ladders.default`
+ * into a real convenience instead of a hole: every declared tier must resolve a ladder.
+ */
+function validateEffortScheduling(models: Record<string, unknown>, value: unknown, source: string): void {
+  const fail = (message: string): never => { throw new Error(`Sabi config ${source}: ${message}`) }
+  if (!isObject(value)) fail('effortScheduling must be an object')
+  const block = value as Record<string, unknown>
+  for (const field of Object.keys(block)) {
+    if (!EFFORT_SCHEDULING_KEYS.includes(field)) fail('effortScheduling has an unknown field')
+  }
+  if (typeof block.enabled !== 'boolean') fail('effortScheduling.enabled must be a boolean')
+  if (typeof block.mode !== 'string' || !EFFORT_SCHEDULING_MODES.includes(block.mode)) {
+    fail('effortScheduling.mode must be one of off, observe, fill, override')
+  }
+  const scale = block.scale
+  if (!isObject(scale) || Object.keys(scale).length !== 2 || scale.min !== 0 || scale.max !== 100) {
+    fail('effortScheduling.scale must be {min: 0, max: 100}')
+  }
+  if (block.bands !== 'uniform') fail('effortScheduling.bands must be "uniform"')
+
+  const ladders = block.ladders
+  if (!isObject(ladders)) fail('effortScheduling.ladders must be an object')
+  const ladderTable = ladders as Record<string, unknown>
+  for (const [name, entry] of Object.entries(ladderTable)) {
+    const wellFormed = Array.isArray(entry) && entry.length >= 2 && entry.length <= 8
+      && entry.every((level) => typeof level === 'string' && EFFORT_LEVEL_NAME.test(level))
+      && new Set(entry).size === entry.length
+    if (!wellFormed) {
+      fail(`effortScheduling.ladders.${name} must be an array of 2 to 8 distinct level names matching [A-Za-z0-9._-]{1,32}`)
+    }
+  }
+  const resolved = (tier: string): string[] | undefined => {
+    const own = ladderTable[tier]
+    const shared = ladderTable.default
+    const raw = Array.isArray(own) ? own : Array.isArray(shared) ? shared : undefined
+    return raw && raw.length > 0 ? raw as string[] : undefined
+  }
+  for (const tier of Object.keys(models)) {
+    if (!resolved(tier)) {
+      fail(`effortScheduling.ladders must resolve a ladder for tier '${tier}' (add ladders.${tier} or ladders.default)`)
+    }
+  }
+
+  const curve = block.curve
+  if (!isObject(curve)) fail('effortScheduling.curve must be an object')
+  for (const [name, rate] of Object.entries(curve as Record<string, unknown>)) {
+    if (name !== 'default' && !Object.hasOwn(models, name)) {
+      fail(`effortScheduling.curve.${name} must reference 'default' or a declared tier`)
+    }
+    if (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0 || rate > 2) {
+      fail(`effortScheduling.curve.${name} must be a number between 0 and 2`)
+    }
+  }
+
+  const floorLevel = block.floorLevel
+  if (!isObject(floorLevel)) fail('effortScheduling.floorLevel must be an object')
+  const floors = floorLevel as Record<string, unknown>
+  for (const name of Object.keys(floors)) {
+    if (name !== 'default' && !Object.hasOwn(models, name)) {
+      fail(`effortScheduling.floorLevel.${name} must reference 'default' or a declared tier`)
+    }
+  }
+  // V15 is per TIER, over the EFFECTIVE floor against the EFFECTIVE ladder — never `floorLevel.default`
+  // against `ladders.default`. Comparing the two defaults would let a tier with its own ladder keep a
+  // floor that is absent from that ladder: `indexOf` returns -1, the floor is silently ignored, and the
+  // record can persist a level below the operator's declared floor.
+  for (const tier of Object.keys(models)) {
+    const floorOf = Object.hasOwn(floors, tier) ? floors[tier] : floors.default
+    if (typeof floorOf !== 'string') continue
+    const floorKey = Object.hasOwn(floors, tier) ? tier : 'default'
+    const ladder = resolved(tier) ?? []
+    if (!ladder.includes(floorOf)) {
+      fail(`effortScheduling.floorLevel.${floorKey} must be a level of the ladder for tier '${tier}'`)
+    }
+  }
+
+  const judge = block.judge
+  if (!isObject(judge)) fail('effortScheduling.judge must be an object')
+  const judgeConfig = judge as Record<string, unknown>
+  const bounded = (value: unknown): boolean =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
+  if (!bounded(judgeConfig.weight)) fail('effortScheduling.judge.weight must be a number between 0 and 1')
+  if (!bounded(judgeConfig.minConfidence)) fail('effortScheduling.judge.minConfidence must be a number between 0 and 1')
+  const percents = judgeConfig.percent
+  if (!isObject(percents)) fail('effortScheduling.judge.percent must be an object')
+  const percentTable = percents as Record<string, unknown>
+  for (const key of Object.keys(percentTable)) {
+    if (!EFFORT_SCHEDULING_JUDGE_KEYS.includes(key)) fail('effortScheduling.judge.percent has an unknown field')
+  }
+  for (const key of EFFORT_SCHEDULING_JUDGE_KEYS) {
+    const entry = percentTable[key]
+    if (typeof entry !== 'number' || !Number.isInteger(entry) || entry < 0 || entry > 100) {
+      fail(`effortScheduling.judge.percent.${key} must be an integer between 0 and 100`)
+    }
+  }
+}
+
 export function validateConfig(value: unknown, source = '<inline>'): SabiConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`Sabi config ${source}: expected a JSON object`)
@@ -362,6 +467,11 @@ export function validateConfig(value: unknown, source = '<inline>'): SabiConfig 
     if (transportFallback.enabled !== undefined && typeof transportFallback.enabled !== 'boolean') {
       throw new Error(`Sabi config ${source}: transportFallback.enabled must be a boolean`)
     }
+  }
+
+  const effortScheduling = config.effortScheduling
+  if (effortScheduling !== undefined) {
+    validateEffortScheduling(models, effortScheduling, source)
   }
 
   const passthrough = config.passthrough
