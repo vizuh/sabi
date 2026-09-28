@@ -111,6 +111,46 @@ task ──► host harness on free tier ──► findings ──► Sabi check
 Sabi hands Claude the plain task and says the brief was not built. It never
 blocks the user's task on preparation.
 
+## Harness mapping
+
+The workflow has two roles, **preparer** (explores on the free tier) and
+**executor** (does the work from the brief). Each harness reaches Sabi through a
+different surface, so what Sabi can see, verify and deliver differs. Nothing
+below is assumed to carry across harnesses; each row cites where it was
+established, and anything not yet exercised is marked open.
+
+| | Claude Code | Hermes | OMP (oh-my-pi) |
+|---|---|---|---|
+| Role here | Executor | Preparer | Preparer |
+| How Sabi sees its inference | It doesn't. Subscription traffic goes straight to Anthropic; the borrowed route is not wired (`sabi doctor`: passthrough ○, 2026-09-28) | Every round, through the proxy with `llm_request` attribution middleware (`docs/adapters/hermes.md`) | Every round, through the proxy via the provider-override extension; OMP keeps its own credential (`docs/adapters/oh-my-pi.md`) |
+| Controller surface | Manifest `partial`: `receive-prompt: hook`, `dispatch: cli`, `observe-outcome: cli` (`adapter-contract.ts`) | Inventory only (`inventory.ts` lists `hermes`); no controller manifest | Extension: no turn boundary, no catalog read, `setModel` only in a user action (spec 017, OMP 18.4.1). RPC mode: `omp --mode rpc` takes `{"type":"prompt","message":…}`; `set_model` field name not pinned (decisions, 2026-09-28) |
+| How a session starts | `claude --name … --effort … "<pointer>"` (CLI reference) | `HERMES_HOME=… hermes chat` with the generated `custom:sabi` profile (`docs/install.ai.md`) | `omp --extension … ` interactively, or an RPC `prompt` for a scripted preparation run |
+| How findings leave the harness | n/a | Open: no export path today. Candidates: a Hermes skill that writes findings to the brief directory, or a registered tool | Open. Candidate: `registerTool` (on the probed extension surface) adds a `sabi_record_finding` tool the preparing agent calls with source and claim |
+| Tying a finding to its round | n/a | Likely: attribution middleware already tags rounds; to confirm per finding | Open: whether override rounds carry a session identity Sabi can join on |
+| Instruction files it loads | `CLAUDE.md` chain (imports `AGENTS.md` here), skills in `~/.claude/skills/` | Open: not mapped yet | Open: not mapped yet |
+| Known limits | Sabi cannot read Claude's token use directly; SC-001 needs a source (transcript or status line), open | Extra capability-discovery GETs; auxiliary and subagent paths are separate, unverified gates | Entitlements are not extractable; OMP's "openrouter" models are served via `opencode.ai`, not OpenRouter (decisions, 2026-09-28) |
+
+What follows from the table:
+
+- **Preparation belongs where Sabi sees the rounds.** Hermes and OMP both
+  route every round through the proxy, which is what makes round-level
+  telemetry, cost at $0, and a finding-to-round link (for any Jev ranking)
+  possible. Claude Code offers none of that on the current wiring, so it is
+  executor only.
+- **Each preparer needs its own findings channel.** A structured tool call
+  (source plus claim) is preferred over parsing prose, because it makes FR-002
+  checkable. The channel is harness-specific and is the first thing each
+  slice must prove.
+- **OMP has two different surfaces.** The extension surface cannot start or
+  steer a run; RPC mode can. A scripted preparation run on OMP should use RPC
+  once the `set_model` field is pinned, not the extension.
+- **The executor side is Claude-specific in this spec.** Codex and OpenCode
+  have the same `partial` controller manifest and could be executors later;
+  that is a follow-up, not part of the first slice.
+
+Slice order proposed: (1) Hermes preparer + Claude executor, because Hermes has
+the most verified proxy path; (2) OMP preparer through RPC; (3) other executors.
+
 ## Brief format
 
 The template follows Anthropic's published prompting guidance (Sources below):
@@ -282,8 +322,12 @@ measured yet.
   harness, or both? TODO — ask Hugo.
 - Bounds: maximum evidence items and brief size. Proposal: 20 items, 8 KB.
   NEEDS CLARIFICATION.
-- Which harness and free models run preparation: the existing `cheap` tier,
-  or a dedicated `prep` tier with models chosen for tool use?
+- Which free models run preparation inside Hermes and OMP: the existing
+  `cheap` tier, or a dedicated `prep` tier with models chosen for tool use?
+- Findings channel per preparer (see Harness mapping): Hermes skill or tool;
+  OMP `registerTool` or RPC. Each needs a probe before it is relied on.
+- Claude token source for SC-001: session transcript, status line, or
+  Claude's own usage report?
 - Evidence ranking: a new per-item Jev question, or map each item back to the
   proxy round that produced it and reuse `evidenceRedundant`?
 - Effort for the dispatched session: the CLI takes `--effort`. Which level
