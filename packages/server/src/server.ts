@@ -15,6 +15,7 @@ import {
   judgeTriggers,
   keyReferenceName,
   loadRecovery,
+  readDecisions,
   measuredContextTokens,
   observeEffort,
   resolveKey,
@@ -34,7 +35,7 @@ import {
   type RouteDecision,
   type SabiConfig,
 } from '@sabi/core'
-import { renderDashboard } from './dashboard.ts'
+import { DASHBOARD_WINDOWS, renderDashboard } from './dashboard.ts'
 import { createSseTap, UpstreamStreamError, type SseTapResult } from './sse.ts'
 import { handlePassthrough, type PassthroughFormat } from './passthrough.ts'
 import { createTypesafeClient, type JudgeClient } from './typesafe.ts'
@@ -504,7 +505,20 @@ async function handleRequest(state: ServerState, req: IncomingMessage, res: Serv
     // Same baseline as `sabi report`: the strong tier, else the first configured model.
     const { models } = state.options.config
     const lang = url.searchParams.get('lang') === 'pt-BR' ? 'pt-BR' : 'en'
-    res.end(renderDashboard(state.recent, (models.strong ?? Object.values(models)[0])?.cost, lang))
+    const hours = DASHBOARD_WINDOWS.find((h) => String(h) === url.searchParams.get('hours')) ?? 48
+    // ponytail: re-reads the whole decision log per page load; fine at MBs, tail-read if it grows to GBs.
+    let logged: DecisionRecord[] = []
+    try {
+      logged = readDecisions(state.logFile)
+    } catch {
+      // An unreadable log (permissions, a directory in its place) degrades to this process's rounds.
+    }
+    res.end(renderDashboard(logged.length > 0 ? logged : state.recent, {
+      baselineRates: (models.strong ?? Object.values(models)[0])?.cost,
+      lang,
+      hours,
+      source: logged.length > 0 ? 'log' : 'memory',
+    }))
     return
   }
   sendError(res, 404, `no route for ${req.method} ${path}`, 'not_found')

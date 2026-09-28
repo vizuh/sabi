@@ -1,9 +1,10 @@
 import { estimateCost, type CostRates, type DecisionRecord } from '@sabi/core'
+import { SABI_LOGO_DATA_URI } from './dashboard-logo.ts'
 
 /**
- * The `/dashboard` page: a read-only view over the proxy's in-memory recent rounds, organised
- * around whether Sabi routed well — success, recovery, confirmed-free compute, latency, and why
- * each route was chosen — before which model spent how many tokens.
+ * The `/dashboard` page: a read-only view over recorded rounds, organised around whether Sabi
+ * routed well — success, recovery, confirmed-free compute, latency, and why each route was
+ * chosen — before which model spent how many tokens.
  *
  * Every number is computed from `records`. A round without a finite, non-negative cost is
  * "price unknown", never $0; a savings figure only counts rounds where both the actual price and
@@ -11,28 +12,47 @@ import { estimateCost, type CostRates, type DecisionRecord } from '@sabi/core'
  */
 
 export type DashboardLang = 'en' | 'pt-BR'
+/** Selectable windows, in hours. */
+export const DASHBOARD_WINDOWS = [24, 48, 168] as const
+export type DashboardWindow = (typeof DASHBOARD_WINDOWS)[number]
+
+export interface DashboardOptions {
+  baselineRates?: CostRates
+  lang?: DashboardLang
+  hours?: DashboardWindow
+  /** Where `records` came from: the decision log, or only this process's memory. */
+  source?: 'log' | 'memory'
+  now?: number
+}
 
 type Priced = DecisionRecord & { cost: NonNullable<DecisionRecord['cost']> }
 type Plural = (n: number) => string
 
+const TABLE_LIMIT = 200
 const plural = (one: string, many: string): Plural => (n) => `${n} ${n === 1 ? one : many}`
+const windowLabel = (hours: number): string => hours % 24 === 0 && hours > 48 ? `${hours / 24}d` : `${hours}h`
 
 /** Every visible string, per language. Data (model names, rules, tiers, outcomes) is never translated. */
 const COPY = {
   en: {
     title: 'Sabi Dashboard', proxy: 'Local proxy', langName: 'English', overview: 'Overview',
-    waiting: 'Waiting for the first round.',
+    waiting: 'No rounds in this window yet.',
     headline: (success: string, free: string, recovered: number) =>
       `${success} successful · ${free} of tokens confirmed free · ${plural('round', 'rounds')(recovered)} recovered by fallback`,
-    scope: (n: number) => `Last ${plural('round', 'rounds')(n)}, since the proxy started`,
+    scope: (n: number, hours: number) => `${plural('round', 'rounds')(n)} in the last ${hours > 48 ? `${hours / 24} days` : `${hours} hours`}`,
+    memoryOnly: 'No decision log found: showing rounds held in memory since the proxy started.',
+    windowNav: 'Time window',
     rounds: plural('round', 'rounds'), successfulRounds: plural('successful round', 'successful rounds'),
     failedPlans: plural('failed plan', 'failed plans'),
-    metrics: 'Headline metrics', confirmedFree: 'Confirmed free', atZero: (n: number, zero: string) => `${plural('round', 'rounds')(n)} at ${zero}`,
+    metrics: 'Headline metrics', freeLane: 'Free-lane hit rate', freeLaneSub: (n: number, total: number, tok: string) => `${n} / ${plural('round', 'rounds')(total)} done at $0 · ${tok} tok`,
+    noFailures: 'No failures in this window', allPriced: 'every successful round priced',
     success: 'Success', recovered: 'Recovered', of: 'of', knownCost: 'Known cost', priceUnknown: 'price unknown',
     ttft: 'P50 TTFT', streamedOnly: 'streamed rounds only', p95: 'P95 latency', successful: 'successful rounds', successfulTitle: 'Successful rounds',
+    activity: 'Activity', perBucket: (hours: number) => hours === 1 ? 'Rounds per hour' : `Rounds per ${hours} hours`,
+    okSeries: 'successful', failedSeries: 'failed',
     newestFirst: 'Newest first', timeline: 'Routing timeline', planned: (tier: string, fallback: string) => `planned ${tier} failed · served by ${fallback}`,
-    rule: 'rule', noRounds: 'No rounds yet.', noRoundsHint: 'No rounds yet. Send a request through the proxy and refresh.',
-    observed: 'Observed in these rounds', health: 'Model health', noModels: 'No models observed yet.',
+    rule: 'rule', noRounds: 'No rounds in this window.',
+    observed: 'Past results in this window, not live availability', health: 'Model health', noModels: 'No models observed in this window.',
     healthy: 'healthy', degraded: 'degraded', failing: 'failing',
     tierShare: 'Share of rounds by tier', intelligence: 'Intelligence used',
     economics: 'Economics', paidTokens: 'Paid tokens', priceUnknownRow: 'Price unknown', baseline: 'Strong baseline',
@@ -40,25 +60,40 @@ const COPY = {
     noBaseline: 'No strong-tier price configured, so there is no baseline to compare against.',
     zeroBaseline: (zero: string) => `The strong tier is priced at ${zero}, so there is no paid inference to avoid. Configure a priced baseline to measure savings.`,
     noPriced: 'No successful round has a known price yet, so savings cannot be estimated.',
-    ruleSource: 'Policy rule that picked the tier', why: 'Why Sabi chose each route',
-    all: (n: number) => `All ${plural('round', 'rounds')(n)}`, recent: 'Recent rounds',
-    cols: { time: 'Time', route: 'Route', tier: 'Tier', model: 'Model', rule: 'Rule', ttft: 'TTFT', latency: 'Latency', outcome: 'Outcome', cost: 'Cost', status: 'Status', success: 'Success', p50: 'P50' },
+    ruleSource: 'What drove each routing decision (hover for the rule)', why: 'Why Sabi chose each route',
+    all: (shown: number, n: number) => shown === n ? `All ${plural('round', 'rounds')(n)}` : `Newest ${shown} of ${n} rounds`, recent: 'Recent rounds',
+    cols: { time: 'Time', route: 'Route', tier: 'Tier', model: 'Model', rule: 'Rule', ttft: 'TTFT', latency: 'Latency', outcome: 'Outcome', cost: 'Cost', status: 'Status', success: 'Success', p50: 'P50', lastSeen: 'Last seen' },
     units: ['k', 'M', 'B', 'T'],
+    reasons: {
+      'alias': 'Client asked for this model', 'first-turn': 'First turn of a task', 'exploration': 'Exploring the codebase',
+      'implementation': 'Implementation work', 'verification': 'Verification step', 'context-pressure': 'Context window nearly full',
+      'failure': 'Previous attempt failed', 'stuck': 'Repeated failures', 'repeated-failure': 'Repeated failures',
+      'transport': 'Provider error on the last round', 'transport-fallback': 'Planned provider failed, rerouted',
+      'output-capacity': 'Needed a larger output limit', 'capacity-eligible': 'Host compute available',
+      'capacity-unavailable': 'Host compute unavailable', 'fallback-capacity': 'Fell back to available capacity',
+      'quota-exhausted': 'Quota exhausted', 'rate-limited': 'Rate limited', 'unclassified': 'No specific signal',
+      'fallback': 'No specific signal', 'default': 'Default route',
+    } as Record<string, string>,
   },
   'pt-BR': {
     title: 'Painel Sabi', proxy: 'Proxy local', langName: 'Português (BR)', overview: 'Visão geral',
-    waiting: 'Aguardando a primeira rodada.',
+    waiting: 'Nenhuma rodada nesta janela ainda.',
     headline: (success: string, free: string, recovered: number) =>
       `${success} com sucesso · ${free} dos tokens confirmados gratuitos · ${plural('rodada recuperada', 'rodadas recuperadas')(recovered)} por fallback`,
-    scope: (n: number) => `${plural('rodada', 'rodadas')(n)} desde o início do proxy`,
+    scope: (n: number, hours: number) => `${plural('rodada', 'rodadas')(n)} ${hours > 48 ? `nos últimos ${hours / 24} dias` : `nas últimas ${hours} horas`}`,
+    memoryOnly: 'Nenhum log de decisões encontrado: mostrando as rodadas em memória desde o início do proxy.',
+    windowNav: 'Janela de tempo',
     rounds: plural('rodada', 'rodadas'), successfulRounds: plural('rodada com sucesso', 'rodadas com sucesso'),
     failedPlans: plural('plano com falha', 'planos com falha'),
-    metrics: 'Métricas principais', confirmedFree: 'Gratuito confirmado', atZero: (n: number, zero: string) => `${plural('rodada', 'rodadas')(n)} a ${zero}`,
+    metrics: 'Métricas principais', freeLane: 'Acerto na faixa gratuita', freeLaneSub: (n: number, total: number, tok: string) => `${n} / ${plural('rodada', 'rodadas')(total)} concluídas a US$ 0 · ${tok} tok`,
+    noFailures: 'Nenhuma falha nesta janela', allPriced: 'todas as rodadas com sucesso têm preço',
     success: 'Sucesso', recovered: 'Recuperadas', of: 'de', knownCost: 'Custo conhecido', priceUnknown: 'sem preço',
     ttft: 'TTFT P50', streamedOnly: 'só rodadas em streaming', p95: 'Latência P95', successful: 'rodadas com sucesso', successfulTitle: 'Rodadas com sucesso',
+    activity: 'Atividade', perBucket: (hours: number) => hours === 1 ? 'Rodadas por hora' : `Rodadas a cada ${hours} horas`,
+    okSeries: 'com sucesso', failedSeries: 'com falha',
     newestFirst: 'Mais recentes primeiro', timeline: 'Linha do tempo de roteamento', planned: (tier: string, fallback: string) => `${tier} planejado falhou · atendido por ${fallback}`,
-    rule: 'regra', noRounds: 'Nenhuma rodada ainda.', noRoundsHint: 'Nenhuma rodada ainda. Envie uma requisição pelo proxy e atualize a página.',
-    observed: 'Observado nestas rodadas', health: 'Saúde dos modelos', noModels: 'Nenhum modelo observado ainda.',
+    rule: 'regra', noRounds: 'Nenhuma rodada nesta janela.',
+    observed: 'Resultados passados nesta janela, não disponibilidade ao vivo', health: 'Saúde dos modelos', noModels: 'Nenhum modelo observado nesta janela.',
     healthy: 'saudável', degraded: 'degradado', failing: 'falhando',
     tierShare: 'Parcela das rodadas por tier', intelligence: 'Inteligência usada',
     economics: 'Custos', paidTokens: 'Tokens pagos', priceUnknownRow: 'Sem preço', baseline: 'Referência strong',
@@ -66,10 +101,20 @@ const COPY = {
     noBaseline: 'O tier strong não tem preço configurado, então não há referência para comparar.',
     zeroBaseline: (zero: string) => `O tier strong custa ${zero} na configuração, então não há inferência paga a evitar. Configure uma referência com preço para medir a economia.`,
     noPriced: 'Nenhuma rodada com sucesso tem preço conhecido ainda, então não dá para estimar a economia.',
-    ruleSource: 'Regra de política que escolheu o tier', why: 'Por que o Sabi escolheu cada rota',
-    all: (n: number) => `Todas as rodadas (${n})`, recent: 'Rodadas recentes',
-    cols: { time: 'Hora', route: 'Rota', tier: 'Tier', model: 'Modelo', rule: 'Regra', ttft: 'TTFT', latency: 'Latência', outcome: 'Resultado', cost: 'Custo', status: 'Status', success: 'Sucesso', p50: 'P50' },
+    ruleSource: 'O que motivou cada decisão (passe o mouse para ver a regra)', why: 'Por que o Sabi escolheu cada rota',
+    all: (shown: number, n: number) => shown === n ? `Todas as rodadas (${n})` : `${shown} mais recentes de ${n} rodadas`, recent: 'Rodadas recentes',
+    cols: { time: 'Hora', route: 'Rota', tier: 'Tier', model: 'Modelo', rule: 'Regra', ttft: 'TTFT', latency: 'Latência', outcome: 'Resultado', cost: 'Custo', status: 'Status', success: 'Sucesso', p50: 'P50', lastSeen: 'Visto por último' },
     units: ['k', 'mi', 'bi', 'tri'],
+    reasons: {
+      'alias': 'Cliente pediu este modelo', 'first-turn': 'Primeiro turno da tarefa', 'exploration': 'Explorando o código',
+      'implementation': 'Trabalho de implementação', 'verification': 'Etapa de verificação', 'context-pressure': 'Janela de contexto quase cheia',
+      'failure': 'Tentativa anterior falhou', 'stuck': 'Falhas repetidas', 'repeated-failure': 'Falhas repetidas',
+      'transport': 'Erro do provedor na rodada anterior', 'transport-fallback': 'Provedor falhou, rota trocada',
+      'output-capacity': 'Precisou de limite de saída maior', 'capacity-eligible': 'Capacidade local disponível',
+      'capacity-unavailable': 'Capacidade local indisponível', 'fallback-capacity': 'Recorreu à capacidade disponível',
+      'quota-exhausted': 'Cota esgotada', 'rate-limited': 'Limite de requisições atingido', 'unclassified': 'Sem sinal específico',
+      'fallback': 'Sem sinal específico', 'default': 'Rota padrão',
+    } as Record<string, string>,
   },
 } satisfies Record<DashboardLang, unknown>
 
@@ -86,6 +131,14 @@ function formatters(lang: DashboardLang) {
   const whole = new Intl.NumberFormat(lang)
   const percent = new Intl.NumberFormat(lang, { style: 'percent', maximumFractionDigits: 0 })
   const oneDecimal = new Intl.NumberFormat(lang, { maximumFractionDigits: 1 })
+  const relative = new Intl.RelativeTimeFormat(lang, { numeric: 'auto', style: 'short' })
+  const ago = (ms: number): string => {
+    const s = Math.max(0, Math.round(ms / 1000))
+    return s < 60 ? relative.format(-s, 'second') : s < 3600 ? relative.format(-Math.round(s / 60), 'minute')
+      : s < 86_400 ? relative.format(-Math.round(s / 3600), 'hour') : relative.format(-Math.round(s / 86_400), 'day')
+  }
+  const dayTime = new Intl.DateTimeFormat(lang, { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+  const time = new Intl.DateTimeFormat(lang, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 
   /** 0–999 as-is, then k / M (mi) / B (bi) / T (tri) at 3 significant digits, never "1000k". */
   const tokens = (n: number): string => {
@@ -103,14 +156,16 @@ function formatters(lang: DashboardLang) {
     const digits = n === 0 ? 0 : n >= 100 ? 0 : n >= 1 ? 2 : 4
     return new Intl.NumberFormat(lang, { style: 'currency', currency: 'USD', minimumFractionDigits: Math.min(digits, 2), maximumFractionDigits: digits }).format(n)
   }
-  const pct = (part: number, total: number): string => total === 0 ? '—' : percent.format(part / total)
+  // A non-zero share never rounds to "0%": that would read as none.
+  const pct = (part: number, total: number): string =>
+    total === 0 ? '—' : part > 0 && part / total < 0.005 ? `<${percent.format(0.01)}` : percent.format(part / total)
   const ms = (n: number | undefined): string =>
     n === undefined ? '—' : n < 1000 ? `${whole.format(Math.round(n))} ms` : `${oneDecimal.format(n / 1000)} s`
   const clock = (ts: string): string => {
     const t = Date.parse(ts)
-    return Number.isFinite(t) ? new Date(t).toLocaleTimeString(lang, { hour12: false }) : '—'
+    return Number.isFinite(t) ? time.format(t) : '—'
   }
-  return { copy, tokens, tokensHtml, money, pct, ms, clock }
+  return { copy, lang, ago, whole, tokens, tokensHtml, money, pct, ms, clock, dayTime: (t: number) => dayTime.format(t) }
 }
 
 type Format = ReturnType<typeof formatters>
@@ -143,18 +198,64 @@ function kpi(label: string, value: string, sub: string): string {
   return `<div class="kpi"><div class="eyebrow">${label}</div><div class="kpi-value">${value}</div><div class="muted">${sub}</div></div>`
 }
 
-function bars(f: Format, rows: Array<[string, number]>, total: number): string {
+function bars(f: Format, rows: Array<[string, number]>, total: number, name: (key: string) => string = (key) => key): string {
   if (rows.length === 0) return `<p class="empty">${f.copy.noRounds}</p>`
-  return rows.map(([label, n]) => `
+  return rows.map(([key, n]) => `
     <div class="bar-row">
-      <span class="bar-label" title="${esc(label)}">${esc(label)}</span>
+      <span class="bar-label" title="${esc(key)}">${esc(name(key))}</span>
       <span class="bar-track"><span class="bar-fill" style="width:${((n / total) * 100).toFixed(1)}%"></span></span>
-      <span class="bar-value">${f.pct(n, total)} <span class="muted">· ${n}</span></span>
+      <span class="bar-value">${f.pct(n, total)} <span class="muted">· ${f.whole.format(n)}</span></span>
     </div>`).join('')
 }
 
+function niceMax(n: number): number {
+  if (n <= 0) return 1
+  const pow = 10 ** Math.floor(Math.log10(n))
+  return ([1, 2, 2.5, 5, 10].find((step) => step * pow >= n) ?? 10) * pow
+}
+
+/** Rounds per time bucket across the whole window, successful and failed stacked. */
+function activity(f: Format, records: DecisionRecord[], hours: number, now: number): string {
+  const { copy } = f
+  const bucketHours = hours > 48 ? 4 : 1
+  const count = Math.ceil(hours / bucketHours)
+  const start = now - hours * 3_600_000
+  const buckets = Array.from({ length: count }, () => ({ ok: 0, failed: 0 }))
+  for (const rec of records) {
+    // A round stamped exactly at `now` belongs to the last bucket, as it does in the headline.
+    const i = Math.min(count - 1, Math.floor((Date.parse(rec.ts) - start) / (bucketHours * 3_600_000)))
+    if (i >= 0) buckets[i][rec.outcome === 'ok' ? 'ok' : 'failed'] += 1
+  }
+  const [W, H, left, right, top, bottom] = [960, 190, 36, 8, 10, 164]
+  const max = niceMax(Math.max(...buckets.map((b) => b.ok + b.failed)))
+  const slot = (W - left - right) / count
+  const barW = Math.max(2, slot - 2)
+  const y = (v: number) => ((bottom - top) * v) / max
+  const grid = [0, 0.5, 1].map((frac) => {
+    const gy = bottom - y(max * frac)
+    return `<line class="grid" x1="${left}" x2="${W - right}" y1="${gy}" y2="${gy}"/><text class="axis" x="${left - 8}" y="${gy + 4}" text-anchor="end">${f.whole.format(max * frac)}</text>`
+  }).join('')
+  const cols = buckets.map((b, i) => {
+    const x = left + i * slot + 1
+    const okH = y(b.ok)
+    const failH = y(b.failed)
+    const gap = b.ok && b.failed ? 2 : 0
+    const label = `${f.dayTime(start + i * bucketHours * 3_600_000)} · ${b.ok} ${copy.okSeries} · ${b.failed} ${copy.failedSeries}`
+    return `<g><title>${esc(label)}</title>
+      <rect class="hit" x="${x - 1}" y="${top}" width="${slot}" height="${bottom - top}"/>
+      ${b.ok ? `<rect class="ok" x="${x}" y="${(bottom - okH).toFixed(1)}" width="${barW}" height="${okH.toFixed(1)}" rx="1.5"/>` : ''}
+      ${b.failed ? `<rect class="fail" x="${x}" y="${(bottom - okH - gap - failH).toFixed(1)}" width="${barW}" height="${failH.toFixed(1)}" rx="1.5"/>` : ''}
+    </g>`
+  }).join('')
+  const ticks = [0, Math.floor(count / 2), count - 1].map((i, n) =>
+    `<text class="axis" x="${left + i * slot + slot / 2}" y="${H - 6}" text-anchor="${['start', 'middle', 'end'][n]}">${esc(f.dayTime(start + i * bucketHours * 3_600_000))}</text>`).join('')
+  return `
+    <div class="legend"><span><i class="sw ok"></i>${copy.okSeries}</span><span><i class="sw fail"></i>${copy.failedSeries}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(copy.perBucket(bucketHours))}">${grid}${cols}${ticks}</svg>`
+}
+
 function timeline(f: Format, records: DecisionRecord[]): string {
-  if (records.length === 0) return `<p class="empty">${f.copy.noRoundsHint}</p>`
+  if (records.length === 0) return `<p class="empty">${f.copy.noRounds}</p>`
   return records.slice(-12).reverse().map((rec) => `
     <li>
       <div class="tl-head">
@@ -170,26 +271,34 @@ function timeline(f: Format, records: DecisionRecord[]): string {
     </li>`).join('')
 }
 
-function health(f: Format, records: DecisionRecord[]): string {
+function health(f: Format, records: DecisionRecord[], now: number): string {
   const { copy } = f
   const models = new Map<string, DecisionRecord[]>()
-  for (const rec of records) models.set(modelOf(rec), [...(models.get(modelOf(rec)) ?? []), rec])
+  // The same model id can be served by more than one provider; each pairing is its own row.
+  for (const rec of records) {
+    const key = `${rec.upstream}\u0000${modelOf(rec)}`
+    const list = models.get(key)
+    if (list) list.push(rec)
+    else models.set(key, [rec])
+  }
   if (models.size === 0) return `<p class="empty">${copy.noModels}</p>`
-  const rows = [...models].map(([model, recs]) => {
+  const rows = [...models.values()].sort((a, b) => b.length - a.length).map((recs) => {
+    const model = modelOf(recs[0])
     const ok = recs.filter((rec) => rec.outcome === 'ok').length
-    const last = recs[recs.length - 1]
-    // ponytail: status is a heuristic over these rounds only; the controller's live health is a separate process.
-    const status = ok === 0 ? ['bad', `✕ ${copy.failing}`] : last.outcome !== 'ok' || ok < recs.length ? ['warn', `! ${copy.degraded}`] : ['good', `● ${copy.healthy}`]
+    // ponytail: success-rate bands over this window only; the controller's live health is a separate process.
+    const rate = ok / recs.length
+    const status = rate >= 0.9 ? ['good', `● ${copy.healthy}`] : rate >= 0.5 ? ['warn', `! ${copy.degraded}`] : ['bad', `✕ ${copy.failing}`]
     const p50 = percentile(recs.flatMap((rec) => rec.latencyMs !== undefined && rec.outcome === 'ok' ? [rec.latencyMs] : []), 50)
     return `<tr>
-      <td class="model" title="${esc(model)}">${esc(model)}</td>
+      <td class="model" title="${esc(model)}">${esc(model)}<div class="via muted">${esc(recs[0].upstream)}</div></td>
       <td><span class="st ${status[0]}">${status[1]}</span></td>
-      <td>${f.pct(ok, recs.length)} <span class="muted">${ok}/${recs.length}</span></td>
+      <td>${f.pct(ok, recs.length)} <span class="muted">${f.whole.format(ok)}/${f.whole.format(recs.length)}</span></td>
       <td>${f.ms(p50)}</td>
+      <td class="muted">${esc(f.ago(now - Date.parse(recs[recs.length - 1].ts)))}</td>
     </tr>`
   }).join('')
   return `<div class="table"><table>
-    <thead><tr><th>${copy.cols.model}</th><th>${copy.cols.status}</th><th>${copy.cols.success}</th><th>${copy.cols.p50}</th></tr></thead>
+    <thead><tr><th>${copy.cols.model}</th><th>${copy.cols.status}</th><th>${copy.cols.success}</th><th>${copy.cols.p50}</th><th>${copy.cols.lastSeen}</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`
 }
 
@@ -215,7 +324,7 @@ function economics(f: Format, records: DecisionRecord[], baselineRates: CostRate
       : covered.length === 0
         ? `<p class="note">${copy.noPriced}</p>`
         : `<div class="econ-row"><span>${copy.baseline}</span><b>${f.money(baseline)}</b></div>
-           <div class="econ-row"><span>${copy.avoided}</span><b${baseline >= coveredActual ? ' class="good-ink"' : ''}>${f.money(baseline - coveredActual)} · ${f.pct(baseline - coveredActual, baseline)}</b></div>
+           <div class="econ-row"><span>${copy.avoided}</span><b${baseline >= coveredActual ? ' class="good"' : ''}>${f.money(baseline - coveredActual)} · ${f.pct(baseline - coveredActual, baseline)}</b></div>
            <div class="econ-row"><span>${copy.coverage}</span><b>${copy.ofTokens(f.pct(coveredTokens, tokens))}</b></div>`
   return `
     <div class="econ-row"><span>${copy.knownCost}</span><b>${f.money(actual)}</b></div>
@@ -227,7 +336,9 @@ function economics(f: Format, records: DecisionRecord[], baselineRates: CostRate
 function roundsTable(f: Format, records: DecisionRecord[]): string {
   if (records.length === 0) return ''
   const { cols } = f.copy
-  const rows = [...records].reverse().map((rec) => `<tr>
+  // ponytail: the window can hold thousands of rounds; the table shows the newest TABLE_LIMIT.
+  const shown = records.slice(-TABLE_LIMIT).reverse()
+  const rows = shown.map((rec) => `<tr>
     <td>${esc(f.clock(rec.ts))}</td>
     <td>${esc(rec.alias)}</td>
     <td>${esc(rec.tier)}${rec.fallback ? ` → ${esc(rec.fallback)}` : ''}</td>
@@ -238,15 +349,21 @@ function roundsTable(f: Format, records: DecisionRecord[]): string {
     <td>${outcomeLabel(rec)}</td>
     <td>${isPriced(rec) ? f.money(rec.cost.total) : '—'}</td>
   </tr>`).join('')
-  return `<details class="card"><summary><span class="eyebrow">${f.copy.all(records.length)}</span><h2>${f.copy.recent}</h2></summary>
+  return `<details class="card"><summary><span class="eyebrow">${f.copy.all(shown.length, records.length)}</span><h2>${f.copy.recent}</h2></summary>
     <div class="table"><table>
       <thead><tr><th>${cols.time}</th><th>${cols.route}</th><th>${cols.tier}</th><th>${cols.model}</th><th>${cols.rule}</th><th>${cols.ttft}</th><th>${cols.latency}</th><th>${cols.outcome}</th><th>${cols.cost}</th></tr></thead>
       <tbody>${rows}</tbody></table></div></details>`
 }
 
-export function renderDashboard(records: DecisionRecord[], baselineRates?: CostRates, lang: DashboardLang = 'en'): string {
+export function renderDashboard(all: DecisionRecord[], options: DashboardOptions = {}): string {
+  const { baselineRates, lang = 'en', hours = 48, source = 'log', now = Date.now() } = options
   const f = formatters(lang)
   const { copy } = f
+  const since = now - hours * 3_600_000
+  const records = all.filter((rec) => {
+    const t = Date.parse(rec.ts)
+    return t >= since && t <= now
+  })
   const ok = records.filter((rec) => rec.outcome === 'ok')
   const withUsage = ok.filter((rec) => rec.usage)
   const tokens = withUsage.reduce((sum, rec) => sum + rec.usage!.totalTokens, 0)
@@ -260,6 +377,8 @@ export function renderDashboard(records: DecisionRecord[], baselineRates?: CostR
   const p95 = percentile(ok.flatMap((rec) => rec.latencyMs !== undefined ? [rec.latencyMs] : []), 95)
   const headline = records.length === 0 ? copy.waiting : copy.headline(f.pct(ok.length, records.length), f.pct(freeTokens, tokens), recovered)
   const other: DashboardLang = lang === 'en' ? 'pt-BR' : 'en'
+  const windows = DASHBOARD_WINDOWS.map((h) =>
+    `<a href="?hours=${h}&amp;lang=${lang}"${h === hours ? ' class="on" aria-current="page"' : ''}>${windowLabel(h)}</a>`).join('')
 
   return `<!DOCTYPE html>
 <html lang="${lang}">
@@ -268,63 +387,81 @@ export function renderDashboard(records: DecisionRecord[], baselineRates?: CostR
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${copy.title}</title>
 <style>
+  /* SABI identity sheet v1.0: graphite and slate surfaces, one signal green, amber only for attention. */
   :root {
-    color-scheme: light;
-    --bg: #f5f6f8; --card: #ffffff; --line: #eceef2; --zebra: #f7f8fa;
-    --ink: #101217; --muted: #6b7180; --accent: #e8175d; --accent-soft: #fde8ef;
-    --good: #0b7a4b; --warn: #a15c00; --bad: #c0262d;
-    --radius: 20px;
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color-scheme: dark;
+    --bg: #0b0f0e; --card: #111827; --raised: #1f2937;
+    --line: rgba(148, 163, 184, 0.17); --zebra: rgba(148, 163, 184, 0.05);
+    --ink: #f8fafc; --muted: #94a3b8; --neutral: rgba(148, 163, 184, 0.5);
+    --signal: #22c55e; --signal-soft: rgba(34, 197, 94, 0.14); --signal-border: rgba(34, 197, 94, 0.44);
+    --amber: #f59e0b; --bad: #ef4444;
+    --radius: 12px; --radius-sm: 8px;
+    --mono: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.45; }
-  .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; background: var(--card); border-bottom: 1px solid var(--line); }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5; }
+  a { color: inherit; }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid var(--line); }
+  .bar img { display: block; height: 32px; width: auto; }
   .bar-right { display: flex; align-items: center; gap: 12px; }
-  .brand { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-  .brand i { width: 14px; height: 14px; border-radius: 4px; background: var(--accent); }
-  .lang { padding: 8px 14px; border-radius: 12px; border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-weight: 500; }
-  .lang:hover, .lang:focus-visible { border-color: var(--accent); color: var(--accent); }
-  main { max-width: 1280px; margin: 0 auto; padding: 32px; display: grid; gap: 20px; }
+  .lang, .pills a { padding: 7px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line); text-decoration: none; font-size: 13px; }
+  .lang:hover, .lang:focus-visible, .pills a:hover, .pills a:focus-visible { border-color: var(--signal-border); }
+  .pills { display: flex; gap: 6px; }
+  .pills a { color: var(--muted); font-family: var(--mono); }
+  .pills a.on { background: var(--signal-soft); border-color: var(--signal-border); color: var(--signal); }
+  main { max-width: 1280px; margin: 0 auto; padding: 32px; display: grid; gap: 16px; }
   .head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; }
   h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
-  h2 { margin: 2px 0 16px; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
-  .muted, .eyebrow { color: var(--muted); }
-  .eyebrow { font-size: 13px; }
-  .pill { padding: 8px 14px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+  h2 { margin: 4px 0 16px; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  .muted { color: var(--muted); }
+  .eyebrow { color: var(--muted); font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; min-width: 0; }
   .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); padding: 8px 0; }
   .kpi { padding: 14px 24px; border-left: 1px solid var(--line); min-width: 0; }
   .kpi:first-child { border-left: 0; }
   .kpi-value { margin: 8px 0 4px; font-size: 30px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; }
-  .badge { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 500; }
-  .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .badge { flex: none; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--raised); font-family: var(--mono); font-size: 11px; }
+  .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
   .st { white-space: nowrap; font-weight: 500; }
-  .good, .good-ink { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .good { color: var(--signal); } .warn { color: var(--amber); } .bad { color: var(--bad); }
+  .note-inline { color: var(--amber); }
+  .legend { display: flex; gap: 16px; margin: -4px 0 8px; color: var(--muted); font-size: 13px; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .sw.ok, rect.ok { background: var(--signal); fill: var(--signal); }
+  .sw.fail, rect.fail { background: var(--bad); fill: var(--bad); }
+  rect.hit { fill: transparent; }
+  g:hover rect.hit { fill: var(--zebra); }
+  svg { display: block; width: 100%; height: auto; }
+  .grid { stroke: var(--line); stroke-dasharray: 3 4; }
+  .axis { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
   .timeline { list-style: none; margin: 0; padding: 0; }
   .timeline li { padding: 12px 0; border-top: 1px solid var(--line); }
   .timeline li:first-child { border-top: 0; padding-top: 0; }
   .tl-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .tl-time { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .tl-time { font-family: var(--mono); font-size: 12px; color: var(--muted); }
   .tl-model { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tl-sub { margin: 4px 0 0 72px; font-size: 13px; }
-  .tl-sub b { font-weight: 500; color: var(--ink); }
-  .recovered { color: var(--good); }
-  .bar-row { display: grid; grid-template-columns: minmax(80px, 140px) 1fr auto; align-items: center; gap: 12px; padding: 6px 0; }
+  .tl-sub { margin: 4px 0 0 76px; font-size: 13px; }
+  .tl-sub b { font-weight: 500; color: var(--ink); font-family: var(--mono); font-size: 12px; }
+  .recovered { color: var(--signal); }
+  .bar-row { display: grid; grid-template-columns: minmax(80px, 260px) 1fr auto; align-items: center; gap: 12px; padding: 6px 0; }
+  .bar-label { font-family: var(--mono); font-size: 12px; }
   .bar-label, .model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bar-track { height: 10px; border-radius: 999px; background: var(--zebra); overflow: hidden; }
-  .bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
-  .bar-value { font-variant-numeric: tabular-nums; min-width: 72px; text-align: right; }
+  .bar-track { height: 8px; border-radius: 999px; background: var(--raised); overflow: hidden; }
+  .bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--neutral); }
+  .bar-value { font-variant-numeric: tabular-nums; min-width: 84px; text-align: right; }
   .econ-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
   .econ-row:first-of-type { border-top: 0; }
   .econ-row b { font-weight: 600; font-variant-numeric: tabular-nums; }
-  .note { margin: 12px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--zebra); color: var(--muted); }
-  .table { border: 1px solid var(--line); border-radius: 14px; overflow-x: auto; }
+  .note { margin: 12px 0 0; padding: 12px 14px; border-radius: var(--radius-sm); background: var(--raised); color: var(--muted); }
+  .table { border: 1px solid var(--line); border-radius: var(--radius-sm); overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 12px 14px; text-align: left; white-space: nowrap; }
-  th { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted); border-bottom: 1px solid var(--line); }
+  th, td { padding: 11px 14px; text-align: left; white-space: nowrap; }
+  th { font-family: var(--mono); font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); border-bottom: 1px solid var(--line); }
   tbody tr:nth-child(even) { background: var(--zebra); }
   td { font-variant-numeric: tabular-nums; }
-  .model { max-width: 240px; }
+  .model { max-width: 200px; }
+  .via { font-family: var(--mono); font-size: 11px; }
   details summary { cursor: pointer; list-style: none; }
   details summary::-webkit-details-marker { display: none; }
   details:not([open]) h2 { margin-bottom: 0; }
@@ -342,24 +479,30 @@ export function renderDashboard(records: DecisionRecord[], baselineRates?: CostR
 </head>
 <body>
 <header class="bar">
-  <span class="brand"><i></i>Sabi</span>
-  <span class="bar-right"><span class="muted">${copy.proxy}</span><a class="lang" href="?lang=${other}" hreflang="${other}" lang="${other}">${COPY[other].langName}</a></span>
+  <img src="${SABI_LOGO_DATA_URI}" alt="SABI" width="122" height="32">
+  <span class="bar-right"><span class="muted">${copy.proxy}</span><a class="lang" href="?lang=${other}&amp;hours=${hours}" hreflang="${other}" lang="${other}">${COPY[other].langName}</a></span>
 </header>
 <main>
   <section class="head">
     <div>
       <h1>${copy.overview}</h1>
       <div class="muted">${esc(headline)}</div>
+      <div class="muted">${copy.scope(records.length, hours)}${source === 'memory' ? ` · <span class="note-inline">${copy.memoryOnly}</span>` : ''}</div>
     </div>
-    <span class="pill">${copy.scope(records.length)}</span>
+    <nav class="pills" aria-label="${copy.windowNav}">${windows}</nav>
   </section>
   <section class="card kpis" aria-label="${copy.metrics}">
-    ${kpi(copy.confirmedFree, `${f.tokensHtml(freeTokens)} tok`, copy.atZero(free.length, f.money(0)))}
-    ${kpi(copy.success, f.pct(ok.length, records.length), `${ok.length} / ${copy.rounds(records.length)}`)}
-    ${kpi(copy.recovered, String(recovered), `${copy.of} ${copy.failedPlans(recovered + failed)}`)}
-    ${kpi(copy.knownCost, f.money(knownCost), `${copy.successfulRounds(withUsage.length - priced.length)} ${copy.priceUnknown}`)}
+    ${kpi(copy.freeLane, f.pct(free.length, records.length), copy.freeLaneSub(free.length, records.length, f.tokensHtml(freeTokens)))}
+    ${kpi(copy.success, f.pct(ok.length, records.length), `${f.whole.format(ok.length)} / ${copy.rounds(records.length)}`)}
+    ${recovered + failed === 0 ? kpi(copy.recovered, '—', copy.noFailures) : kpi(copy.recovered, f.whole.format(recovered), `${copy.of} ${copy.failedPlans(recovered + failed)}`)}
+    ${kpi(copy.knownCost, f.money(knownCost), withUsage.length === priced.length ? copy.allPriced : `${copy.successfulRounds(withUsage.length - priced.length)} ${copy.priceUnknown}`)}
     ${kpi(copy.ttft, f.ms(ttft), copy.streamedOnly)}
     ${kpi(copy.p95, f.ms(p95), copy.successful)}
+  </section>
+  <section class="card">
+    <div class="eyebrow">${copy.perBucket(hours > 48 ? 4 : 1)}</div>
+    <h2>${copy.activity}</h2>
+    ${activity(f, records, hours, now)}
   </section>
   <section class="grid2">
     <div class="card">
@@ -370,7 +513,7 @@ export function renderDashboard(records: DecisionRecord[], baselineRates?: CostR
     <div class="card">
       <div class="eyebrow">${copy.observed}</div>
       <h2>${copy.health}</h2>
-      ${health(f, records)}
+      ${health(f, records, now)}
     </div>
   </section>
   <section class="grid2">
@@ -388,7 +531,7 @@ export function renderDashboard(records: DecisionRecord[], baselineRates?: CostR
   <section class="card">
     <div class="eyebrow">${copy.ruleSource}</div>
     <h2>${copy.why}</h2>
-    ${bars(f, countBy(records, (rec) => rec.rule), records.length)}
+    ${bars(f, countBy(records, (rec) => rec.rule), records.length, (rule) => copy.reasons[rule] ?? rule)}
   </section>
   ${roundsTable(f, records)}
 </main>
