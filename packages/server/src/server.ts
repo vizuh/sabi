@@ -501,7 +501,9 @@ async function handleRequest(state: ServerState, req: IncomingMessage, res: Serv
   if (req.method === 'GET' && path === '/dashboard') {
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.writeHead(200)
-    res.end(renderDashboard(state.recent))
+    // Same baseline as `sabi report`: the strong tier, else the first configured model.
+    const { models } = state.options.config
+    res.end(renderDashboard(state.recent, (models.strong ?? Object.values(models)[0])?.cost))
     return
   }
   sendError(res, 404, `no route for ${req.method} ${path}`, 'not_found')

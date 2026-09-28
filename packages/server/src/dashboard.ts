@@ -1,30 +1,24 @@
-import type { DecisionRecord } from '@sabi/core'
+import { estimateCost, type CostRates, type DecisionRecord } from '@sabi/core'
 
 /**
- * The `/dashboard` page: a read-only view over the proxy's in-memory recent rounds.
+ * The `/dashboard` page: a read-only view over the proxy's in-memory recent rounds, organised
+ * around whether Sabi routed well — success, recovery, confirmed-free compute, latency, and why
+ * each route was chosen — before which model spent how many tokens.
  *
- * Every number on the page is computed from `records`; nothing is projected or compared against a
- * period the proxy never saw. A round without a recorded cost is shown as unpriced ("—"), never as
- * $0, because borrowed-subscription and unpriced rounds carry no price, not a zero one.
+ * Every number is computed from `records`. A round without a finite, non-negative cost is
+ * "price unknown", never $0; a savings figure only counts rounds where both the actual price and
+ * the baseline price are known, and says how much of the traffic that covers.
  */
 
-interface ModelRow {
-  model: string
-  tier: string
-  rounds: number
-  tokens: number
-  input: number
-  output: number
-  total: number
-  priced: boolean
-}
+type Priced = DecisionRecord & { cost: NonNullable<DecisionRecord['cost']> }
 
 const esc = (value: unknown): string =>
   String(value).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
-
 const compactFormat = new Intl.NumberFormat('en', { notation: 'compact', maximumSignificantDigits: 3 })
 const compact = (n: number): string => compactFormat.format(n)
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
+const pct = (part: number, whole: number): string => whole === 0 ? '—' : `${Math.round((part / whole) * 100)}%`
+const modelOf = (rec: DecisionRecord): string => rec.servedModel || rec.upstreamModel
 
 function money(n: number): string {
   if (n === 0) return '$0'
@@ -32,144 +26,157 @@ function money(n: number): string {
   return `$${n.toLocaleString('en', { minimumFractionDigits: Math.min(digits, 2), maximumFractionDigits: digits })}`
 }
 
-function mostFrequent(counts: Map<string, number>): string {
-  let best = ''
-  let max = -1
-  for (const [key, n] of counts) if (n > max) [best, max] = [key, n]
-  return best
+function ms(n: number | undefined): string {
+  if (n === undefined) return '—'
+  return n < 1000 ? `${Math.round(n)} ms` : `${(n / 1000).toFixed(1)} s`
+}
+
+/** Nearest-rank percentile; undefined when nothing was measured. */
+function percentile(values: number[], p: number): number | undefined {
+  if (values.length === 0) return undefined
+  const sorted = [...values].sort((a, b) => a - b)
+  return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)]
 }
 
 /** Same rule as `sabi report`: only a finite, non-negative total is a price. */
-function isPriced(rec: DecisionRecord): rec is DecisionRecord & { cost: NonNullable<DecisionRecord['cost']> } {
+function isPriced(rec: DecisionRecord): rec is Priced {
   return Number.isFinite(rec.cost?.total) && rec.cost!.total >= 0
 }
 
-function modelRows(records: DecisionRecord[]): ModelRow[] {
-  const rows = new Map<string, ModelRow & { tiers: Map<string, number> }>()
-  for (const rec of records) {
-    const model = rec.servedModel || rec.upstreamModel
-    const row = rows.get(model) ?? { model, tier: '', rounds: 0, tokens: 0, input: 0, output: 0, total: 0, priced: false, tiers: new Map() }
-    row.rounds += 1
-    row.tiers.set(rec.tier, (row.tiers.get(rec.tier) ?? 0) + 1)
-    row.tokens += rec.usage?.totalTokens ?? 0
-    if (isPriced(rec)) {
-      row.priced = true
-      row.input += rec.cost.input
-      row.output += rec.cost.output
-      row.total += rec.cost.total
-    }
-    rows.set(model, row)
-  }
-  return [...rows.values()]
-    .map(({ tiers, ...row }) => ({ ...row, tier: mostFrequent(tiers) }))
-    .sort((a, b) => b.tokens - a.tokens)
+function countBy<T>(items: T[], key: (item: T) => string): Array<[string, number]> {
+  const counts = new Map<string, number>()
+  for (const item of items) counts.set(key(item), (counts.get(key(item)) ?? 0) + 1)
+  return [...counts].sort((a, b) => b[1] - a[1])
 }
 
-function niceMax(n: number): number {
-  if (n <= 0) return 1
-  const pow = 10 ** Math.floor(Math.log10(n))
-  return ([1, 2, 2.5, 5, 10].find((step) => step * pow >= n) ?? 10) * pow
+const clock = (ts: string): string => {
+  const t = Date.parse(ts)
+  return Number.isFinite(t) ? new Date(t).toLocaleTimeString('en', { hour12: false }) : '—'
 }
 
-/** Catmull-Rom through the points as cubic Béziers; control points are clamped to the plot. */
-function smoothPath(points: Array<[number, number]>, top: number, bottom: number): string {
-  const clamp = (y: number) => Math.min(bottom, Math.max(top, y))
-  let d = `M${points[0][0]},${points[0][1]}`
-  for (let i = 0; i < points.length - 1; i++) {
-    const [p0, p1, p2, p3] = [points[i - 1] ?? points[i], points[i], points[i + 1], points[i + 2] ?? points[i + 1]]
-    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, clamp(p1[1] + (p2[1] - p0[1]) / 6)].map((v) => v.toFixed(1))
-    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, clamp(p2[1] - (p3[1] - p1[1]) / 6)].map((v) => v.toFixed(1))
-    d += ` C${c1} ${c2} ${p2[0]},${p2[1]}`
-  }
-  return d
+function outcomeLabel(rec: DecisionRecord): string {
+  if (rec.outcome === 'ok') return '<span class="st good">✓ ok</span>'
+  const detail = rec.transport ? `${rec.outcome} ${rec.transport}` : rec.outcome
+  return `<span class="st bad">✕ ${esc(detail)}</span>`
 }
 
-function timeLabel(ms: number, spanMs: number): string {
-  const date = new Date(ms)
-  return spanMs > 86_400_000
-    ? date.toLocaleDateString('en', { month: 'short', day: 'numeric' })
-    : date.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false })
+function kpi(label: string, value: string, sub: string): string {
+  return `<div class="kpi"><div class="eyebrow">${label}</div><div class="kpi-value">${value}</div><div class="muted">${sub}</div></div>`
 }
 
-function tokensChart(records: DecisionRecord[]): string {
-  const timed = records
-    .map((rec) => ({ t: Date.parse(rec.ts), tokens: rec.usage?.totalTokens }))
-    .filter((p): p is { t: number; tokens: number } => p.tokens !== undefined && Number.isFinite(p.t))
-    .sort((a, b) => a.t - b.t)
-  if (timed.length < 2 || timed[timed.length - 1].t === timed[0].t) {
-    return '<p class="empty">Not enough rounds with usage yet. The chart appears after two rounds report tokens.</p>'
-  }
-  // ponytail: fixed bucket count; per-round points are too spiky past ~30 rounds.
-  const first = timed[0].t
-  const span = timed[timed.length - 1].t - first
-  const count = Math.min(30, timed.length)
-  const buckets = Array.from({ length: count }, (_, i) => ({ t: first + (span * (i + 0.5)) / count, tokens: 0, rounds: 0 }))
-  for (const { t, tokens } of timed) {
-    const bucket = buckets[Math.min(count - 1, Math.floor(((t - first) / span) * count))]
-    bucket.tokens += tokens
-    bucket.rounds += 1
-  }
+function bars(rows: Array<[string, number]>, total: number): string {
+  if (rows.length === 0) return '<p class="empty">No rounds yet.</p>'
+  return rows.map(([label, n]) => `
+    <div class="bar-row">
+      <span class="bar-label" title="${esc(label)}">${esc(label)}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${((n / total) * 100).toFixed(1)}%"></span></span>
+      <span class="bar-value">${pct(n, total)} <span class="muted">· ${n}</span></span>
+    </div>`).join('')
+}
 
-  const [W, H, left, right, top, bottom] = [640, 340, 48, 16, 12, 308]
-  const max = niceMax(Math.max(...buckets.map((b) => b.tokens)))
-  const x = (i: number) => left + ((W - left - right) * i) / (count - 1)
-  const y = (v: number) => bottom - ((bottom - top) * v) / max
-  const round1 = (v: number) => Math.round(v * 10) / 10
-  const points = buckets.map((b, i): [number, number] => [round1(x(i)), round1(y(b.tokens))])
-  const line = smoothPath(points, top, bottom)
-  const grid = [0, 0.25, 0.5, 0.75, 1].map((f) => {
-    const gy = y(max * f)
-    return `<line class="grid" x1="${left}" x2="${W - right}" y1="${gy}" y2="${gy}"/><text class="axis" x="${left - 10}" y="${gy + 4}" text-anchor="end">${esc(compact(max * f))}</text>`
+function timeline(records: DecisionRecord[]): string {
+  if (records.length === 0) return '<p class="empty">No rounds yet. Send a request through the proxy and refresh.</p>'
+  return records.slice(-12).reverse().map((rec) => `
+    <li>
+      <div class="tl-head">
+        <span class="tl-time">${esc(clock(rec.ts))}</span>
+        <span class="badge">${esc(rec.tier)}</span>
+        <span class="tl-model" title="${esc(modelOf(rec))}">${esc(modelOf(rec))}</span>
+        ${outcomeLabel(rec)}
+      </div>
+      <div class="tl-sub muted">
+        ${rec.fallback ? `<span class="recovered">↳ planned ${esc(rec.tier)} failed · served by ${esc(rec.fallback)}</span> · ` : ''}
+        rule <b>${esc(rec.rule)}</b>${rec.usage ? ` · ${compact(rec.usage.totalTokens)} tok` : ''}${rec.latencyMs !== undefined ? ` · ${ms(rec.latencyMs)}` : ''}
+      </div>
+    </li>`).join('')
+}
+
+function health(records: DecisionRecord[]): string {
+  const models = new Map<string, DecisionRecord[]>()
+  for (const rec of records) models.set(modelOf(rec), [...(models.get(modelOf(rec)) ?? []), rec])
+  if (models.size === 0) return '<p class="empty">No models observed yet.</p>'
+  const rows = [...models].map(([model, recs]) => {
+    const ok = recs.filter((rec) => rec.outcome === 'ok').length
+    const last = recs[recs.length - 1]
+    // ponytail: status is a heuristic over these rounds only; the controller's live health is a separate process.
+    const status = ok === 0 ? ['bad', '✕ failing'] : last.outcome !== 'ok' || ok < recs.length ? ['warn', '! degraded'] : ['good', '● healthy']
+    const p50 = percentile(recs.flatMap((rec) => rec.latencyMs !== undefined && rec.outcome === 'ok' ? [rec.latencyMs] : []), 50)
+    return `<tr>
+      <td class="model" title="${esc(model)}">${esc(model)}</td>
+      <td><span class="st ${status[0]}">${status[1]}</span></td>
+      <td>${pct(ok, recs.length)} <span class="muted">${ok}/${recs.length}</span></td>
+      <td>${ms(p50)}</td>
+    </tr>`
   }).join('')
-  const last = points[points.length - 1]
-  const [from, to] = [esc(timeLabel(first, span)), esc(timeLabel(first + span, span))]
-  const data = buckets.map((b, i) => ({ x: points[i][0], y: points[i][1], label: timeLabel(b.t, span), tokens: compact(b.tokens), rounds: b.rounds }))
-
-  return `
-    <div class="chart" data-points="${esc(JSON.stringify(data))}">
-      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Tokens per time bucket, ${from} to ${to}">
-        <defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stop-color="var(--accent)" stop-opacity="0.28"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0.02"/>
-        </linearGradient></defs>
-        ${grid}
-        <path d="${line} L${last[0]},${bottom} L${points[0][0]},${bottom} Z" fill="url(#fill)"/>
-        <path d="${line}" class="line"/>
-        <circle cx="${last[0]}" cy="${last[1]}" r="5" class="dot"/>
-        <line class="cross" x1="0" x2="0" y1="${top}" y2="${bottom}" visibility="hidden"/>
-        <circle class="hover" r="5" visibility="hidden"/>
-        <text class="axis" x="${left}" y="${H - 6}">${from}</text>
-        <text class="axis" x="${W - right}" y="${H - 6}" text-anchor="end">${to}</text>
-      </svg>
-      <div class="tip" hidden></div>
-    </div>`
+  return `<div class="table"><table>
+    <thead><tr><th>Model</th><th>Status</th><th>Success</th><th>P50</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`
 }
 
-export function renderDashboard(records: DecisionRecord[]): string {
-  const rows = modelRows(records)
-  const tokens = rows.reduce((sum, row) => sum + row.tokens, 0)
-  const failed = records.filter((rec) => rec.outcome !== 'ok').length
-  const fallbacks = records.filter((rec) => rec.fallback).length
-  const cost = rows.reduce((sum, row) => sum + row.total, 0)
-  const unpriced = records.filter((rec) => !isPriced(rec)).length
-  const health = records.length === 0
-    ? 'waiting for the first round'
-    : failed === 0 ? 'all rounds ok' : `${failed} of ${records.length} rounds failed`
+function economics(records: DecisionRecord[], baselineRates: CostRates | undefined): string {
+  const ok = records.filter((rec) => rec.outcome === 'ok' && rec.usage)
+  const priced = ok.filter(isPriced)
+  const actual = priced.reduce((sum, rec) => sum + rec.cost.total, 0)
+  const tokens = ok.reduce((sum, rec) => sum + rec.usage!.totalTokens, 0)
+  const paidTokens = priced.filter((rec) => rec.cost.total > 0).reduce((sum, rec) => sum + rec.usage!.totalTokens, 0)
+  const covered = priced.flatMap((rec) => {
+    const baseline = estimateCost(rec.usage!, baselineRates)
+    return baseline ? [{ rec, baseline: baseline.total }] : []
+  })
+  const baseline = covered.reduce((sum, c) => sum + c.baseline, 0)
+  const coveredActual = covered.reduce((sum, c) => sum + c.rec.cost.total, 0)
+  const coveredTokens = covered.reduce((sum, c) => sum + c.rec.usage!.totalTokens, 0)
 
-  const cards = rows.length === 0
-    ? '<p class="empty">No rounds yet. Send a request through the proxy and refresh.</p>'
-    : rows.map((row) => `
-      <div class="kpi">
-        <div class="kpi-head"><span class="kpi-name" title="${esc(row.model)}">${esc(row.model)}</span><span class="badge">${esc(row.tier)}</span></div>
-        <div class="kpi-value">${esc(compact(row.tokens))}</div>
-        <div class="muted">${plural(row.rounds, 'round')}</div>
-      </div>`).join('')
+  const avoided = !baselineRates
+    ? '<p class="note">No strong-tier price configured, so there is no baseline to compare against.</p>'
+    : baselineRates.input === 0 && baselineRates.output === 0
+      ? '<p class="note">The strong tier is priced at $0, so there is no paid inference to avoid. Configure a priced baseline to measure savings.</p>'
+      : covered.length === 0
+        ? '<p class="note">No successful round has a known price yet, so savings cannot be estimated.</p>'
+        : `<div class="econ-row"><span>Strong baseline</span><b>${money(baseline)}</b></div>
+         <div class="econ-row"><span>Avoided</span><b class="good-ink">${money(baseline - coveredActual)} · ${pct(baseline - coveredActual, baseline)}</b></div>
+         <div class="econ-row"><span>Pricing coverage</span><b>${pct(coveredTokens, tokens)} of tokens</b></div>`
+  return `
+    <div class="econ-row"><span>Known cost</span><b>${money(actual)}</b></div>
+    <div class="econ-row"><span>Paid tokens</span><b>${compact(paidTokens)}</b></div>
+    <div class="econ-row"><span>Price unknown</span><b>${plural(ok.length - priced.length, 'round')}</b></div>
+    ${avoided}`
+}
 
-  const costRows = rows.map((row) => `
-      <tr>
-        <td class="model" title="${esc(row.model)}">${esc(row.model)}</td>
-        ${[row.input, row.output, row.total].map((v) => `<td>${row.priced ? money(v) : '—'}</td>`).join('')}
-        <td>${row.priced && cost > 0 ? `${((row.total / cost) * 100).toFixed(1)}%` : '—'}</td>
-      </tr>`).join('')
+function roundsTable(records: DecisionRecord[]): string {
+  if (records.length === 0) return ''
+  const rows = [...records].reverse().map((rec) => `<tr>
+    <td>${esc(clock(rec.ts))}</td>
+    <td>${esc(rec.alias)}</td>
+    <td>${esc(rec.tier)}${rec.fallback ? ` → ${esc(rec.fallback)}` : ''}</td>
+    <td class="model" title="${esc(modelOf(rec))}">${esc(modelOf(rec))}</td>
+    <td title="${esc(rec.reason)}">${esc(rec.rule)}</td>
+    <td>${ms(rec.ttftMs)}</td>
+    <td>${ms(rec.latencyMs)}</td>
+    <td>${outcomeLabel(rec)}</td>
+    <td>${isPriced(rec) ? money(rec.cost.total) : '—'}</td>
+  </tr>`).join('')
+  return `<details class="card"><summary><span class="eyebrow">All ${plural(records.length, 'round')}</span><h2>Recent rounds</h2></summary>
+    <div class="table"><table>
+      <thead><tr><th>Time</th><th>Route</th><th>Tier</th><th>Model</th><th>Rule</th><th>TTFT</th><th>Latency</th><th>Outcome</th><th>Cost</th></tr></thead>
+      <tbody>${rows}</tbody></table></div></details>`
+}
+
+export function renderDashboard(records: DecisionRecord[], baselineRates?: CostRates): string {
+  const ok = records.filter((rec) => rec.outcome === 'ok')
+  const withUsage = ok.filter((rec) => rec.usage)
+  const tokens = withUsage.reduce((sum, rec) => sum + rec.usage!.totalTokens, 0)
+  const free = withUsage.filter((rec) => isPriced(rec) && rec.cost.total === 0)
+  const freeTokens = free.reduce((sum, rec) => sum + rec.usage!.totalTokens, 0)
+  const recovered = ok.filter((rec) => rec.fallback).length
+  const failed = records.length - ok.length
+  const priced = withUsage.filter(isPriced)
+  const knownCost = priced.reduce((sum, rec) => sum + rec.cost.total, 0)
+  const ttft = percentile(ok.flatMap((rec) => rec.ttftMs !== undefined ? [rec.ttftMs] : []), 50)
+  const p95 = percentile(ok.flatMap((rec) => rec.latencyMs !== undefined ? [rec.latencyMs] : []), 95)
+  const headline = records.length === 0
+    ? 'Waiting for the first round.'
+    : `${pct(ok.length, records.length)} successful · ${pct(freeTokens, tokens)} of tokens confirmed free · ${plural(recovered, 'round')} recovered by fallback`
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -182,6 +189,7 @@ export function renderDashboard(records: DecisionRecord[]): string {
     color-scheme: light;
     --bg: #f5f6f8; --card: #ffffff; --line: #eceef2; --zebra: #f7f8fa;
     --ink: #101217; --muted: #6b7180; --accent: #e8175d; --accent-soft: #fde8ef;
+    --good: #0b7a4b; --warn: #a15c00; --bad: #c0262d;
     --radius: 20px;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
@@ -193,43 +201,55 @@ export function renderDashboard(records: DecisionRecord[]): string {
   main { max-width: 1280px; margin: 0 auto; padding: 32px; display: grid; gap: 20px; }
   .head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; }
   h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
-  h2 { margin: 2px 0 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  h2 { margin: 2px 0 16px; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
   .muted, .eyebrow { color: var(--muted); }
   .eyebrow { font-size: 13px; }
   .pill { padding: 8px 14px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 13px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; min-width: 0; }
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); padding: 8px 0; }
-  .kpi { padding: 16px 28px; border-left: 1px solid var(--line); min-width: 0; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); padding: 8px 0; }
+  .kpi { padding: 14px 24px; border-left: 1px solid var(--line); min-width: 0; }
   .kpi:first-child { border-left: 0; }
-  .kpi-head { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); }
-  .kpi-name, .model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .kpi-value { margin: 10px 0 6px; font-size: 40px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; }
-  .badge { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--zebra); font-size: 12px; }
+  .kpi-value { margin: 8px 0 4px; font-size: 30px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; }
+  .badge { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 500; }
   .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-  .total { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 14px 0 18px; }
-  .total b { font-size: 36px; font-weight: 600; letter-spacing: -0.03em; }
-  .chart { position: relative; margin-top: 12px; }
-  svg { display: block; width: 100%; height: auto; }
-  .grid { stroke: var(--line); stroke-dasharray: 3 4; }
-  .axis { fill: var(--muted); font-size: 12px; }
-  .line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; }
-  .dot, .hover { fill: var(--accent); stroke: var(--card); stroke-width: 2; }
-  .cross { stroke: var(--muted); stroke-width: 1; }
-  .tip { position: absolute; top: 0; transform: translateX(-50%); pointer-events: none; padding: 8px 10px; border-radius: 10px; background: var(--ink); color: #fff; font-size: 12px; white-space: nowrap; }
+  .st { white-space: nowrap; font-weight: 500; }
+  .good, .good-ink { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .timeline { list-style: none; margin: 0; padding: 0; }
+  .timeline li { padding: 12px 0; border-top: 1px solid var(--line); }
+  .timeline li:first-child { border-top: 0; padding-top: 0; }
+  .tl-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .tl-time { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .tl-model { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tl-sub { margin: 4px 0 0 72px; font-size: 13px; }
+  .tl-sub b { font-weight: 500; color: var(--ink); }
+  .recovered { color: var(--good); }
+  .bar-row { display: grid; grid-template-columns: minmax(80px, 140px) 1fr auto; align-items: center; gap: 12px; padding: 6px 0; }
+  .bar-label, .model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { height: 10px; border-radius: 999px; background: var(--zebra); overflow: hidden; }
+  .bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  .bar-value { font-variant-numeric: tabular-nums; min-width: 72px; text-align: right; }
+  .econ-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .econ-row:first-of-type { border-top: 0; }
+  .econ-row b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .note { margin: 12px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--zebra); color: var(--muted); }
   .table { border: 1px solid var(--line); border-radius: 14px; overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 14px 16px; text-align: right; }
-  th:first-child, td:first-child { text-align: left; }
+  th, td { padding: 12px 14px; text-align: left; white-space: nowrap; }
   th { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted); border-bottom: 1px solid var(--line); }
   tbody tr:nth-child(even) { background: var(--zebra); }
   td { font-variant-numeric: tabular-nums; }
-  .model { max-width: 220px; }
-  .empty { color: var(--muted); padding: 24px 28px; margin: 0; }
+  .model { max-width: 240px; }
+  details summary { cursor: pointer; list-style: none; }
+  details summary::-webkit-details-marker { display: none; }
+  details:not([open]) h2 { margin-bottom: 0; }
+  details h2::after { content: " ▾"; color: var(--muted); font-size: 14px; }
+  .empty { color: var(--muted); margin: 0; }
   @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
   @media (max-width: 600px) {
     .bar, main { padding-left: 16px; padding-right: 16px; }
     .kpi { border-left: 0; border-top: 1px solid var(--line); }
     .kpi:first-child { border-top: 0; }
+    .tl-sub { margin-left: 0; }
   }
 </style>
 </head>
@@ -239,47 +259,49 @@ export function renderDashboard(records: DecisionRecord[]): string {
   <section class="head">
     <div>
       <h1>Overview</h1>
-      <div class="muted">${plural(rows.length, 'model')} served · ${esc(compact(tokens))} tokens · ${records.length} rounds · ${esc(health)}${fallbacks ? ` · ${fallbacks} fallbacks` : ''}</div>
+      <div class="muted">${esc(headline)}</div>
     </div>
-    <span class="pill">Last ${records.length} rounds, since the proxy started</span>
+    <span class="pill">Last ${plural(records.length, 'round')}, since the proxy started</span>
   </section>
-  <section class="card kpis" aria-label="Tokens by model">${cards}</section>
+  <section class="card kpis" aria-label="Headline metrics">
+    ${kpi('Confirmed free', `${compact(freeTokens)} tok`, `${plural(free.length, 'round')} at $0`)}
+    ${kpi('Success', pct(ok.length, records.length), `${ok.length} / ${records.length} rounds`)}
+    ${kpi('Recovered', String(recovered), `of ${plural(recovered + failed, 'failed plan')}`)}
+    ${kpi('Known cost', money(knownCost), `${plural(withUsage.length - priced.length, 'successful round')} price unknown`)}
+    ${kpi('P50 TTFT', ms(ttft), 'streamed rounds only')}
+    ${kpi('P95 latency', ms(p95), 'successful rounds')}
+  </section>
   <section class="grid2">
     <div class="card">
-      <div class="eyebrow">Recent rounds</div>
-      <h2>Tokens usage</h2>
-      ${tokensChart(records)}
+      <div class="eyebrow">Newest first</div>
+      <h2>Routing timeline</h2>
+      <ul class="timeline">${timeline(records)}</ul>
     </div>
     <div class="card">
-      <div class="eyebrow">Across all models</div>
-      <h2>What it's costing</h2>
-      <div class="total"><b>${money(cost)}</b><span class="muted">estimated from configured prices${unpriced ? ` · ${plural(unpriced, 'unpriced round')}` : ''}</span></div>
-      <div class="table"><table>
-        <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Total</th><th>Share</th></tr></thead>
-        <tbody>${costRows || '<tr><td colspan="5" class="muted">No rounds yet.</td></tr>'}</tbody>
-      </table></div>
+      <div class="eyebrow">Observed in these rounds</div>
+      <h2>Model health</h2>
+      ${health(records)}
     </div>
   </section>
+  <section class="grid2">
+    <div class="card">
+      <div class="eyebrow">Share of rounds by tier</div>
+      <h2>Intelligence used</h2>
+      ${bars(countBy(records, (rec) => rec.tier), records.length)}
+    </div>
+    <div class="card">
+      <div class="eyebrow">Successful rounds</div>
+      <h2>Economics</h2>
+      ${economics(records, baselineRates)}
+    </div>
+  </section>
+  <section class="card">
+    <div class="eyebrow">Policy rule that picked the tier</div>
+    <h2>Why Sabi chose each route</h2>
+    ${bars(countBy(records, (rec) => rec.rule), records.length)}
+  </section>
+  ${roundsTable(records)}
 </main>
-<script>
-  for (const chart of document.querySelectorAll('.chart')) {
-    const points = JSON.parse(chart.dataset.points)
-    const svg = chart.querySelector('svg'), tip = chart.querySelector('.tip')
-    const cross = svg.querySelector('.cross'), hover = svg.querySelector('.hover')
-    const hide = () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); hover.setAttribute('visibility', 'hidden') }
-    svg.addEventListener('pointerleave', hide)
-    svg.addEventListener('pointermove', (event) => {
-      const box = svg.getBoundingClientRect(), scale = svg.viewBox.baseVal.width / box.width
-      const vx = (event.clientX - box.left) * scale
-      const p = points.reduce((a, b) => Math.abs(b.x - vx) < Math.abs(a.x - vx) ? b : a)
-      cross.setAttribute('x1', p.x); cross.setAttribute('x2', p.x); cross.setAttribute('visibility', 'visible')
-      hover.setAttribute('cx', p.x); hover.setAttribute('cy', p.y); hover.setAttribute('visibility', 'visible')
-      tip.textContent = p.label + ' · ' + p.tokens + ' tokens · ' + p.rounds + (p.rounds === 1 ? ' round' : ' rounds')
-      tip.style.left = (p.x / scale) + 'px'
-      tip.hidden = false
-    })
-  }
-</script>
 </body>
 </html>`
 }
