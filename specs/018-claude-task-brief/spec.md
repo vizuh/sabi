@@ -11,6 +11,10 @@ better prepared path and tasks … using Anthropic prompt guidelines."
 
 The product line this serves: **spend free inference to make the expensive
 agent's first token better**, rather than replacing its calls one for one.
+Stated as a mechanism: Sabi compiles cheap exploration into verified context
+for an expensive executor. Hermes, OMP and Claude Code are the first
+occupants of those roles, not the feature; the task brief is a Sabi Control
+primitive that any preparer and any executor can plug into.
 
 **Relationship to existing work**
 
@@ -35,8 +39,11 @@ agent's first token better**, rather than replacing its calls one for one.
   a proxy round*, not an arbitrary evidence item. Ranking brief items needs a
   new per-item judge question, or a mapping from each item back to the round
   that produced it (see Open questions).
-- **Borrowed-harness auth.** Not used. This workflow never proxies, edits, or
-  compresses a live Claude session.
+- **Borrowed-harness auth.** Not used, by any role. Preparers reach models
+  through Sabi's normal `sabi/sabi-code` provider with Sabi's configured
+  upstream authentication; borrowed credentials stay a separate transport
+  capability this feature does not depend on. The workflow never proxies,
+  edits, or compresses a live Claude session.
 
 ---
 
@@ -67,31 +74,58 @@ Claude session that starts from a small, verified brief.
 ## Workflow
 
 ```text
-task ──► host harness on free tier ──► findings ──► Sabi checks ──► brief ──► fresh Claude session ──► receipt
-          (OpenCode / Hermes / OMP      each with     by reading;     files on    `claude "<pointer>"`   tokens, turns,
-          through Sabi's proxy)         a source      bounds          disk                               outcome
+TASK
+ │
+ ▼
+PREPARER                 any harness on the free tier (Hermes first, then OMP, others later)
+ │                       runs in a disposable isolated worktree
+ │ structured findings
+ ▼
+EVIDENCE GATE            source + provenance + verification (Sabi reads; never runs commands)
+ │
+ ▼
+BRIEF COMPILER           deterministic, bounded
+ │   verified facts · relevant surface · ruled out · uncertainties
+ │   constraints · success criteria · proposed path
+ ▼
+SABI CONTROL             SPAWN with the brief
+ │
+ ▼
+EXECUTOR                 Claude Code, fresh context, on the user's real worktree
+ │
+ ▼
+RECEIPT                  tokens, turns, outcome, bounds applied
 ```
 
-1. **Intake.** A task arrives from any harness through the controller, or from
-   the CLI (`sabi brief "<task>"`, name to confirm, see Open questions).
-2. **Preparation in a host harness.** A harness Hugo already runs on the free
-   tier (OpenCode, Hermes or OMP, inference through Sabi's proxy) does the
-   exploring with its own tools: it locates the files the task touches, finds
-   and runs the test or build command, and reproduces the failure if there is
-   one. Sabi routes that harness's inference; it does not run tools. The
-   harness hands its findings to the controller, the same way handoffs travel
-   today (capsule, or the 016 decision interface). Every finding carries its
-   source: `file:line`, or a command with the exit code from the harness's own
-   recorded tool result.
-3. **Verification split.** Sabi checks what it can check by reading: the file
-   exists, the quoted line matches. A command result counts as verified only
-   when it comes from the harness's recorded tool result; Sabi never reruns
-   commands. Everything else goes under `<uncertainties>`. A free model's claim
-   never enters the brief as a fact without one of those checks.
-4. **Selection.** Evidence is bounded by count and size; the lowest-ranked
-   items are dropped and counted. A Jev-based ranking, if adopted, runs in
-   shadow first: it records what it would drop while the brief keeps
-   everything within bounds.
+1. **Intake.** `sabi brief "<task>"` is the canonical entry point and the
+   only implementation. Harness-triggered offers (a Hermes skill, an OMP tool,
+   a controller suggestion) call the same primitive; there is no second code
+   path.
+2. **Preparation in an isolated worktree.** Sabi creates a disposable,
+   detached git worktree at the user's current `HEAD` and starts the preparer
+   there. The preparer explores with its own tools: it locates the files the
+   task touches, finds and runs the test or build command, and reproduces the
+   failure if there is one. Commands can rewrite snapshots, generated files or
+   lockfiles, which is why they never run in the user's worktree. Sabi routes
+   the preparer's inference; it does not run tools. The preparer returns
+   structured findings, each with an evidence reference (see Evidence model).
+   The worktree is removed afterwards. If the user's worktree has uncommitted
+   changes, preparation saw `HEAD` without them; `<repo_state>` says so.
+3. **Evidence gate.** Sabi checks what it can check by reading. A file
+   reference is re-read **in the user's live worktree**, so a fact about a line
+   the user has since changed does not pass. A command reference counts as
+   verified only when it comes from the preparer's recorded tool result in the
+   isolated worktree, and it is labelled with that worktree's base commit;
+   Sabi never reruns commands. Everything else goes under `<uncertainties>`. A
+   free model's claim never enters the brief as a fact without one of those
+   checks.
+4. **Selection.** Evidence is bounded, as an experimental default to be tuned
+   from receipts, not a protocol limit: at most 20 items and 8 KB per brief,
+   and at most 1 KB per item, so one large command output cannot take the
+   whole budget. Excerpts over the per-item bound are truncated and marked.
+   The receipt records `included`, `dropped`, `bytesBefore` and `bytesAfter`.
+   A Jev-based ranking, if adopted, runs in shadow first: it records what it
+   would drop while the brief keeps everything within bounds.
 5. **Assembly.** Code, not a model, renders the brief from a fixed template
    (see Brief format), so its structure is testable and does not drift.
 6. **Handoff.** Sabi dispatches a fresh Claude Code session through the
@@ -122,7 +156,7 @@ established, and anything not yet exercised is marked open.
 | | Claude Code | Hermes | OMP (oh-my-pi) |
 |---|---|---|---|
 | Role here | Executor | Preparer | Preparer |
-| How Sabi sees its inference | It doesn't. Subscription traffic goes straight to Anthropic; the borrowed route is not wired (`sabi doctor`: passthrough ○, 2026-09-28) | Every round, through the proxy with `llm_request` attribution middleware (`docs/adapters/hermes.md`) | Every round, through the proxy via the provider-override extension; OMP keeps its own credential (`docs/adapters/oh-my-pi.md`) |
+| How Sabi sees its inference | It doesn't. Subscription traffic goes straight to Anthropic; the borrowed route is not wired (`sabi doctor`: passthrough ○, 2026-09-28) | Every round, through the proxy with `llm_request` attribution middleware (`docs/adapters/hermes.md`) | Every round, through the proxy via the normal `sabi/sabi-code` provider with Sabi's configured upstream auth (`docs/adapters/oh-my-pi.md`); the borrowed-credential override is not used |
 | Controller surface | Manifest `partial`: `receive-prompt: hook`, `dispatch: cli`, `observe-outcome: cli` (`adapter-contract.ts`) | Inventory only (`inventory.ts` lists `hermes`); no controller manifest | Extension: no turn boundary, no catalog read, `setModel` only in a user action (spec 017, OMP 18.4.1). RPC mode: `omp --mode rpc` takes `{"type":"prompt","message":…}`; `set_model` field name not pinned (decisions, 2026-09-28) |
 | How a session starts | `claude --name … --effort … "<pointer>"` (CLI reference) | `HERMES_HOME=… hermes chat` with the generated `custom:sabi` profile (`docs/install.ai.md`) | `omp --extension … ` interactively, or an RPC `prompt` for a scripted preparation run |
 | How findings leave the harness | n/a | Open: no export path today. Candidates: a Hermes skill that writes findings to the brief directory, or a registered tool | Open. Candidate: `registerTool` (on the probed extension surface) adds a `sabi_record_finding` tool the preparing agent calls with source and claim |
@@ -150,6 +184,44 @@ What follows from the table:
 
 Slice order proposed: (1) Hermes preparer + Claude executor, because Hermes has
 the most verified proxy path; (2) OMP preparer through RPC; (3) other executors.
+
+## Evidence model
+
+"Facts require evidence" has to hold in the data, not only in the wording.
+Today `RecoveryCapsuleItem` is `{ label, status, source }`, where `source` is a
+category (`'tool' | 'user' | 'harness' | 'judge' | 'summary'`,
+`packages/core/src/types.ts`). It cannot carry a `file:line` or a command and
+its exit code, so a rendered brief would lose the provenance the gate checked.
+
+The item gains an optional structured reference:
+
+```ts
+interface EvidenceRef {
+  kind: 'file' | 'command'
+  // file
+  path?: string          // repository-relative
+  lineStart?: number
+  lineEnd?: number
+  // command
+  command?: string
+  exitCode?: number
+  baseCommit?: string    // the isolated worktree's HEAD
+  // provenance
+  roundId?: string       // the proxy round that produced the finding, when known
+  preparer?: string      // harness id, e.g. 'hermes'
+}
+
+interface RecoveryCapsuleItem {
+  label: string
+  status: EvidenceStatus
+  source: EvidenceSource
+  ref?: EvidenceRef      // required when status is 'verified' in a task brief
+}
+```
+
+`ref` is optional so existing recovery capsules stay valid. In a task brief,
+an item without a `ref` cannot have `status: 'verified'`; the gate demotes it
+to `<uncertainties>`.
 
 ## Brief format
 
@@ -252,12 +324,13 @@ Claude input tokens, turns, outcome, and whether a brief was used.
 
 ### Functional Requirements
 
-- **FR-001**: Preparation MUST NOT change the repository's tracked state. The
-  host harness may read files and run the repository's declared test, lint and
-  build commands, accepting that those may write caches or build output; it
-  MUST NOT edit tracked files, commit, push, or install packages. Sabi itself
-  runs no commands for this feature.
-- **FR-002**: Every item in `<verified_facts>` MUST carry a source and MUST have been
+- **FR-001**: Preparation MUST run in a disposable isolated worktree, never the
+  user's active worktree. The user's worktree is read-only to this feature:
+  Sabi MUST record its `git status` before and after preparation and report any
+  difference as a failure. The preparer MUST NOT commit, push, or install
+  packages globally. Sabi itself runs no commands other than creating and
+  removing the isolated worktree.
+- **FR-002**: Every item in `<verified_facts>` MUST carry an `EvidenceRef` and MUST have been
   checked by Sabi's code, not only asserted by a model.
 - **FR-003**: The brief MUST be rendered by a deterministic template; the same
   inputs produce byte-identical output.
@@ -273,16 +346,23 @@ Claude input tokens, turns, outcome, and whether a brief was used.
 - **FR-008**: The feature MUST be opt-in per task or per config, off by
   default.
 - **FR-009**: The receipt MUST record whether a brief was used, its size, the
-  free-lane rounds and their cost, and the Claude session's outcome when
-  observable.
+  free-lane rounds and their cost, the bounds applied (`included`, `dropped`,
+  `bytesBefore`, `bytesAfter`), the isolated worktree's base commit and
+  whether the user's worktree was unchanged, and the Claude session's outcome
+  when observable.
+- **FR-010**: Preparer inference MUST use Sabi's configured upstream
+  authentication through the normal `sabi/sabi-code` provider, not a borrowed
+  harness credential.
+- **FR-011**: Every entry point MUST call the single `sabi brief` primitive.
 
 ### Key Entities
 
 - **Task brief**: `<id>`, task text, evidence items (source, excerpt, status),
   unverified claims, constraints with reasons, goal, verification checklist,
   creation time.
-- **Evidence item**: source, bounded excerpt, verification status, Jev
-  redundancy score when available.
+- **Evidence item**: `RecoveryCapsuleItem` with a structured `EvidenceRef`
+  (see Evidence model), a bounded excerpt, and a Jev redundancy score when
+  available.
 - **Brief receipt**: brief `<id>`, dispatch receipt, free-lane rounds and cost,
   Claude outcome, tokens and turns when observable.
 
@@ -302,8 +382,10 @@ measured yet.
 - **SC-004**: `VIZUH` canary misses per session are counted for briefed and
   cold sessions, so the drift question is answered with numbers. Data source:
   the Stop hook (`~/.claude/hooks/canary-vizuh-stop.sh`, outside this repo)
-  appends one line per miss with the session id to a local log that the
-  receipt reads. That hook change is Hugo's to approve.
+  appends one line per miss holding only `timestamp`, `session_id` and
+  `canary_miss=true`: no prompt, source code, Claude output or transcript.
+  Hugo approved this shape on 2026-09-29; the hook change ships with the
+  implementation, not with this spec.
 
 ## Assumptions
 
@@ -316,12 +398,22 @@ measured yet.
 - Shorter starting context reduces drift. Plausible but unmeasured; SC-004
   tests it.
 
+## Decisions (Hugo, 2026-09-29)
+
+- Entry point: both, with `sabi brief` as the single canonical primitive and
+  harness-triggered preparation layered on top (FR-011).
+- Bounds: 20 items / 8 KB per brief and 1 KB per item, as an experimental
+  default tuned from receipts.
+- Evidence: structured `EvidenceRef` provenance (Evidence model).
+- Isolation: preparation runs in a disposable worktree (FR-001).
+- OMP authentication: Sabi's configured upstream auth, not borrowed
+  credentials (FR-010).
+- Canary instrumentation: approved, logging only timestamp, session id and a
+  miss flag (SC-004).
+- Scope of this PR: specification only; implementation follows separately.
+
 ## Open Questions
 
-- Entry point: a `sabi brief` CLI command, a hook-driven offer inside another
-  harness, or both? TODO — ask Hugo.
-- Bounds: maximum evidence items and brief size. Proposal: 20 items, 8 KB.
-  NEEDS CLARIFICATION.
 - Which free models run preparation inside Hermes and OMP: the existing
   `cheap` tier, or a dedicated `prep` tier with models chosen for tool use?
 - Findings channel per preparer (see Harness mapping): Hermes skill or tool;
