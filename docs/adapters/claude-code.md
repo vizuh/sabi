@@ -81,11 +81,15 @@ cheaper model running in another harness, then writes a brief for a fresh Claude
     session stop it signalling or typing into host processes.
   - **Common credential locations are hidden:** `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config`,
     `~/.claude`, `~/.codex`, keyrings and similar, plus files such as `~/.netrc` and `~/.npmrc`,
-    and the original repository (the preparer works on its clone). Its environment is an
+    `~/.local/state`, and the original repository (for a linked worktree, the main checkout
+    too; the preparer works on its own non-hardlinked clone). Its environment is an
     allowlist without provider keys or tokens.
-  - **Not a confidentiality boundary.** Other files readable by your user stay readable, and the
-    network is shared so the preparer can reach Sabi. Do not run a preparer on a machine whose
-    other readable files it must not see.
+  - **Only Sabi is reachable.** The sandbox has its own network namespace; a relay forwards one
+    loopback port to the local Sabi proxy, so Sabi's controller daemon, Ollama and every other
+    local service are unreachable. `--proxy` must therefore be a loopback URL.
+  - **Not a confidentiality boundary.** Files readable by your user outside the masked locations
+    stay readable to the preparer, and anything it reads can reach the model through Sabi. Do not
+    run a preparer on a machine whose other readable files it must not see.
   Without a working bubblewrap (missing, or unable to create namespaces) the command refuses;
   `--sandbox=none` runs the preparer unsandboxed and must be chosen explicitly. Verified on
   2026-09-29: Hermes 0.21.4, OMP 18.4.2, pi 0.84.2 and Prime Agent 0.9.5 run inside it, and a

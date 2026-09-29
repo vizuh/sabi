@@ -1939,3 +1939,18 @@ controller types as an optional `ref` on `RecoveryCapsuleItem`. Native skill:
 `skills/sabi-prep/SKILL.md`. Live runs: Hermes 46 s (4 verified, 1 reported), OMP 60 s
 (5 verified, 3 reported). A medium review found six issues and a follow-up found three; all
 fixed with regression tests. Not in this slice: the recommend-only prompt hook.
+
+## [2026-09-29] fix | Task-brief sandbox: network isolated to Sabi only; credential and repo masks
+
+Two review rounds on the bubblewrap sandbox for `sabi brief` preparers found and reproduced
+escapes. Fixed: `/run` masked (a reachable user D-Bus let `systemd-run --user` write anywhere),
+new PID namespace and session, private runtime dir; common credential locations, `~/.local/state`
+(Sabi's controller token), the original repository and, for a linked worktree, the main checkout
+masked; the clone no longer hardlinks the user's object store. The sandbox now has its own
+network namespace with a relay to the local Sabi port only, so the controller daemon and any
+other local service (for example unauthenticated Ollama) are unreachable. Each escape has a test
+that runs it inside the sandbox. Live: OMP, pi and Hermes built briefs network-isolated; Prime
+Agent ran 32 rounds through the relay and ended without output (model behaviour; it answered a
+short prompt in the same sandbox). Suite 849/849. The sandbox limits writes and reachability; it
+is not a confidentiality boundary for other files the user can read.
+

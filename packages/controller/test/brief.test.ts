@@ -265,7 +265,7 @@ test('inside the sandbox an absolute-path write to the user repo fails, and the 
   const script = `try{require('fs').appendFileSync(${JSON.stringify(target)},'// escaped\\n')}catch(e){};try{require('fs').writeFileSync(require('os').homedir()+'/probe.txt','x')}catch(e){console.error('home',e.code)};${REPORT}`
   const { receipt } = prepareBrief({
     task: 't', cwd: root, preparer: { argv: [process.execPath, '-e', script] },
-    baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+    baseURL: 'http://127.0.0.1:18765/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
   })
   assert.equal(readFileSync(target, 'utf8'), PRICING)
   assert.equal(receipt.userTreeUnchanged, true)
@@ -289,7 +289,7 @@ test('the sandbox blocks the known escapes: user bus, systemd-run, the original 
     ${REPORT}`
   const { receipt, dir } = prepareBrief({
     task: 't', cwd: root, preparer: { argv: [process.execPath, '-e', script] },
-    baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+    baseURL: 'http://127.0.0.1:18765/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
   })
   const probe = JSON.parse(/PROBE (.*)/.exec(readFileSync(path.join(dir, 'preparer-output.txt'), 'utf8'))![1])
   assert.equal(probe.userBus, false)
@@ -297,4 +297,56 @@ test('the sandbox blocks the known escapes: user bus, systemd-run, the original 
   assert.equal(probe.configEntries, 0)
   assert.equal(existsSync(escaped), false, `systemd-run ${probe.systemdRun}`)
   assert.equal(receipt.verified, 1)
+})
+
+test('the sandbox reaches Sabi and nothing else on the host network', { skip: !bwrapWorks && 'bubblewrap unavailable here' }, async () => {
+  const { createServer } = await import('node:http')
+  const listen = (body: string) => new Promise<{ port: number; close: () => void }>((resolve) => {
+    const server = createServer((_req, res) => res.end(body))
+    server.listen(0, '127.0.0.1', () => resolve({ port: (server.address() as { port: number }).port, close: () => server.close() }))
+  })
+  const sabi = await listen('sabi-ok')
+  const daemon = await listen('daemon-reached')
+  const root = repo({ 'src/pricing.js': PRICING })
+  const script = `
+    const get = (port) => new Promise((ok) => require('http').get('http://127.0.0.1:' + port + '/', (r) => { let b=''; r.on('data', (c) => b += c); r.on('end', () => ok(b)) }).on('error', (e) => ok('error ' + e.code)))
+    Promise.all([get(${sabi.port}), get(${daemon.port})]).then(([s, d]) => { console.log('PROBE ' + JSON.stringify({ sabi: s, daemon: d })); ${REPORT} })`
+  // prepareBrief blocks the event loop while the preparer runs, so serve from a child process.
+  sabi.close(); daemon.close()
+  const { spawn } = await import('node:child_process')
+  const servers = spawn(process.execPath, ['-e', `const h=require('http');h.createServer((q,r)=>r.end('sabi-ok')).listen(${sabi.port},'127.0.0.1');h.createServer((q,r)=>r.end('daemon-reached')).listen(${daemon.port},'127.0.0.1');setTimeout(()=>{},60000)`], { stdio: 'ignore' })
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  try {
+    const { receipt, dir } = prepareBrief({
+      task: 't', cwd: root, preparer: { argv: [process.execPath, '-e', script] },
+      baseURL: `http://127.0.0.1:${sabi.port}/v1`, alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+    })
+    const probe = JSON.parse(/PROBE (.*)/.exec(readFileSync(path.join(dir, 'preparer-output.txt'), 'utf8'))![1])
+    assert.equal(probe.sabi, 'sabi-ok')
+    assert.match(probe.daemon, /^error/)
+    assert.equal(receipt.verified, 1)
+  } finally {
+    servers.kill()
+  }
+})
+
+test('the sandbox refuses a non-local Sabi URL, since the network is isolated', () => {
+  const { receipt } = prepareBrief({
+    task: 't', cwd: repo({ 'a.txt': 'a\n' }), preparer: { argv: [process.execPath, '-e', ''] },
+    baseURL: 'https://sabi.example.com/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+  })
+  assert.match(receipt.fallbackReason ?? '', /loopback URL|no sandbox available/)
+})
+
+test('from a linked worktree, the main checkout is hidden too', { skip: !bwrapWorks && 'bubblewrap unavailable here' }, () => {
+  const main = repo({ 'src/pricing.js': PRICING })
+  writeFileSync(path.join(main, '.env'), 'TOKEN=abc\n')
+  const linked = path.join(mkdtempSync(path.join(os.tmpdir(), 'sabi-linked-')), 'wt')
+  assert.equal(spawnSync('git', ['worktree', 'add', '-q', linked], { cwd: main }).status, 0)
+  const script = `let r='blocked';try{require('fs').readFileSync(${JSON.stringify(path.join(main, '.env'))});r='read'}catch{};console.log('PROBE '+r);${REPORT}`
+  const { dir } = prepareBrief({
+    task: 't', cwd: linked, preparer: { argv: [process.execPath, '-e', script] },
+    baseURL: 'http://127.0.0.1:18765/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+  })
+  assert.match(readFileSync(path.join(dir, 'preparer-output.txt'), 'utf8'), /PROBE blocked/)
 })

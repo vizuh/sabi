@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -495,7 +495,30 @@ export interface PrepareOptions {
 
 /** Home-relative locations that commonly hold credentials; masked inside the sandbox. */
 const CREDENTIAL_DIRS = ['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.docker', '.config', '.claude', '.codex',
-  '.hermes', '.pi', '.prime', '.password-store', '.local/share/keyrings']
+  '.hermes', '.pi', '.prime', '.password-store', '.local/share/keyrings', '.local/state']
+
+/**
+ * Relays that give a network-isolated sandbox one way out: to Sabi. The host side listens on
+ * a Unix socket in scratch and connects to Sabi's port; the inside side listens on the same
+ * loopback address inside the sandbox and connects to that socket. Everything else on the
+ * host network (Sabi's controller daemon, Ollama, any local service) is unreachable.
+ */
+const HOST_RELAY = `const net=require('net');const [sock,host,port]=process.argv.slice(1);
+net.createServer((c)=>{const u=net.connect(Number(port),host);c.pipe(u);u.pipe(c);c.on('error',()=>u.destroy());u.on('error',()=>c.destroy())}).listen(sock)`
+const INNER_RELAY = `const net=require('net');const fs=require('fs');const [host,port,sock,ready]=process.argv.slice(2);
+net.createServer((c)=>{const u=net.connect(sock);c.pipe(u);u.pipe(c);c.on('error',()=>u.destroy());u.on('error',()=>c.destroy())}).listen(Number(port),host,()=>fs.writeFileSync(ready,''))`
+
+/** The loopback host and port of a local Sabi URL, or undefined when it is not loopback. */
+export function loopbackTarget(baseURL: string): { host: string; port: number } | undefined {
+  try {
+    const url = new URL(baseURL)
+    const host = url.hostname === 'localhost' ? '127.0.0.1' : url.hostname
+    if (host !== '127.0.0.1' && host !== '::1' && host !== '[::1]') return undefined
+    return { host: host.replace(/^\[|\]$/g, ''), port: Number(url.port || (url.protocol === 'https:' ? 443 : 80)) }
+  } catch {
+    return undefined
+  }
+}
 const CREDENTIAL_FILES = ['.netrc', '.npmrc', '.pypirc', '.git-credentials', '.claude.json']
 
 /**
@@ -509,7 +532,7 @@ const CREDENTIAL_FILES = ['.netrc', '.npmrc', '.pypirc', '.git-credentials', '.c
  */
 export function sandboxed(
   argv: string[], env: Record<string, string>, scratch: string, clone: string,
-  options: { bwrap?: string; home?: string; hide?: string[] } = {},
+  options: { bwrap?: string; home?: string; hide?: string[]; relay?: { host: string; port: number; socket: string } } = {},
 ): { argv: string[]; env: Record<string, string> } {
   const home = path.join(scratch, 'home')
   const tmp = path.join(scratch, 'tmp')
@@ -526,11 +549,22 @@ export function sandboxed(
     if (existsSync(target)) masks.push('--ro-bind', '/dev/null', target)
   }
   for (const dir of options.hide ?? []) masks.push('--tmpfs', dir)
+  // With a relay, the sandbox gets its own network namespace and reaches only Sabi.
+  let inner = argv
+  if (options.relay) {
+    const relayFile = path.join(scratch, 'relay.cjs')
+    const ready = path.join(scratch, 'relay.ready')
+    writeFileSync(relayFile, INNER_RELAY)
+    inner = ['/bin/sh', '-c',
+      `"$0" "$1" "$2" "$3" "$4" "$5" & i=0; while [ ! -e "$5" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done; shift 5; exec "$@"`,
+      process.execPath, relayFile, options.relay.host, String(options.relay.port), options.relay.socket, ready, ...argv]
+  }
   return {
     argv: [options.bwrap ?? 'bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc',
       '--tmpfs', '/tmp', '--tmpfs', '/run', '--ro-bind-try', '/run/systemd/resolve', '/run/systemd/resolve',
       ...masks, '--bind', scratch, scratch,
-      '--unshare-pid', '--new-session', '--die-with-parent', '--chdir', clone, '--', ...argv],
+      ...(options.relay ? ['--unshare-net'] : []),
+      '--unshare-pid', '--new-session', '--die-with-parent', '--chdir', clone, '--', ...inner],
     env: { ...env, HOME: home, TMPDIR: tmp, XDG_RUNTIME_DIR: run },
   }
 }
@@ -604,10 +638,12 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
 
   let exitCode: number | null = null
   let output = ''
+  let relay: ReturnType<typeof spawn> | undefined
   const scratch = mkdtempSync(path.join(os.tmpdir(), 'sabi-brief-'))
   try {
     const clone = path.join(scratch, 'repo')
-    git(scratch, ['clone', '--quiet', '--no-checkout', root, clone])
+    // --no-hardlinks: a hardlinked object store would let the preparer rewrite the user's objects.
+    git(scratch, ['clone', '--quiet', '--no-checkout', '--no-hardlinks', root, clone])
     git(clone, ['checkout', '--quiet', '--detach', baseCommit])
     git(clone, ['remote', 'remove', 'origin'])
     const promptFile = path.join(scratch, 'prompt.md')
@@ -619,9 +655,23 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
     if (options.sandbox !== 'none' && !sandboxAvailable(bwrap)) {
       return fail('no sandbox available: bubblewrap is missing or cannot create namespaces here; install or enable it, or pass --sandbox=none to run the preparer unsandboxed')
     }
-    const command = options.sandbox === 'none'
-      ? { argv: planned.argv, env: preparerEnv(planned.env) }
-      : sandboxed(planned.argv, preparerEnv(planned.env), scratch, clone, { bwrap, hide: [root] })
+    let command: { argv: string[]; env: Record<string, string> }
+    if (options.sandbox === 'none') command = { argv: planned.argv, env: preparerEnv(planned.env) }
+    else {
+      const target = loopbackTarget(options.baseURL)
+      if (!target) return fail('in the sandbox a preparer can reach only a local Sabi; --proxy must be a loopback URL')
+      const socket = path.join(scratch, 'sabi.sock')
+      relay = spawn(process.execPath, ['-e', HOST_RELAY, socket, target.host, String(target.port)], { stdio: 'ignore' })
+      const waitUntil = Date.now() + 3000
+      while (!existsSync(socket) && Date.now() < waitUntil) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+      if (!existsSync(socket)) return fail('the sandbox relay to Sabi did not start')
+      // Hide the user's checkout, and for a linked worktree the main checkout it belongs to.
+      const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: root, encoding: 'utf8' }).stdout.trim()
+      const hide = [...new Set([root, ...(common ? [path.dirname(common)] : []),
+        ...(process.env.SABI_CONTROLLER_HOME?.trim() ? [path.resolve(process.env.SABI_CONTROLLER_HOME.trim())] : [])])]
+        .filter((dir) => existsSync(dir))
+      command = sandboxed(planned.argv, preparerEnv(planned.env), scratch, clone, { bwrap, hide, relay: { ...target, socket } })
+    }
     const run = spawnSync(command.argv[0], command.argv.slice(1), {
       cwd: clone, encoding: 'utf8', env: command.env,
       timeout: options.timeoutMs ?? 15 * 60_000, maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
@@ -636,6 +686,7 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
   } catch (error) {
     return fail(`preparation failed: ${(error as Error).message}`, exitCode)
   } finally {
+    relay?.kill()
     rmSync(scratch, { recursive: true, force: true })
   }
 
