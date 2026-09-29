@@ -1,0 +1,29 @@
+{
+  "harness": "pi",
+  "probedAt": "2026-09-29",
+  "source": "overnight probe matrix: isolated Sabi proxy with :free models only, fixture repo, Orca worktree per harness, read-only preparation task; see log.md 2026-09-29",
+  "role": "preparer",
+  "version": "0.84.2 (@earendil-works/pi-coding-agent)",
+  "scriptedSession": {
+    "value": true,
+    "command": "PI_CODING_AGENT_DIR=<isolated> pi --offline --provider sabi --model <alias> -p --no-session <prompt>"
+  },
+  "routeInference": {
+    "value": true,
+    "via": "models.json provider 'sabi', api openai-completions, developer role and reasoning effort off"
+  },
+  "result": {
+    "exitCode": 0,
+    "seconds": 50,
+    "treeChanged": false,
+    "findingsBlock": "begin marker missing; JSON object before the end marker parsed",
+    "facts": null
+  },
+  "notes": [
+    "First run exited 1 on a relayed provider 429 from a :free model; fixed in Sabi by #151. Second run pinned to the mid tier passed."
+  ],
+  "detect": {
+    "value": true,
+    "how": "`pi` found on PATH; version from `pi --version`"
+  }
+}

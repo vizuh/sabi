@@ -1,0 +1,26 @@
+{
+  "harness": "omp",
+  "probedAt": "2026-09-29",
+  "source": "overnight probe matrix: isolated Sabi proxy with :free models only, fixture repo, Orca worktree per harness, read-only preparation task; see log.md 2026-09-29",
+  "role": "preparer",
+  "version": "omp/18.4.2",
+  "scriptedSession": {
+    "value": true,
+    "command": "SABI_OMP_BASE_URL=<proxy> omp -e sabi-extension.mjs --model sabi/sabi-code -p --no-session <prompt>"
+  },
+  "routeInference": {
+    "value": true,
+    "via": "normal sabi/sabi-code provider from the Sabi extension; no borrowed credential"
+  },
+  "result": {
+    "exitCode": 0,
+    "seconds": 74,
+    "treeChanged": false,
+    "findingsBlock": "markers present, valid JSON",
+    "facts": 8
+  },
+  "detect": {
+    "value": true,
+    "how": "`omp` found on PATH; version from `omp --version`"
+  }
+}

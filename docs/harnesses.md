@@ -27,6 +27,21 @@ boundary are observed.
 | Hermes 0.21.3, pinned source | Native mock + `llm_request` adapter; Hermes → Sabi → mock `mid → cheap → mid`, tool loop and resume | Extra capability-discovery GETs still occur; auxiliary/subagent/real-provider paths remain separate gates |
 | Kilo VS Code | Source-reviewed custom-provider recipe | VS Code Flatpak exists here, but Kilo extension is absent; UI path untested |
 
+## Preparer probes (2026-09-29)
+
+Each harness ran one scripted, read-only preparation task on a fixture repository, in its own
+Orca worktree, with inference through an isolated Sabi proxy serving only `:free` models. Data:
+`packages/controller/src/probes/<harness>.json`. These establish a headless run with Sabi-routed
+inference and an observable exit code; they do not establish hooks, session identity or install.
+
+| Harness | Version | Headless command shape | Result |
+|---|---|---|---|
+| Hermes | 0.21.4 | `HERMES_HOME=<isolated> hermes chat --query-file … --oneshot -Q` | exit 0, 59 s, tree unchanged, 8 cited facts |
+| Oh My Pi | 18.4.2 | `SABI_OMP_BASE_URL=… omp -e sabi-extension.mjs --model sabi/sabi-code -p --no-session` | exit 0, 74 s, tree unchanged, 8 cited facts |
+| pi | 0.84.2 | `PI_CODING_AGENT_DIR=<isolated> pi --provider sabi --model … -p --no-session` | exit 0, 50 s, tree unchanged; first run hit the 429 bug fixed in #151 |
+| Prime Agent | 0.9.5 | `PRIME_AGENT_CODING_AGENT_DIR=<isolated> prime-agent --provider sabi --thinking off -p` | exit 0, 133 s, tree unchanged, 8 cited facts |
+| Claude Code | 2.1.284 | `claude -p … --output-format json` (executor, not routed through Sabi) | fixed the bug briefed and cold; the brief cost more on this 3-file fixture |
+
 ## Shared setup
 
 Use an explicit project/profile configuration. Do not replace normal provider defaults.

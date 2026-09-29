@@ -1910,3 +1910,17 @@ own platform limits carry `X-RateLimit-*` headers; a 429 relayed from one
 model's provider does not. Only the former is now a pool-wide refusal.
 `packages/server/test/free-429-classify.test.ts` covers both cases and fails on
 the previous code. Suite: 822/822.
+
+## [2026-09-29] probe | Preparer probe matrix: Hermes, OMP, pi, Prime Agent, Claude Code
+
+Ran one scripted, read-only preparation task per harness on a fixture repository (two failing
+tests from a rounding bug), each in its own Orca worktree, with inference through an isolated
+Sabi proxy on :8790 serving only `:free` models and writing its own decision log. Hermes 0.21.4,
+OMP 18.4.2, pi 0.84.2 and Prime Agent 0.9.5 each completed headlessly with exit 0, left the
+worktree unchanged and returned structured findings with file and command evidence. pi's first
+run exited on a relayed provider 429, which exposed the fallback bug fixed in #151. Claude Code
+2.1.284 fixed the bug both from a compiled brief and cold; on this three-file fixture the brief
+cost more (10 turns, $0.54 vs 6 turns, $0.46). Results recorded as probe data in
+`packages/controller/src/probes/`; the four preparer manifests move from `unsupported` to
+`partial` with `detect: native` (found on PATH with a version), `dispatch: cli` and
+`observe-outcome: cli`; everything else stays missing and consent stays unavailable. Suite: 821/821.

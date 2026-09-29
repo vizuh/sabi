@@ -138,15 +138,25 @@ const BUILTIN_ADAPTERS: HarnessAdapterManifest[] = [
       dispatch: 'missing', 'observe-outcome': 'missing', uninstall: 'missing',
     },
   },
-  ...(['hermes', 'prime-agent', 'pi', 'omp'] as const).map((id): HarnessAdapterManifest => ({
+  // Probed 2026-09-29 (packages/controller/src/probes/*.json): each is found on PATH with
+  // a version, runs a scripted headless session whose inference goes through Sabi, and
+  // reports an exit code and output. Nothing else is established yet, so every other
+  // operation stays missing, and consent stays unavailable while there is no install.
+  ...([
+    ['hermes', 'Hermes Agent', 'hermes'],
+    ['prime-agent', 'Prime Agent', 'prime-agent'],
+    ['pi', 'pi', 'pi'],
+    ['omp', 'Oh My Pi', 'omp'],
+  ] as const).map(([id, displayName, command]): HarnessAdapterManifest => ({
     contractVersion: 1,
     id,
-    displayName: id,
-    status: 'unsupported',
+    displayName,
+    command,
+    status: 'partial',
     consent: 'unavailable',
     operations: {
-      detect: 'missing', install: 'missing', 'identify-session': 'missing', 'receive-prompt': 'missing',
-      dispatch: 'missing', 'observe-outcome': 'missing', uninstall: 'missing',
+      detect: 'native', install: 'missing', 'identify-session': 'missing', 'receive-prompt': 'missing',
+      dispatch: 'cli', 'observe-outcome': 'cli', uninstall: 'missing',
     },
   })),
 ]
