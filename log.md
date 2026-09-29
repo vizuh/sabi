@@ -1924,3 +1924,33 @@ cost more (10 turns, $0.54 vs 6 turns, $0.46). Results recorded as probe data in
 `packages/controller/src/probes/`; the four preparer manifests move from `unsupported` to
 `partial` with `detect: native` (found on PATH with a version; not for `pi`, whose name is
 ambiguous), `dispatch: cli` and `observe-outcome: cli`; everything else stays missing and consent stays unavailable. Suite: 821/821.
+
+## [2026-09-29] feat | `sabi brief`: free-lane preparation compiled into a checked brief for Claude
+
+Spec 018 slice 1. `packages/controller/src/brief.ts` adds the preparer prompt (validated on
+Hermes, OMP, pi and Prime Agent), a tolerant findings parser, the evidence gate (quoted file
+spans re-read in the live tree, path/symlink/secret guards, command results kept as reported),
+a deterministic bounded brief compiler (20 items, 8 KB, 1 KB per item, all preparer lists
+capped), and preparation in a disposable local clone with no remote. The repository is
+fingerprinted (status, diff, refs, stash, local config) before and after; any change, and any
+failure, yields a receipt with the reason instead of a brief (fail-open). `sabi brief` exposes it
+with presets for the four probed preparers and `--spawn` for Claude. `EvidenceRef` joins the
+controller types as an optional `ref` on `RecoveryCapsuleItem`. Native skill:
+`skills/sabi-prep/SKILL.md`. Live runs: Hermes 46 s (4 verified, 1 reported), OMP 60 s
+(5 verified, 3 reported). A medium review found six issues and a follow-up found three; all
+fixed with regression tests. Not in this slice: the recommend-only prompt hook.
+
+## [2026-09-29] fix | Task-brief sandbox: network isolated to Sabi only; credential and repo masks
+
+Two review rounds on the bubblewrap sandbox for `sabi brief` preparers found and reproduced
+escapes. Fixed: `/run` masked (a reachable user D-Bus let `systemd-run --user` write anywhere),
+new PID namespace and session, private runtime dir; common credential locations, `~/.local/state`
+(Sabi's controller token), the original repository and, for a linked worktree, the main checkout
+masked; the clone no longer hardlinks the user's object store. The sandbox now has its own
+network namespace with a relay to the local Sabi port only, so the controller daemon and any
+other local service (for example unauthenticated Ollama) are unreachable. Each escape has a test
+that runs it inside the sandbox. Live: OMP, pi and Hermes built briefs network-isolated; Prime
+Agent ran 32 rounds through the relay and ended without output (model behaviour; it answered a
+short prompt in the same sandbox). Suite 849/849. The sandbox limits writes and reachability; it
+is not a confidentiality boundary for other files the user can read.
+
