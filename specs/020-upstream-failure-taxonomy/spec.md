@@ -49,7 +49,7 @@ tried first on every round. `packages/controller/src/model-health.ts` keeps a
 |---|---|---|---|---|---|
 | `unconfigured` | `apiKey` is a `$VAR` reference, the variable is unset, no borrowed caller token, not `auth: passthrough` | upstream | until env changes (restart) | no call; fall back to **free tiers only**; otherwise fail | "key not set" |
 | `credential` | 401 with a resolved key | upstream | this round | leave the upstream; fall back under today's `paidModelsAllowed` rules (unchanged) | "key rejected" |
-| `not-entitled` | 402 or 403 **and** a body match (see below) | upstream × model | 6h in process | first time: fall back; within the TTL: route around with no call | "not on plan" |
+| `not-entitled` | 402 or 403 **and** a body match in the first body chunk (see below) | upstream × model | 6h in process | first time: fall back; within the TTL: route around with no call (with fallback off, it is asked again) | "not on plan" |
 | `quota` | 429 with platform `X-RateLimit-*` (#151) | pool | this round (existing, #151) | skip pool members | "quota spent" |
 | `transient` | anything else, including unknown 402/403 | model | this round (today's behaviour) | fall back this round only | "provider error" |
 
