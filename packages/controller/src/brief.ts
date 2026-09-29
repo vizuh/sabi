@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { accessSync, closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { accessSync, closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
@@ -588,23 +588,49 @@ export function commandRoots(command: string, home: string, env: NodeJS.ProcessE
  * credential, socket or system location. A read-only mount still lets a process connect to
  * sockets inside it, so /run, /tmp and agent directories are refused outright.
  */
-export function acceptedExtras(entries: string[], home: string, repo: string): { accepted: string[]; refused: string[] } {
+export function acceptedExtras(entries: string[], home: string, repo: string, scanLimit = 250_000): { accepted: string[]; refused: string[] } {
   const real = (p: string) => { try { return realpathSync(p) } catch { return path.resolve(p) } }
   const realHome = real(home)
   const realRepo = real(repo)
   const inside = (child: string, parent: string) => { const r = path.relative(parent, child); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)) }
+  const names = ['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.docker', '.config', '.claude', '.claude.json', '.codex',
+    '.hermes', '.pi', '.prime', '.omp', '.password-store', '.local/state', '.local/share/keyrings',
+    '.local/share/uv/credentials', '.local/share/opencode', '.cargo/credentials.toml', '.netrc', '.git-credentials',
+    '.npmrc', '.pypirc']
+  // Each denied location is checked both as written and through its symlinks, so a
+  // dotfile manager's ~/.ssh -> ~/dotfiles/ssh is still denied.
   const denied = ['/run', '/var/run', '/tmp', '/var/tmp', '/proc', '/dev', '/sys', '/root',
-    ...['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.docker', '.config', '.claude', '.codex', '.hermes',
-      '.pi', '.prime', '.password-store', '.local/state', '.local/share/keyrings', '.cargo/credentials.toml']
-      .map((dir) => path.join(realHome, dir))]
+    ...names.flatMap((name) => [path.join(home, name), path.join(realHome, name), real(path.join(home, name))])]
+  const hasSocket = (dir: string): boolean | 'unknown' => {
+    let seen = 0
+    const stack = [dir]
+    while (stack.length) {
+      const current = stack.pop()!
+      let stat
+      try { stat = statSync(current, { throwIfNoEntry: false }) } catch { continue }
+      if (!stat) continue
+      if (stat.isSocket()) return true
+      if (!stat.isDirectory()) continue
+      let children: string[] = []
+      try { children = readdirSync(current) } catch { continue }
+      for (const child of children) {
+        if (++seen > scanLimit) return 'unknown'
+        stack.push(path.join(current, child))
+      }
+    }
+    return false
+  }
   const accepted: string[] = []
   const refused: string[] = []
   for (const entry of entries) {
     if (!path.isAbsolute(entry)) { refused.push(entry); continue }
     const target = real(entry)
-    const bad = inside(realHome, target) || inside(realRepo, target) || inside(target, realRepo) ||
-      denied.some((dir) => inside(target, dir) || inside(dir, target))
-    if (bad) refused.push(entry)
+    const forms = [path.resolve(entry), target]
+    const bad = forms.some((form) => inside(realHome, form) || inside(home, form) || inside(realRepo, form) || inside(form, realRepo) ||
+      denied.some((dir) => inside(form, dir) || inside(dir, form)))
+    // A read-only mount still allows connecting to sockets in it; refuse any that holds one,
+    // or that is too large to check.
+    if (bad || (existsSync(target) && hasSocket(target) !== false)) refused.push(entry)
     else accepted.push(target)
   }
   return { accepted, refused }

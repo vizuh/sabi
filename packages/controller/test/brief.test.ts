@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { acceptedExtras, compileBrief, gateFindings, installRoot, parseFindings, prepareBrief, preparerEnv, type BriefInput, type PreparerFindings } from '../src/brief.ts'
@@ -381,4 +381,28 @@ test('explicit sandbox extras refuse HOME, its ancestors, the repo and relative 
   const { accepted, refused } = acceptedExtras(entries, '/home/u', '/home/u/work/repo')
   assert.deepEqual(accepted, ['/home/u/.venvs/hermes'])
   assert.deepEqual(refused, entries.slice(1))
+})
+
+test('sandbox extras refuse a symlinked credential folder, and any folder holding a socket', async () => {
+  // Outside /tmp, which the denylist refuses as a whole.
+  const home = mkdtempSync(path.join(process.cwd(), '.sabi-test-home-'))
+  const dotfiles = path.join(home, 'dotfiles', 'ssh')
+  mkdirSync(dotfiles, { recursive: true })
+  writeFileSync(path.join(dotfiles, 'id_ed25519'), 'key')
+  symlinkSync(dotfiles, path.join(home, '.ssh'))
+  const tools = path.join(home, 'tools')
+  mkdirSync(tools)
+  const withSocket = path.join(home, 'daemons')
+  mkdirSync(withSocket)
+  const { createServer } = await import('node:net')
+  const server = createServer().listen(path.join(withSocket, 'd.sock'))
+  await new Promise((resolve) => server.once('listening', resolve))
+  try {
+    const { accepted, refused } = acceptedExtras([path.join(home, '.ssh'), dotfiles, tools, withSocket], home, path.join(home, 'repo'))
+    assert.deepEqual(accepted, [tools])
+    assert.deepEqual(refused, [path.join(home, '.ssh'), dotfiles, withSocket])
+  } finally {
+    server.close()
+    rmSync(home, { recursive: true, force: true })
+  }
 })
