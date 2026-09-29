@@ -223,6 +223,8 @@ test('a preparer that exits non-zero, or verifies nothing, gets no brief', () =>
   const unverified = prepareWith(root, `console.log('SABI_FINDINGS_BEGIN\\n'+JSON.stringify({facts:[{claim:'guess',ref:{kind:'file',path:'src/pricing.js',lineStart:1,quote:'not in the file'}}],hypotheses:['h']})+'\\nSABI_FINDINGS_END')`)
   assert.equal(unverified.receipt.briefPath, undefined)
   assert.equal(unverified.receipt.fallbackReason, 'no finding could be verified against the files')
+  assert.equal(unverified.receipt.findings, true)
+  assert.equal(unverified.receipt.uncertain, 1)
 })
 
 test('preparers get an allowlisted environment: no provider keys or tokens', () => {

@@ -266,7 +266,7 @@ export function compileBrief(input: BriefInput): { markdown: string; bounds: Bri
   const entries: Array<{ group: Group; text: string }> = [
     ...input.gate.verified.map((item) => ({ group: 'verified' as const, text: renderItem(item) })),
     ...input.gate.reported.map((item) => ({ group: 'reported' as const, text: renderItem(item) })),
-    ...input.gate.uncertain.map((u) => ({ group: 'uncertain' as const, text: `- ${u.claim} (${u.reason})` })),
+    ...input.gate.uncertain.slice(0, MAX_LIST).map((u) => ({ group: 'uncertain' as const, text: `- ${u.claim} (${u.reason})` })),
     ...f.hypotheses.map((h) => ({ group: 'hypotheses' as const, text: `- ${h}` })),
     ...f.ruledOut.map((r) => ({ group: 'ruledOut' as const, text: `- ${r}` })),
     ...f.relevantSurface.map((r) => ({ group: 'surface' as const, text: `- ${r}` })),
@@ -512,10 +512,12 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
   let userTreeDirty = false
   let before = ''
   const empty = { verified: 0, reported: 0, uncertain: 0, bounds: { included: 0, dropped: 0, bytesBefore: 0, bytesAfter: 0 } }
-  const fail = (reason: string, exitCode: number | null = null, unchanged = true, parsed = false): { receipt: BriefReceipt; dir: string } => {
+  const fail = (reason: string, exitCode: number | null = null, unchanged = true, gated?: GateResult): { receipt: BriefReceipt; dir: string } => {
     const receipt: BriefReceipt = {
       id, preparer: preparerName, baseCommit, userTreeUnchanged: unchanged, preparerExitCode: exitCode,
-      seconds: Math.round((Date.now() - started) / 1000), findings: parsed, ...empty, fallbackReason: reason,
+      seconds: Math.round((Date.now() - started) / 1000), findings: gated !== undefined, ...empty,
+      ...(gated ? { verified: gated.verified.length, reported: gated.reported.length, uncertain: gated.uncertain.length } : {}),
+      fallbackReason: reason,
     }
     writeReceipt(dir, receipt)
     return { receipt, dir }
@@ -569,7 +571,7 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
 
   const gate = gateFindings(findings, root, { baseCommit, preparer: preparerName })
   // Nothing confirmed means nothing better than the plain task to hand over.
-  if (gate.verified.length === 0) return fail('no finding could be verified against the files', exitCode, true, true)
+  if (gate.verified.length === 0) return fail('no finding could be verified against the files', exitCode, true, gate)
   const { markdown, bounds } = compileBrief({
     id, task: options.task, repo: root, branch, baseCommit, userTreeDirty, preparer: preparerName, findings, gate,
   })
