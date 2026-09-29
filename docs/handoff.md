@@ -1,6 +1,15 @@
 # Handoff Notes
 
-## Specs 020 + 021 — upstream failure taxonomy, route receipts — 2026-09-29 (PR #162, not merged)
+## Effort scheduling, observe-only — 2026-09-29 (from PR #147 by paulocavallari, rebased)
+
+- Records a per-round difficulty (0-100) and the level on the tier's own ladder. The upstream request
+  is unchanged; `fill`/`override` are rejected at load until injection ships.
+- Inert unless `effortScheduling` is in the config; the live config has no block.
+- Maintainer fixes from review are listed in `docs/decisions.md` (2026-09-28 entry, "Maintainer
+  review"). Calibration items stay open there, before any injection.
+- Injection is gated on #146 question 4 (Hugo).
+
+## Specs 020 + 021 — upstream failure taxonomy, route receipts — 2026-09-29 (merged in #162, live after restart)
 
 - Specs in #161 (also 022 research gate, 023 probe plan). Code in #162, CI green.
 - Refusal classes `unconfigured | credential | not-entitled | quota | transient`
@@ -10,9 +19,7 @@
   wording from hermes-agent#123362; remembered 6h in process.
 - Live proxy checked 2026-09-29: all four configured upstreams resolve their
   keys (ok rounds since 2026-09-26), so #162 does not 502 the live config.
-- **#155 stays live** until #162 is merged and `sabi-proxy.service` restarted.
-- Merge order: #161, #162, then rebase #147 (overlaps `server.ts`, `types.ts`,
-  `report.ts`).
+- #161 and #162 merged 2026-09-29; `sabi-proxy.service` restarted on them.
 - Not built: 022 (needs a benchmark budget), 023 (no upstream seam yet),
   cross-round quota memory (trigger: repeated calls into an exhausted pool).
 
