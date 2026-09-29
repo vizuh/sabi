@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { accessSync, closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
@@ -484,9 +484,10 @@ export interface PrepareOptions {
   briefsDir: string
   timeoutMs?: number
   /**
-   * `bwrap` (default): the preparer sees the whole filesystem read-only except its clone
-   * and scratch directory, with HOME and TMPDIR inside scratch. `none` runs it as the
-   * current user with no filesystem restriction, and must be chosen explicitly.
+   * `bwrap` (default): the preparer sees only allowlisted read-only system and tool
+   * directories plus its writable scratch, and reaches only Sabi over the network (see
+   * `sandboxed`). `none` runs it as the current user with no restriction, and must be
+   * chosen explicitly.
    */
   sandbox?: 'bwrap' | 'none'
   /** The bubblewrap executable; overridable for tests. */
@@ -497,33 +498,92 @@ export interface PrepareOptions {
 const SYSTEM_READ_ONLY = ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc', '/opt', '/sys', '/nix/store']
 
 /**
- * The install root of an executable living under HOME, so the sandbox can mount just that:
- * `~/.nvm`, `~/.bun`, `~/.cargo`, `~/.local/bin`, `~/.local/share/<tool>`, and so on.
+ * Install locations under HOME that hold tools, never credentials. A detected executable is
+ * mounted only when it lives in one of these; anything else (a hidden config dir, a project
+ * checkout, ~/Desktop) is not mounted and must be named explicitly in SABI_SANDBOX_RO.
+ */
+const TOOL_DIRS = new Set(['.nvm', '.bun', '.cargo', '.rustup', '.volta', '.deno', '.pyenv', '.rbenv', '.sdkman',
+  '.opencode', '.npm-global', 'go'])
+const LOCAL_TOOL_PARENTS = new Set(['share', 'lib'])
+const LOCAL_DENY = new Set(['keyrings', 'Trash', 'recently-used.xbel'])
+
+/**
+ * The install root of an executable living under HOME, or undefined when it is not in a
+ * known tool location: `~/.nvm`, `~/.bun`, `~/.local/bin`, `~/.local/share/<tool>`, ...
  */
 export function installRoot(file: string, home: string): string | undefined {
   const relative = path.relative(home, file)
-  if (relative.startsWith('..') || path.isAbsolute(relative)) return undefined
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return undefined
   const parts = relative.split(path.sep)
-  if (parts[0] !== '.local') return path.join(home, parts[0])
-  return parts[1] === 'share' || parts[1] === 'lib' ? path.join(home, ...parts.slice(0, 3)) : path.join(home, ...parts.slice(0, 2))
+  if (TOOL_DIRS.has(parts[0]) && parts.length > 1) return path.join(home, parts[0])
+  if (parts[0] !== '.local' || parts.length < 3) return undefined
+  if (parts[1] === 'bin') return path.join(home, '.local', 'bin')
+  if (LOCAL_TOOL_PARENTS.has(parts[1]) && parts.length > 3 && !LOCAL_DENY.has(parts[2])) return path.join(home, ...parts.slice(0, 3))
+  return undefined
 }
 
-/** What a command needs mounted from HOME: its install root and its script interpreter's. */
-export function commandRoots(command: string, home: string, env: NodeJS.ProcessEnv = process.env): string[] {
-  const found = command.includes('/') ? command
-    : (env.PATH ?? '').split(path.delimiter).map((dir) => path.join(dir, command)).find((file) => existsSync(file))
+function executable(file: string): boolean {
+  try {
+    if (!statSync(file).isFile()) return false
+    accessSync(file, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function head(file: string): string {
+  const fd = openSync(file, 'r')
+  try {
+    const buffer = Buffer.alloc(256)
+    return buffer.subarray(0, readSync(fd, buffer, 0, 256, 0)).toString('latin1')
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/**
+ * What a command needs mounted from HOME: its install root and its script interpreter's.
+ * Relative commands and relative PATH entries resolve against `cwd` (the clone), where the
+ * command will actually run.
+ */
+export function commandRoots(command: string, home: string, env: NodeJS.ProcessEnv = process.env, cwd = process.cwd(), depth = 0): string[] {
+  const found = command.includes('/')
+    ? (executable(path.resolve(cwd, command)) ? path.resolve(cwd, command) : undefined)
+    : (env.PATH ?? '').split(path.delimiter).filter(Boolean)
+      .map((dir) => path.resolve(cwd, dir, command)).find(executable)
   if (!found) return []
   const roots = new Set<string>()
-  for (const file of [found, realpathSync(found)]) {
+  let real = found
+  try { real = realpathSync(found) } catch { /* keep the found path */ }
+  for (const file of [found, real]) {
     const root = installRoot(file, home)
     if (root) roots.add(root)
   }
-  const shebang = /^#!\s*(\S+)(?:\s+(\S+))?/.exec(readFileSync(realpathSync(found), { encoding: 'latin1' }).slice(0, 256))
-  if (shebang) {
-    const interpreter = shebang[1].endsWith('/env') && shebang[2] ? shebang[2] : shebang[1]
-    for (const root of commandRoots(interpreter, home, env)) if (root !== path.join(home, '.local', 'bin') || interpreter.includes('/')) roots.add(root)
+  const shebang = /^#!\s*(\S+)((?:\s+\S+)*)/.exec(head(real))
+  if (shebang && depth < 2) {
+    const args = shebang[2].trim().split(/\s+/).filter(Boolean)
+    const interpreter = shebang[1].endsWith('/env')
+      ? args.find((arg) => !arg.startsWith('-') && !arg.includes('='))
+      : shebang[1]
+    if (interpreter) for (const root of commandRoots(interpreter, home, env, cwd, depth + 1)) roots.add(root)
   }
   return [...roots]
+}
+
+/**
+ * Explicit read-only extras must be absolute and must not expose HOME itself, an ancestor of
+ * it, or anything containing the user's repository.
+ */
+export function acceptedExtras(entries: string[], home: string, repo: string): { accepted: string[]; refused: string[] } {
+  const accepted: string[] = []
+  const refused: string[] = []
+  for (const entry of entries) {
+    const inside = (child: string, parent: string) => { const r = path.relative(parent, child); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)) }
+    if (!path.isAbsolute(entry) || inside(home, entry) || inside(repo, entry)) refused.push(entry)
+    else accepted.push(path.resolve(entry))
+  }
+  return { accepted, refused }
 }
 
 /**
@@ -548,7 +608,7 @@ export function loopbackTarget(baseURL: string): { host: string; port: number } 
     return undefined
   }
 }
-const CREDENTIAL_FILES = ['.netrc', '.npmrc', '.pypirc', '.git-credentials', '.claude.json']
+
 
 /**
  * Wrap a preparer in bubblewrap with an allowlisted filesystem: read-only system directories,
@@ -568,28 +628,32 @@ export function sandboxed(
   const run = path.join(scratch, 'run')
   for (const dir of [home, tmp, run]) mkdirSync(dir, { recursive: true, mode: 0o700 })
   const realHome = options.home ?? os.homedir()
-  const mounts: string[] = []
-  for (const dir of SYSTEM_READ_ONLY) mounts.push('--ro-bind-try', dir, dir)
+  const system: string[] = []
+  for (const dir of SYSTEM_READ_ONLY) system.push('--ro-bind-try', dir, dir)
   const roots = new Set([
-    ...commandRoots(argv[0], realHome, env),
-    ...commandRoots(process.execPath, realHome, env),
+    ...commandRoots(argv[0], realHome, env, clone),
+    ...commandRoots(process.execPath, realHome, env, clone),
     ...(options.readOnly ?? []),
   ])
-  for (const dir of [...roots].sort()) if (existsSync(dir)) mounts.push('--ro-bind', dir, dir)
+  // Tool roots and extras are bound after the /tmp tmpfs so it cannot hide one that lives there.
+  const tools: string[] = []
+  for (const dir of [...roots].sort()) if (existsSync(dir)) tools.push('--ro-bind', dir, dir)
   let inner = argv
   if (options.relay) {
     const relayFile = path.join(scratch, 'relay.cjs')
     const ready = path.join(scratch, 'relay.ready')
     writeFileSync(relayFile, INNER_RELAY)
-    // Exit 97 is reserved for "the relay inside the sandbox never came up".
+    // If the relay never comes up, leave a marker and stop: a preparer that cannot reach Sabi
+    // would only fail later with a less useful error.
+    const failed = path.join(scratch, 'relay.failed')
     inner = ['/bin/sh', '-c',
-      `"$0" "$1" "$2" "$3" "$4" "$5" & i=0; while [ ! -e "$5" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done; [ -e "$5" ] || exit 97; shift 5; exec "$@"`,
+      `"$0" "$1" "$2" "$3" "$4" "$5" & i=0; while [ ! -e "$5" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done; [ -e "$5" ] || { : > "${failed}"; exit 97; }; shift 5; exec "$@"`,
       process.execPath, relayFile, options.relay.host, String(options.relay.port), options.relay.socket, ready, ...argv]
   }
   return {
-    argv: [options.bwrap ?? 'bwrap', ...mounts, '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
+    argv: [options.bwrap ?? 'bwrap', ...system, '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
       // Binds under /tmp must come after the /tmp tmpfs, or it hides them.
-      '--bind', scratch, scratch,
+      ...tools, '--bind', scratch, scratch,
       ...(options.relay ? ['--bind', options.relay.dir, options.relay.dir, '--unshare-net'] : []),
       '--unshare-pid', '--new-session', '--die-with-parent', '--chdir', clone, '--', ...inner],
     env: { ...env, HOME: home, TMPDIR: tmp, XDG_RUNTIME_DIR: run },
@@ -698,9 +762,12 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
       // Read-only extras: files the command names by absolute path (the OMP extension), and
       // SABI_SANDBOX_RO for installs the automatic root detection cannot see.
       const readOnly = [
-        ...planned.argv.filter((arg) => path.isAbsolute(arg) && !arg.startsWith(scratch) && existsSync(arg)),
-        ...(process.env.SABI_SANDBOX_RO ?? '').split(path.delimiter).map((dir) => dir.trim()).filter(Boolean),
+        // Only files (the OMP extension), never directories: a directory argument could be HOME.
+        ...planned.argv.filter((arg) => path.isAbsolute(arg) && !arg.startsWith(scratch) && existsSync(arg) && statSync(arg).isFile()),
       ]
+      const extras = acceptedExtras((process.env.SABI_SANDBOX_RO ?? '').split(path.delimiter).map((dir) => dir.trim()).filter(Boolean), os.homedir(), root)
+      if (extras.refused.length) return fail(`SABI_SANDBOX_RO refused (must be absolute and must not contain HOME or the repository): ${extras.refused.join(', ')}`)
+      readOnly.push(...extras.accepted)
       command = sandboxed(planned.argv, preparerEnv(planned.env), scratch, clone, { bwrap, readOnly, relay: { ...target, socket, dir: relayDir } })
     }
     const run = spawnSync(command.argv[0], command.argv.slice(1), {
@@ -712,7 +779,7 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
     writeFileSync(path.join(dir, 'preparer-output.txt'), bounded(output, 256 * 1024))
     writeFileSync(path.join(dir, 'preparer-stderr.txt'), bounded(`${run.stderr ?? ''}`, 64 * 1024))
     if (run.error && (run.error as NodeJS.ErrnoException).code !== 'ETIMEDOUT') return fail(`the preparer could not run: ${run.error.message}`, exitCode)
-    if (run.status === 97 && options.sandbox !== 'none') return fail('the relay to Sabi inside the sandbox did not start', exitCode)
+    if (options.sandbox !== 'none' && existsSync(path.join(scratch, 'relay.failed'))) return fail('the relay to Sabi inside the sandbox did not start', exitCode)
     if (run.signal || run.status !== 0) {
       return fail(run.signal ? `the preparer was stopped by ${run.signal}${run.error ? ' (timed out)' : ''}` : `the preparer exited with code ${run.status}`, exitCode)
     }

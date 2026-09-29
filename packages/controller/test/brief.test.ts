@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { compileBrief, gateFindings, installRoot, parseFindings, prepareBrief, preparerEnv, type BriefInput, type PreparerFindings } from '../src/brief.ts'
+import { acceptedExtras, compileBrief, gateFindings, installRoot, parseFindings, prepareBrief, preparerEnv, type BriefInput, type PreparerFindings } from '../src/brief.ts'
 
 function repo(files: Record<string, string>): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-brief-repo-'))
@@ -362,4 +362,16 @@ test('install roots mount only the tool, not the whole home', () => {
   assert.equal(installRoot('/home/u/.local/bin/hermes', home), '/home/u/.local/bin')
   assert.equal(installRoot('/home/u/.local/share/prime-agent/releases/x/prime-agent', home), '/home/u/.local/share/prime-agent')
   assert.equal(installRoot('/usr/bin/git', home), undefined)
+  // Never a credential store or a project folder, even when a tool lives there.
+  assert.equal(installRoot('/home/u/.hermes/bin/hermes', home), undefined)
+  assert.equal(installRoot('/home/u/.claude/local/claude', home), undefined)
+  assert.equal(installRoot('/home/u/.config/tool/bin/x', home), undefined)
+  assert.equal(installRoot('/home/u/Desktop/HugoOS/repo/.venv/bin/hermes', home), undefined)
+  assert.equal(installRoot('/home/u/.local/share/keyrings/x', home), undefined)
+})
+
+test('explicit sandbox extras refuse HOME, its ancestors, the repo and relative paths', () => {
+  const { accepted, refused } = acceptedExtras(['/home/u/.venvs/hermes', '/home/u', '/home', 'tools', '/home/u/work', '/home/u/work/repo/sub'], '/home/u', '/home/u/work/repo')
+  assert.deepEqual(accepted, ['/home/u/.venvs/hermes', '/home/u/work/repo/sub'])
+  assert.deepEqual(refused, ['/home/u', '/home', 'tools', '/home/u/work'])
 })
