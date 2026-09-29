@@ -361,7 +361,7 @@ function piStyleModels(baseURL: string, alias: string, client?: string): string 
         // Sabi accepts only known client ids here (pi is not one), so pi sends none.
         ...(client ? { headers: { 'X-Sabi-Client': client } } : {}),
         compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
-        models: [{ id: alias, contextWindow: 131072, maxTokens: 8192 }],
+        models: [{ id: alias, contextWindow: 131072, maxTokens: 32768 }],
       },
     },
   }, null, 2)
@@ -493,9 +493,38 @@ export interface PrepareOptions {
   bwrapCommand?: string
 }
 
-/** Home-relative locations that commonly hold credentials; masked inside the sandbox. */
-const CREDENTIAL_DIRS = ['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.docker', '.config', '.claude', '.codex',
-  '.hermes', '.pi', '.prime', '.password-store', '.local/share/keyrings', '.local/state']
+/** System locations a preparer may read. Everything else (including /run, /home, /var) is absent. */
+const SYSTEM_READ_ONLY = ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc', '/opt', '/sys', '/nix/store']
+
+/**
+ * The install root of an executable living under HOME, so the sandbox can mount just that:
+ * `~/.nvm`, `~/.bun`, `~/.cargo`, `~/.local/bin`, `~/.local/share/<tool>`, and so on.
+ */
+export function installRoot(file: string, home: string): string | undefined {
+  const relative = path.relative(home, file)
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return undefined
+  const parts = relative.split(path.sep)
+  if (parts[0] !== '.local') return path.join(home, parts[0])
+  return parts[1] === 'share' || parts[1] === 'lib' ? path.join(home, ...parts.slice(0, 3)) : path.join(home, ...parts.slice(0, 2))
+}
+
+/** What a command needs mounted from HOME: its install root and its script interpreter's. */
+export function commandRoots(command: string, home: string, env: NodeJS.ProcessEnv = process.env): string[] {
+  const found = command.includes('/') ? command
+    : (env.PATH ?? '').split(path.delimiter).map((dir) => path.join(dir, command)).find((file) => existsSync(file))
+  if (!found) return []
+  const roots = new Set<string>()
+  for (const file of [found, realpathSync(found)]) {
+    const root = installRoot(file, home)
+    if (root) roots.add(root)
+  }
+  const shebang = /^#!\s*(\S+)(?:\s+(\S+))?/.exec(readFileSync(realpathSync(found), { encoding: 'latin1' }).slice(0, 256))
+  if (shebang) {
+    const interpreter = shebang[1].endsWith('/env') && shebang[2] ? shebang[2] : shebang[1]
+    for (const root of commandRoots(interpreter, home, env)) if (root !== path.join(home, '.local', 'bin') || interpreter.includes('/')) roots.add(root)
+  }
+  return [...roots]
+}
 
 /**
  * Relays that give a network-isolated sandbox one way out: to Sabi. The host side listens on
@@ -522,48 +551,46 @@ export function loopbackTarget(baseURL: string): { host: string; port: number } 
 const CREDENTIAL_FILES = ['.netrc', '.npmrc', '.pypirc', '.git-credentials', '.claude.json']
 
 /**
- * Wrap a preparer in bubblewrap. Read-only root; only scratch (clone, generated config, HOME,
- * TMPDIR, runtime dir) is writable. /run is masked, so the user's D-Bus and systemd sockets
- * are unreachable (a reachable user bus let a preparer write anywhere via systemd-run), and a
- * new PID namespace and session stop it signalling or typing into host processes. Common
- * credential locations and the original repository are masked. Other readable files stay
- * readable, and the network is shared so the preparer can reach Sabi: this contains writes,
- * it does not make the rest of the disk secret.
+ * Wrap a preparer in bubblewrap with an allowlisted filesystem: read-only system directories,
+ * the install roots of the commands it runs (plus any explicit read-only extras), and a
+ * writable scratch directory holding its clone, generated config, HOME, TMPDIR and runtime
+ * dir. Nothing else exists inside: not /run, not the rest of HOME, not the user's repository,
+ * so no on-disk socket, credential store or other checkout is reachable by path. With a relay
+ * the sandbox also gets its own network namespace, whose only exit is the local Sabi port. A
+ * new PID namespace and session stop it signalling or typing into host processes.
  */
 export function sandboxed(
   argv: string[], env: Record<string, string>, scratch: string, clone: string,
-  options: { bwrap?: string; home?: string; hide?: string[]; relay?: { host: string; port: number; socket: string } } = {},
+  options: { bwrap?: string; home?: string; readOnly?: string[]; relay?: { host: string; port: number; socket: string; dir: string } } = {},
 ): { argv: string[]; env: Record<string, string> } {
   const home = path.join(scratch, 'home')
   const tmp = path.join(scratch, 'tmp')
   const run = path.join(scratch, 'run')
   for (const dir of [home, tmp, run]) mkdirSync(dir, { recursive: true, mode: 0o700 })
   const realHome = options.home ?? os.homedir()
-  const masks: string[] = []
-  for (const dir of CREDENTIAL_DIRS) {
-    const target = path.join(realHome, dir)
-    if (existsSync(target) && statSync(target).isDirectory()) masks.push('--tmpfs', target)
-  }
-  for (const file of CREDENTIAL_FILES) {
-    const target = path.join(realHome, file)
-    if (existsSync(target)) masks.push('--ro-bind', '/dev/null', target)
-  }
-  for (const dir of options.hide ?? []) masks.push('--tmpfs', dir)
-  // With a relay, the sandbox gets its own network namespace and reaches only Sabi.
+  const mounts: string[] = []
+  for (const dir of SYSTEM_READ_ONLY) mounts.push('--ro-bind-try', dir, dir)
+  const roots = new Set([
+    ...commandRoots(argv[0], realHome, env),
+    ...commandRoots(process.execPath, realHome, env),
+    ...(options.readOnly ?? []),
+  ])
+  for (const dir of [...roots].sort()) if (existsSync(dir)) mounts.push('--ro-bind', dir, dir)
   let inner = argv
   if (options.relay) {
     const relayFile = path.join(scratch, 'relay.cjs')
     const ready = path.join(scratch, 'relay.ready')
     writeFileSync(relayFile, INNER_RELAY)
+    // Exit 97 is reserved for "the relay inside the sandbox never came up".
     inner = ['/bin/sh', '-c',
-      `"$0" "$1" "$2" "$3" "$4" "$5" & i=0; while [ ! -e "$5" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done; shift 5; exec "$@"`,
+      `"$0" "$1" "$2" "$3" "$4" "$5" & i=0; while [ ! -e "$5" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done; [ -e "$5" ] || exit 97; shift 5; exec "$@"`,
       process.execPath, relayFile, options.relay.host, String(options.relay.port), options.relay.socket, ready, ...argv]
   }
   return {
-    argv: [options.bwrap ?? 'bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc',
-      '--tmpfs', '/tmp', '--tmpfs', '/run', '--ro-bind-try', '/run/systemd/resolve', '/run/systemd/resolve',
-      ...masks, '--bind', scratch, scratch,
-      ...(options.relay ? ['--unshare-net'] : []),
+    argv: [options.bwrap ?? 'bwrap', ...mounts, '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
+      // Binds under /tmp must come after the /tmp tmpfs, or it hides them.
+      '--bind', scratch, scratch,
+      ...(options.relay ? ['--bind', options.relay.dir, options.relay.dir, '--unshare-net'] : []),
       '--unshare-pid', '--new-session', '--die-with-parent', '--chdir', clone, '--', ...inner],
     env: { ...env, HOME: home, TMPDIR: tmp, XDG_RUNTIME_DIR: run },
   }
@@ -571,7 +598,7 @@ export function sandboxed(
 
 /** True when bubblewrap can actually create its namespaces here, not merely that it exists. */
 export function sandboxAvailable(bwrap = 'bwrap'): boolean {
-  return spawnSync(bwrap, ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--unshare-pid', 'true'], { stdio: 'ignore', timeout: 10_000 }).status === 0
+  return spawnSync(bwrap, ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--unshare-pid', '--unshare-net', 'true'], { stdio: 'ignore', timeout: 10_000 }).status === 0
 }
 
 /**
@@ -639,6 +666,7 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
   let exitCode: number | null = null
   let output = ''
   let relay: ReturnType<typeof spawn> | undefined
+  let relayDir: string | undefined
   const scratch = mkdtempSync(path.join(os.tmpdir(), 'sabi-brief-'))
   try {
     const clone = path.join(scratch, 'repo')
@@ -660,17 +688,20 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
     else {
       const target = loopbackTarget(options.baseURL)
       if (!target) return fail('in the sandbox a preparer can reach only a local Sabi; --proxy must be a loopback URL')
-      const socket = path.join(scratch, 'sabi.sock')
+      // A short directory keeps the socket path inside the Unix-socket length limit.
+      relayDir = mkdtempSync('/tmp/sabi-r-')
+      const socket = path.join(relayDir, 's')
       relay = spawn(process.execPath, ['-e', HOST_RELAY, socket, target.host, String(target.port)], { stdio: 'ignore' })
       const waitUntil = Date.now() + 3000
       while (!existsSync(socket) && Date.now() < waitUntil) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
       if (!existsSync(socket)) return fail('the sandbox relay to Sabi did not start')
-      // Hide the user's checkout, and for a linked worktree the main checkout it belongs to.
-      const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: root, encoding: 'utf8' }).stdout.trim()
-      const hide = [...new Set([root, ...(common ? [path.dirname(common)] : []),
-        ...(process.env.SABI_CONTROLLER_HOME?.trim() ? [path.resolve(process.env.SABI_CONTROLLER_HOME.trim())] : [])])]
-        .filter((dir) => existsSync(dir))
-      command = sandboxed(planned.argv, preparerEnv(planned.env), scratch, clone, { bwrap, hide, relay: { ...target, socket } })
+      // Read-only extras: files the command names by absolute path (the OMP extension), and
+      // SABI_SANDBOX_RO for installs the automatic root detection cannot see.
+      const readOnly = [
+        ...planned.argv.filter((arg) => path.isAbsolute(arg) && !arg.startsWith(scratch) && existsSync(arg)),
+        ...(process.env.SABI_SANDBOX_RO ?? '').split(path.delimiter).map((dir) => dir.trim()).filter(Boolean),
+      ]
+      command = sandboxed(planned.argv, preparerEnv(planned.env), scratch, clone, { bwrap, readOnly, relay: { ...target, socket, dir: relayDir } })
     }
     const run = spawnSync(command.argv[0], command.argv.slice(1), {
       cwd: clone, encoding: 'utf8', env: command.env,
@@ -679,7 +710,9 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
     exitCode = run.status
     output = `${run.stdout ?? ''}`
     writeFileSync(path.join(dir, 'preparer-output.txt'), bounded(output, 256 * 1024))
+    writeFileSync(path.join(dir, 'preparer-stderr.txt'), bounded(`${run.stderr ?? ''}`, 64 * 1024))
     if (run.error && (run.error as NodeJS.ErrnoException).code !== 'ETIMEDOUT') return fail(`the preparer could not run: ${run.error.message}`, exitCode)
+    if (run.status === 97 && options.sandbox !== 'none') return fail('the relay to Sabi inside the sandbox did not start', exitCode)
     if (run.signal || run.status !== 0) {
       return fail(run.signal ? `the preparer was stopped by ${run.signal}${run.error ? ' (timed out)' : ''}` : `the preparer exited with code ${run.status}`, exitCode)
     }
@@ -687,6 +720,7 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
     return fail(`preparation failed: ${(error as Error).message}`, exitCode)
   } finally {
     relay?.kill()
+    if (relayDir) rmSync(relayDir, { recursive: true, force: true })
     rmSync(scratch, { recursive: true, force: true })
   }
 

@@ -75,25 +75,24 @@ cheaper model running in another harness, then writes a brief for a fresh Claude
   `sabi-code`, the only model its Sabi extension registers). Sabi runs no commands of its own; it
   fingerprints the repository before and after and refuses the brief if anything changed.
 - The preparer is sandboxed with bubblewrap by default (`--sandbox=bwrap`). What that guarantees:
-  - **Writes are contained.** The root filesystem is read-only; only the preparer's scratch
-    directory (its clone, generated config, HOME, TMPDIR and runtime dir) is writable. `/run` is
-    masked, so the user's D-Bus and systemd sockets are unreachable, and a new PID namespace and
-    session stop it signalling or typing into host processes.
-  - **Common credential locations are hidden:** `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config`,
-    `~/.claude`, `~/.codex`, keyrings and similar, plus files such as `~/.netrc` and `~/.npmrc`,
-    `~/.local/state`, and the original repository (for a linked worktree, the main checkout
-    too; the preparer works on its own non-hardlinked clone). Its environment is an
-    allowlist without provider keys or tokens.
+  - **Only what it needs exists.** The filesystem inside is an allowlist: read-only system
+    directories (`/usr`, `/etc`, `/opt`, `/sys`, `/nix/store` if present), the install roots of
+    the commands it runs (for example `~/.nvm`, `~/.bun`, `~/.local/bin`,
+    `~/.local/share/<tool>`), and a writable scratch directory holding its clone, generated
+    config, HOME, TMPDIR and runtime dir. There is no `/run`, no rest of HOME and no user
+    repository inside, so credential stores, sockets on disk (D-Bus, systemd-resolved, other
+    daemons) and other checkouts are unreachable by path.
   - **Only Sabi is reachable.** The sandbox has its own network namespace; a relay forwards one
     loopback port to the local Sabi proxy, so Sabi's controller daemon, Ollama and every other
     local service are unreachable. `--proxy` must therefore be a loopback URL.
-  - **Not a confidentiality boundary.** Files readable by your user outside the masked locations
-    stay readable to the preparer, and anything it reads can reach the model through Sabi. Do not
-    run a preparer on a machine whose other readable files it must not see.
-  Without a working bubblewrap (missing, or unable to create namespaces) the command refuses;
-  `--sandbox=none` runs the preparer unsandboxed and must be chosen explicitly. Verified on
-  2026-09-29: Hermes 0.21.4, OMP 18.4.2, pi 0.84.2 and Prime Agent 0.9.5 run inside it, and a
-  `systemd-run --user` escape that worked against a plain read-only root is blocked.
+  - **No signalling or typing into host processes:** new PID namespace and session. Its
+    environment is an allowlist without provider keys or tokens.
+  - **Limit:** the mounted install roots are readable. Anything the preparer can read can reach
+    the model through Sabi.
+  When a harness lives somewhere automatic detection cannot see (for example a wrapper script
+  that execs a virtualenv elsewhere), list extra read-only paths in `SABI_SANDBOX_RO`
+  (colon-separated). Without a working bubblewrap the command refuses; `--sandbox=none` runs the
+  preparer unsandboxed and must be chosen explicitly.
 - Facts are verified by reading: each quoted file span must exist in your working tree. Command
   results are kept as reported by the preparer and labelled as not re-run. Hypotheses stay
   hypotheses.

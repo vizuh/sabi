@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { compileBrief, gateFindings, parseFindings, prepareBrief, preparerEnv, type BriefInput, type PreparerFindings } from '../src/brief.ts'
+import { compileBrief, gateFindings, installRoot, parseFindings, prepareBrief, preparerEnv, type BriefInput, type PreparerFindings } from '../src/brief.ts'
 
 function repo(files: Record<string, string>): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-brief-repo-'))
@@ -116,7 +116,7 @@ test('preparation runs in a disposable clone: edits there never reach the user t
   assert.equal(receipt.userTreeUnchanged, true)
   assert.equal(receipt.verified, 1)
   assert.ok(receipt.briefPath && readFileSync(receipt.briefPath, 'utf8').includes('src/pricing.js:5'))
-  assert.deepEqual(readdirSync(dir).sort(), ['brief.md', 'preparer-output.txt', 'progress.md', 'receipt.json', 'state.json'])
+  assert.deepEqual(readdirSync(dir).sort(), ['brief.md', 'preparer-output.txt', 'preparer-stderr.txt', 'progress.md', 'receipt.json', 'state.json'])
   const worktrees = spawnSync('git', ['worktree', 'list'], { cwd: root, encoding: 'utf8' }).stdout.trim().split('\n')
   assert.equal(worktrees.length, 1)
 })
@@ -282,6 +282,8 @@ test('the sandbox blocks the known escapes: user bus, systemd-run, the original 
     const fs = require('fs'), cp = require('child_process')
     const r = {}
     r.userBus = fs.existsSync('/run/user/${uid}/bus')
+    r.run = fs.existsSync('/run')
+    r.cache = fs.existsSync(${JSON.stringify(path.join(os.homedir(), '.cache'))})
     try { cp.execFileSync('systemd-run', ['--user', '--wait', '/usr/bin/touch', ${JSON.stringify(escaped)}], { stdio: 'ignore', timeout: 5000 }); r.systemdRun = 'ran' } catch { r.systemdRun = 'failed' }
     try { fs.readFileSync(${JSON.stringify(path.join(root, '.env'))}); r.repoEnv = 'read' } catch { r.repoEnv = 'blocked' }
     try { r.configEntries = fs.readdirSync(${JSON.stringify(realConfig)}).length } catch { r.configEntries = 0 }
@@ -293,6 +295,8 @@ test('the sandbox blocks the known escapes: user bus, systemd-run, the original 
   })
   const probe = JSON.parse(/PROBE (.*)/.exec(readFileSync(path.join(dir, 'preparer-output.txt'), 'utf8'))![1])
   assert.equal(probe.userBus, false)
+  assert.equal(probe.run, false, '/run must not exist inside the sandbox')
+  assert.equal(probe.cache, false, 'only install roots of HOME are mounted')
   assert.equal(probe.repoEnv, 'blocked')
   assert.equal(probe.configEntries, 0)
   assert.equal(existsSync(escaped), false, `systemd-run ${probe.systemdRun}`)
@@ -349,4 +353,13 @@ test('from a linked worktree, the main checkout is hidden too', { skip: !bwrapWo
     baseURL: 'http://127.0.0.1:18765/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
   })
   assert.match(readFileSync(path.join(dir, 'preparer-output.txt'), 'utf8'), /PROBE blocked/)
+})
+
+test('install roots mount only the tool, not the whole home', () => {
+  const home = '/home/u'
+  assert.equal(installRoot('/home/u/.nvm/versions/node/v24/bin/node', home), '/home/u/.nvm')
+  assert.equal(installRoot('/home/u/.bun/install/global/x/cli.js', home), '/home/u/.bun')
+  assert.equal(installRoot('/home/u/.local/bin/hermes', home), '/home/u/.local/bin')
+  assert.equal(installRoot('/home/u/.local/share/prime-agent/releases/x/prime-agent', home), '/home/u/.local/share/prime-agent')
+  assert.equal(installRoot('/usr/bin/git', home), undefined)
 })
