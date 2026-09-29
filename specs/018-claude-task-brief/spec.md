@@ -98,9 +98,21 @@ RECEIPT                  tokens, turns, outcome, bounds applied
 ```
 
 1. **Intake.** `sabi brief "<task>"` is the canonical entry point and the
-   only implementation. Harness-triggered offers (a Hermes skill, an OMP tool,
-   a controller suggestion) call the same primitive; there is no second code
-   path.
+   only implementation. Every other entry calls it; there is no second code
+   path. Three Claude-side entry modes, all on that primitive:
+   - `sabi brief "<task>"`: prepare, write the brief, then spawn Claude.
+   - `sabi claude "<task>"`: a convenience wrapper with the same behaviour,
+     named for the executor. Name to confirm at implementation.
+   - **Already inside Claude Code:** the prompt hook runs under a 10-second
+     budget (`HOOK_TIMEOUT_SECONDS` in `packages/controller/src/hooks.ts`), so
+     it MUST NOT prepare synchronously. It may only recommend a brief for a
+     next handoff, or start preparation in the background for one. The
+     current Claude turn is never made to wait on, or be changed by,
+     preparation.
+
+   A later mode, not part of this slice: Claude itself decides a task needs
+   repository-wide reconnaissance and invokes `sabi brief` mid-session, then
+   continues from the returned brief.
 2. **Preparation in an isolated worktree.** Sabi creates a disposable,
    detached git worktree at the user's current `HEAD` and starts the preparer
    there. The preparer explores with its own tools: it locates the files the
@@ -146,6 +158,21 @@ Sabi hands Claude the plain task and says the brief was not built. It never
 blocks the user's task on preparation.
 
 ## Harness mapping
+
+**A free model is not a preparer.** A model behind OpenRouter cannot read a
+file or run a test on its own, and Sabi does not own a shell. Preparation
+always runs inside a harness, with its own tools, whose inference Sabi routes
+to free or cheap models.
+
+**Strategy comes from capabilities, not from harness names.** The task-brief
+strategy is selected from the capabilities declared or proven for the active
+harness: the operations in `packages/controller/src/adapter-contract.ts` and
+the model-selection fields in spec 017 (`canApplyRecommendation`,
+`selectionScope`, `reportsCatalog`). This specification does not introduce a
+separate capability manifest; unifying those sources is spec 019. Claude Code,
+Hermes, OMP and other hosts may therefore take different preparation paths
+while producing the same verified brief boundary. A capability that has not
+been declared or probed counts as unavailable.
 
 The workflow has two roles, **preparer** (explores on the free tier) and
 **executor** (does the work from the brief). Each harness reaches Sabi through a
@@ -354,6 +381,9 @@ Claude input tokens, turns, outcome, and whether a brief was used.
   authentication through the normal `sabi/sabi-code` provider, not a borrowed
   harness credential.
 - **FR-011**: Every entry point MUST call the single `sabi brief` primitive.
+- **FR-012**: A harness prompt hook MUST NOT run preparation synchronously.
+  It may recommend a brief or start background preparation for a later
+  handoff, and MUST return within the hook's budget either way.
 
 ### Key Entities
 
