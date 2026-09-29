@@ -74,11 +74,22 @@ cheaper model running in another harness, then writes a brief for a fresh Claude
   (`--proxy`, default `http://127.0.0.1:8787/v1`; `--alias`, default `sabi-code`; OMP always uses
   `sabi-code`, the only model its Sabi extension registers). Sabi runs no commands of its own; it
   fingerprints the repository before and after and refuses the brief if anything changed.
-- The preparer is sandboxed with bubblewrap by default (`--sandbox=bwrap`): the whole filesystem
-  is read-only except its clone and scratch directory, where its HOME and TMPDIR also live, and it
-  gets an allowlisted environment without provider keys or tokens. Without bubblewrap the command
-  refuses; `--sandbox=none` runs the preparer unsandboxed and must be chosen explicitly.
-  Verified on 2026-09-29 with Hermes 0.21.4, pi 0.84.2 and Prime Agent 0.9.5.
+- The preparer is sandboxed with bubblewrap by default (`--sandbox=bwrap`). What that guarantees:
+  - **Writes are contained.** The root filesystem is read-only; only the preparer's scratch
+    directory (its clone, generated config, HOME, TMPDIR and runtime dir) is writable. `/run` is
+    masked, so the user's D-Bus and systemd sockets are unreachable, and a new PID namespace and
+    session stop it signalling or typing into host processes.
+  - **Common credential locations are hidden:** `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config`,
+    `~/.claude`, `~/.codex`, keyrings and similar, plus files such as `~/.netrc` and `~/.npmrc`,
+    and the original repository (the preparer works on its clone). Its environment is an
+    allowlist without provider keys or tokens.
+  - **Not a confidentiality boundary.** Other files readable by your user stay readable, and the
+    network is shared so the preparer can reach Sabi. Do not run a preparer on a machine whose
+    other readable files it must not see.
+  Without a working bubblewrap (missing, or unable to create namespaces) the command refuses;
+  `--sandbox=none` runs the preparer unsandboxed and must be chosen explicitly. Verified on
+  2026-09-29: Hermes 0.21.4, OMP 18.4.2, pi 0.84.2 and Prime Agent 0.9.5 run inside it, and a
+  `systemd-run --user` escape that worked against a plain read-only root is blocked.
 - Facts are verified by reading: each quoted file span must exist in your working tree. Command
   results are kept as reported by the preparer and labelled as not re-run. Hypotheses stay
   hypotheses.

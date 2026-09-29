@@ -493,17 +493,51 @@ export interface PrepareOptions {
   bwrapCommand?: string
 }
 
-/** Wrap a preparer in bubblewrap: read-only root, writable scratch (which holds the clone). */
-export function sandboxed(argv: string[], env: Record<string, string>, scratch: string, clone: string, bwrap = 'bwrap'): { argv: string[]; env: Record<string, string> } {
+/** Home-relative locations that commonly hold credentials; masked inside the sandbox. */
+const CREDENTIAL_DIRS = ['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.docker', '.config', '.claude', '.codex',
+  '.hermes', '.pi', '.prime', '.password-store', '.local/share/keyrings']
+const CREDENTIAL_FILES = ['.netrc', '.npmrc', '.pypirc', '.git-credentials', '.claude.json']
+
+/**
+ * Wrap a preparer in bubblewrap. Read-only root; only scratch (clone, generated config, HOME,
+ * TMPDIR, runtime dir) is writable. /run is masked, so the user's D-Bus and systemd sockets
+ * are unreachable (a reachable user bus let a preparer write anywhere via systemd-run), and a
+ * new PID namespace and session stop it signalling or typing into host processes. Common
+ * credential locations and the original repository are masked. Other readable files stay
+ * readable, and the network is shared so the preparer can reach Sabi: this contains writes,
+ * it does not make the rest of the disk secret.
+ */
+export function sandboxed(
+  argv: string[], env: Record<string, string>, scratch: string, clone: string,
+  options: { bwrap?: string; home?: string; hide?: string[] } = {},
+): { argv: string[]; env: Record<string, string> } {
   const home = path.join(scratch, 'home')
   const tmp = path.join(scratch, 'tmp')
-  mkdirSync(home, { recursive: true, mode: 0o700 })
-  mkdirSync(tmp, { recursive: true, mode: 0o700 })
-  return {
-    argv: [bwrap, '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
-      '--bind', scratch, scratch, '--die-with-parent', '--chdir', clone, '--', ...argv],
-    env: { ...env, HOME: home, TMPDIR: tmp },
+  const run = path.join(scratch, 'run')
+  for (const dir of [home, tmp, run]) mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const realHome = options.home ?? os.homedir()
+  const masks: string[] = []
+  for (const dir of CREDENTIAL_DIRS) {
+    const target = path.join(realHome, dir)
+    if (existsSync(target) && statSync(target).isDirectory()) masks.push('--tmpfs', target)
   }
+  for (const file of CREDENTIAL_FILES) {
+    const target = path.join(realHome, file)
+    if (existsSync(target)) masks.push('--ro-bind', '/dev/null', target)
+  }
+  for (const dir of options.hide ?? []) masks.push('--tmpfs', dir)
+  return {
+    argv: [options.bwrap ?? 'bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc',
+      '--tmpfs', '/tmp', '--tmpfs', '/run', '--ro-bind-try', '/run/systemd/resolve', '/run/systemd/resolve',
+      ...masks, '--bind', scratch, scratch,
+      '--unshare-pid', '--new-session', '--die-with-parent', '--chdir', clone, '--', ...argv],
+    env: { ...env, HOME: home, TMPDIR: tmp, XDG_RUNTIME_DIR: run },
+  }
+}
+
+/** True when bubblewrap can actually create its namespaces here, not merely that it exists. */
+export function sandboxAvailable(bwrap = 'bwrap'): boolean {
+  return spawnSync(bwrap, ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--unshare-pid', 'true'], { stdio: 'ignore', timeout: 10_000 }).status === 0
 }
 
 /**
@@ -582,12 +616,12 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
       ? preparerCommand(options.preparer, promptFile, scratch, options.baseURL, options.alias)
       : { argv: options.preparer.argv.map((arg) => arg.replaceAll('{prompt_file}', promptFile)), env: options.preparer.env ?? {} }
     const bwrap = options.bwrapCommand ?? 'bwrap'
-    if (options.sandbox !== 'none' && spawnSync(bwrap, ['--version'], { stdio: 'ignore' }).status !== 0) {
-      return fail('no sandbox available: install bubblewrap, or pass --sandbox=none to run the preparer unsandboxed')
+    if (options.sandbox !== 'none' && !sandboxAvailable(bwrap)) {
+      return fail('no sandbox available: bubblewrap is missing or cannot create namespaces here; install or enable it, or pass --sandbox=none to run the preparer unsandboxed')
     }
     const command = options.sandbox === 'none'
       ? { argv: planned.argv, env: preparerEnv(planned.env) }
-      : sandboxed(planned.argv, preparerEnv(planned.env), scratch, clone, bwrap)
+      : sandboxed(planned.argv, preparerEnv(planned.env), scratch, clone, { bwrap, hide: [root] })
     const run = spawnSync(command.argv[0], command.argv.slice(1), {
       cwd: clone, encoding: 'utf8', env: command.env,
       timeout: options.timeoutMs ?? 15 * 60_000, maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],

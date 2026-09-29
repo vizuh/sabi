@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { compileBrief, gateFindings, parseFindings, prepareBrief, preparerEnv, type BriefInput, type PreparerFindings } from '../src/brief.ts'
@@ -269,5 +269,32 @@ test('inside the sandbox an absolute-path write to the user repo fails, and the 
   })
   assert.equal(readFileSync(target, 'utf8'), PRICING)
   assert.equal(receipt.userTreeUnchanged, true)
+  assert.equal(receipt.verified, 1)
+})
+
+test('the sandbox blocks the known escapes: user bus, systemd-run, the original repo, credential dirs', { skip: !bwrapWorks && 'bubblewrap unavailable here' }, () => {
+  const root = repo({ 'src/pricing.js': PRICING, '.env': 'TOKEN=abc\n' })
+  const outside = mkdtempSync(path.join(os.tmpdir(), 'sabi-outside-'))
+  const escaped = path.join(outside, 'escaped.txt')
+  const uid = process.getuid?.() ?? 1000
+  const realConfig = path.join(os.homedir(), '.config')
+  const script = `
+    const fs = require('fs'), cp = require('child_process')
+    const r = {}
+    r.userBus = fs.existsSync('/run/user/${uid}/bus')
+    try { cp.execFileSync('systemd-run', ['--user', '--wait', '/usr/bin/touch', ${JSON.stringify(escaped)}], { stdio: 'ignore', timeout: 5000 }); r.systemdRun = 'ran' } catch { r.systemdRun = 'failed' }
+    try { fs.readFileSync(${JSON.stringify(path.join(root, '.env'))}); r.repoEnv = 'read' } catch { r.repoEnv = 'blocked' }
+    try { r.configEntries = fs.readdirSync(${JSON.stringify(realConfig)}).length } catch { r.configEntries = 0 }
+    console.log('PROBE ' + JSON.stringify(r))
+    ${REPORT}`
+  const { receipt, dir } = prepareBrief({
+    task: 't', cwd: root, preparer: { argv: [process.execPath, '-e', script] },
+    baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+  })
+  const probe = JSON.parse(/PROBE (.*)/.exec(readFileSync(path.join(dir, 'preparer-output.txt'), 'utf8'))![1])
+  assert.equal(probe.userBus, false)
+  assert.equal(probe.repoEnv, 'blocked')
+  assert.equal(probe.configEntries, 0)
+  assert.equal(existsSync(escaped), false, `systemd-run ${probe.systemdRun}`)
   assert.equal(receipt.verified, 1)
 })
