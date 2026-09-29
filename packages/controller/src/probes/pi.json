@@ -23,7 +23,7 @@
     "First run exited 1 on a relayed provider 429 from a :free model; fixed in Sabi by #151. Second run pinned to the mid tier passed."
   ],
   "detect": {
-    "value": true,
-    "how": "`pi` found on PATH; version from `pi --version`"
+    "value": false,
+    "how": "`pi` is a generic executable name and `pi --version` prints only a bare version, so finding it on PATH does not identify this harness. Not declared."
   }
 }

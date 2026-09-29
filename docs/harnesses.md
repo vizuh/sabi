@@ -29,10 +29,12 @@ boundary are observed.
 
 ## Preparer probes (2026-09-29)
 
-Each harness ran one scripted, read-only preparation task on a fixture repository, in its own
-Orca worktree, with inference through an isolated Sabi proxy serving only `:free` models. Data:
-`packages/controller/src/probes/<harness>.json`. These establish a headless run with Sabi-routed
-inference and an observable exit code; they do not establish hooks, session identity or install.
+The four preparers (Hermes, OMP, pi, Prime Agent) each ran one scripted, read-only preparation
+task on a fixture repository, in its own Orca worktree, with inference through an isolated Sabi
+proxy serving only `:free` models. Data: `packages/controller/src/probes/<harness>.json`. These
+establish a headless run with Sabi-routed inference and an observable exit code; they do not
+establish hooks, session identity or install. Claude Code ran separately as the executor on its
+own subscription, not through Sabi, so its row is not evidence about the free lane.
 
 | Harness | Version | Headless command shape | Result |
 |---|---|---|---|

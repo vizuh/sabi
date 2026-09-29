@@ -1922,5 +1922,5 @@ run exited on a relayed provider 429, which exposed the fallback bug fixed in #1
 2.1.284 fixed the bug both from a compiled brief and cold; on this three-file fixture the brief
 cost more (10 turns, $0.54 vs 6 turns, $0.46). Results recorded as probe data in
 `packages/controller/src/probes/`; the four preparer manifests move from `unsupported` to
-`partial` with `detect: native` (found on PATH with a version), `dispatch: cli` and
-`observe-outcome: cli`; everything else stays missing and consent stays unavailable. Suite: 821/821.
+`partial` with `detect: native` (found on PATH with a version; not for `pi`, whose name is
+ambiguous), `dispatch: cli` and `observe-outcome: cli`; everything else stays missing and consent stays unavailable. Suite: 821/821.

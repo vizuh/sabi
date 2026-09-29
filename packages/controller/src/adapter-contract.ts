@@ -155,7 +155,8 @@ const BUILTIN_ADAPTERS: HarnessAdapterManifest[] = [
     status: 'partial',
     consent: 'unavailable',
     operations: {
-      detect: 'native', install: 'missing', 'identify-session': 'missing', 'receive-prompt': 'missing',
+      // A bare `pi` on PATH could be any program; its --version carries no signature.
+      detect: id === 'pi' ? 'missing' : 'native', install: 'missing', 'identify-session': 'missing', 'receive-prompt': 'missing',
       dispatch: 'cli', 'observe-outcome': 'cli', uninstall: 'missing',
     },
   })),
