@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { defaultConfigPath, defaultLogPath, loadConfig, loadConfiguredSecrets } from '@sabi/core'
+import { defaultConfigPath, defaultLogPath, effectiveMode, loadConfig, loadConfiguredSecrets } from '@sabi/core'
 import { createSabiServer, credentialWarnings } from './server.ts'
 
 const config = loadConfig()
@@ -39,6 +39,11 @@ for (const [tier, model] of Object.entries(config.models)) {
 }
 if (judge?.enabled) {
   console.log(`  judge  : ${judge.model ?? 'jev-latest'} at ${judge.baseURL} (on: ${(judge.callOn ?? ['failure', 'unclassified']).join(', ')})`)
+}
+// The effort schedule is observational in this build: the level is recorded per round, and
+// `reasoning_effort` on the wire is still exactly what the client sent. Shown only when configured.
+if (effectiveMode(config) === 'observe') {
+  console.log('  effort : observe (difficulty 0-100 on the tier ladder; recorded only, the request is unchanged)')
 }
 if (missingKeys.length) {
   console.log(`  WARN   : missing upstream credentials for ${missingKeys.join(', ')} — those requests will fail`)

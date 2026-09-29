@@ -2043,3 +2043,124 @@ Hugo may reverse it. Consequence: fixed aliases and fallback-off rounds with an
 unset variable get the 502 instead of the provider's unauthenticated 401. An
 omitted `apiKey` is still a keyless upstream. A 401 from a resolved key keeps
 cross-upstream fallback under the existing `paidModelsAllowed` rule.
+
+## 2026-09-28 — Effort scheduling, observe-only: percentage from round difficulty, bands from the tier's own ladder
+
+### Context
+
+The record-only slice (2026-09-23) made `effort`/`effortSource` real but left `scheduled` reserved and
+wrote nothing about what Sabi itself would have chosen. The next half needs two things that slice did
+not have: a *source* for a round's difficulty, and a *per-model* notion of how many reasoning steps
+exist — because the same percentage means different levels on a model with three steps and on one
+with five. Its entry also set a precondition for this half: live free-tier verification, so injecting
+a control upstream cannot break free-tier calls.
+
+### Decision
+
+- `packages/core/src/effort.ts` (new, pure). `difficultyPercent(state)` maps the trajectory state the
+  engine already has — round kind, context pressure, transport vs hard failure, repeated failure, tool
+  churn, a large first turn — onto 0-100 with a fixed-vocabulary token reason. `bandIndex(percent,
+  ladder)` derives **n equal bands from the ladder itself** (0-19/20-39/40-59/60-79/80-100 for five
+  levels, 0-33/34-66/67-100 for three). `scheduleEffort(config, decision, judge?)` composes them. No
+  I/O, no clock, no randomness, and **no path throws**: a malformed or unvalidated config yields
+  `undefined` ("this round has no schedule"), never a failed round.
+- Bands use `floor` with an inclusive floor and exclusive ceiling, so every integer percentage lands
+  somewhere and 100% always resolves to the model's top declared level. A tier that resolves no ladder
+  is a no-op for that round.
+- New `effortScheduling` config block: all eight members required (`enabled`, `mode`, `scale`,
+  `bands`, `ladders`, `curve`, `floorLevel`, `judge`), validated at load. `ladders.default`
+  covers tiers the operator has not described individually.
+- `DecisionRecord` gains `effortPercent` / `effortPlanned` / `effortIndex` / `effortLevel` /
+  `effortLadder` / `effortReason`, written by exactly one producer (the server's
+  `applyEffortSchedule`) and persisted bounded. `effortReason` is filtered by its own character class
+  rather than `sanitizeReason`, which would rewrite a fixed-vocabulary token list.
+- **`effortSource` keeps its meaning: the origin of the effort on the wire.** Observe mode writes the
+  schedule into the new fields and leaves `effort`/`effortSource` untouched, so a row still tells the
+  truth about what the upstream received. `fill`/`override` are rejected at load (reserved until
+  injection ships): **no injection is implemented in this slice.**
+- The schedule is recomputed after a successful transport fallback, because the *final* tier's ladder
+  is what the percentage must resolve against.
+- `npm run report` aggregates the scheduled level plus `unscheduledRounds`.
+
+### Why
+
+- The reserved `scheduled` value needs a producer, and an operator needs to see what Sabi *would*
+  choose before anything starts injecting controls upstream. Observe-first also matches this repo's
+  rule that recorded evidence precedes a behaviour change.
+- Deriving bands from the ladder instead of a fixed table is what makes one 0-100 scale work across
+  models with different step counts. A fixed table either saturates or skips levels on a model whose
+  ladder is not the one it was written for.
+- No routing change: `policy`, the judge and cache affinity are untouched. The schedule is a second
+  output of the same decision, not a replacement for it.
+
+### Validation
+
+- Maintainer run on the rebased tree (2026-09-29, after the review fixes below): `npm run typecheck`
+  clean, `npm test` 873/873. The contributor's own runs are in PR #147.
+- 30 new tests: 24 pure (bands per ladder size, every difficulty term, both ends of the scale, the
+  floor, the curve, the judge confidence gate, inert modes, forged configs, the reason vocabulary,
+  sanitize round-trips, the validation rules, the per-tier floor), 3 proxy end-to-end (observe records
+  and forwards the client body **key for key**; no block writes nothing), 2 fallback
+  (level recomputed against the final tier's ladder) and 1 report aggregation.
+- Live upstream measurements reported by the contributor (not re-run by the maintainer), 2026-09-28,
+  same prompt, three repetitions per cell, through the local proxy, with `completion_tokens` as the
+  observable (the private subscription relay does not report `reasoning_tokens`): relay, codex-family
+  low 267 / high 535 / xhigh 717 / **max 1044**; relay, second size high 306 / xhigh 448 /
+  **max 1000**; `cheap` (`openrouter/free`) low 527 / high 1163 / **max 1925**
+  (medians 495 / 767 / 2253). Monotone at every step, and on the first relay model the **lowest** `max` (860) is above
+  the **highest** `high` (671). This is the free-tier evidence the record-only entry asked for before
+  any injection — a measurement of these upstreams on this date, not a claim about every
+  OpenAI-compatible endpoint.
+- End-to-end through the real harness (contributor-reported): a Hermes round on the `mid` tier recorded
+  `effortPercent 27`, `effortIndex 0`, `effortLevel low`, with `effort: medium` and
+  `effortSource: client`. Index 0 at 27% implies a ladder of 3 levels or fewer, not the 4 levels
+  measured on that model; the ladder in use was not recorded.
+- 15 synthetic tasks routed through the engine in-process (no dispatch, no tokens spent) spanning all
+  three tiers and all five levels: `low` 1 / `medium` 5 / `high` 4 / `xhigh` 3 / `max` 2.
+
+### Known gap
+
+- **No injection.** `fill`/`override` are rejected at load until it ships.
+- The ladder is the operator's *measured statement*, not something the proxy can discover: the
+  catalogs consulted publish no reasoning-capability flags (`thinkingEffortSupported: null`) and the
+  upstream accepts any string without validating the enum. Where a tier declares
+  `capabilities.reasoningEfforts`, every ladder level must be in it (checked at load); otherwise a
+  wrong ladder is not an error, only a wrong level.
+- Two different "context pressure" thresholds now coexist: the routing rule fires at ≥90% of the
+  window while the percentage term reacts at ≥75%, so a round can carry `ctx-pressure` in its reason
+  while still being routed by `implementation`. Left as-is deliberately — calibration, not a bug.
+- The verification classifier keys on `\b(test|build|tsc|lint|…)\b` in the tool name or arguments, so
+  a tool named `run_tests` does **not** classify as verification (the word boundary fails after `_`)
+  while `bash` with `{"command":"npm test"}` does. Two rounds identical in intent land in different
+  bands on the tool name alone.
+
+### Maintainer review (2026-09-29, rebased onto #162)
+
+A `/code-review` on the rebased tree found these, fixed before merge:
+
+- **Private relay names removed** from this entry: the aggregator name and model namespace from the
+  contributor's private subscription.
+- **Validation tightened.**
+  - `fill`/`override` are rejected at load.
+  - `ladders` keys must be `default` or a declared tier.
+  - A floor must be a level name.
+  - Unknown `judge` fields are rejected.
+  - A ladder level outside a tier's declared `reasoningEfforts` is rejected.
+  - Ladders and floors resolve through one own-key lookup (`effortTableEntry`) in both validation
+    and runtime, so what loads is what runs.
+- **Context pressure** uses the scheduled tier's own `contextWindow` when declared. The router's
+  value is the smallest window across tiers, which tagged large-window tiers `ctx-high`.
+- **Startup line** is printed only in `observe` mode, in English.
+- **Tests.**
+  - The observe test sends a client effort that differs from the scheduled level, so a replaced value
+    fails, not only an added key.
+  - A judged round is checked end to end.
+- **Docs.** The `effortSource` and `effortPercent` type docs are corrected: nothing writes
+  `scheduled` yet, and the percentage does not depend on the ladder.
+
+Open, for calibration before any injection:
+
+- `tool-churn` counts every tool result in the transcript, so it measures session age.
+- `large-first-turn` fires on any user turn once the transcript has 12+ messages.
+- After a fallback, the planned tier's scheduled level is overwritten by the final tier's.
+- `unscheduledRounds` also counts passthrough rounds.

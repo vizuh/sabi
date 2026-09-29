@@ -1932,3 +1932,14 @@ Specs for issues #155–#160, raised from external issue research. 020 upstream 
 ## [2026-09-29] feat | upstream failure taxonomy and route receipts (specs 020, 021)
 
 Implements #155, #156 and #157. The proxy classifies a planned upstream's refusal as unconfigured, credential, not-entitled, quota or transient and records it as `upstreamRefusal`. An upstream whose `$VAR` key is unset is no longer called: the round may fall back only to a free tier, otherwise it fails with a 502 naming the variable (decision A, defaulted). Fixed aliases and fallback-off rounds now get that 502 instead of the provider's unauthenticated 401. A 402/403 whose body says the plan does not include the model is remembered for 6h in process and routed around without a call; unknown 402/403 behave as before. Each served round carries a `route` receipt (requested vs effective tier and model, reason `fallback` or `substituted`). The dashboard now names the planned tier a fallback overwrote, which it previously printed as the serving tier, and labels refusals in EN and pt-BR; `npm run report` counts both. The #155 reproduction (unset key, then 401, then served on the paid tier) is now a regression test.
+
+## [2026-09-29] feat | effort scheduling, observe-only (from #147)
+
+Rebased paulocavallari's #147 onto `main` after #162, resolving the conflicts in `server.ts`, `report.ts`, `report.test.ts` and `docs/decisions.md` by keeping both sides. Per round, Sabi now computes a difficulty percentage, resolves it to a level on the tier's own ladder, and records it in `effort*` fields. The request body is unchanged, `effort`/`effortSource` keep their wire meaning, and nothing happens without an `effortScheduling` block. Maintainer review fixes:
+- validation tightened (`fill`/`override` rejected at load, ladder keys, floor type, judge fields, ladder levels checked against `reasoningEfforts`, one own-key lookup shared by validation and runtime);
+- context pressure measured against the tier's own window;
+- startup line printed in English, and only when active;
+- stronger tests;
+- private relay names removed from the decision entry.
+
+873/873 tests pass.
