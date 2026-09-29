@@ -1924,3 +1924,7 @@ cost more (10 turns, $0.54 vs 6 turns, $0.46). Results recorded as probe data in
 `packages/controller/src/probes/`; the four preparer manifests move from `unsupported` to
 `partial` with `detect: native` (found on PATH with a version; not for `pi`, whose name is
 ambiguous), `dispatch: cli` and `observe-outcome: cli`; everything else stays missing and consent stays unavailable. Suite: 821/821.
+
+## [2026-09-29] spec | routing evidence specs 020–023
+
+Specs for issues #155–#160, raised from external issue research. 020 upstream failure taxonomy (#155, #156): unconfigured / credential / not-entitled / quota / transient, each with scope, lifetime and routing effect. #155 reproduced with a throwaway fixture at `83e6b24`: an unresolved key reference sent no auth, got 401, and the round was served and billed on the paid tier. 021 route receipts (#157): requested vs effective model and effort with a closed reason list. 022 semantic supervisor lane (#158): research only, gated on D beating B. 023 host selection seams (#159, #160): probe plans for OpenCode Go and Gentle Pi. Spec-only; no code changed.
