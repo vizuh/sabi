@@ -302,10 +302,12 @@ function rememberRefusal(state: ServerState, refusal: RefusalClass, upstream: st
 }
 
 /**
- * First chunk of an error body, then release it. Enough to classify a refusal, and never a
- * wait on a provider that sent its headers and stalled the rest.
+ * First chunk of an error body, then release it. Enough to classify a refusal without waiting
+ * on a provider that stalls after its first bytes; one that sends no body bytes at all still
+ * waits, bounded by the request deadline.
  */
-// ponytail: first chunk only; a refusal whose wording arrives in a later chunk stays transient.
+// ponytail: first chunk only; a refusal worded in a later chunk stays transient, and the client
+// is served that chunk. Race the read against a short timer if zero-byte stalls show up.
 async function readErrorHead(response: Response): Promise<string> {
   if (!response.body) return ''
   const reader = response.body.getReader()

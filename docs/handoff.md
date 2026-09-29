@@ -1,5 +1,21 @@
 # Handoff Notes
 
+## Specs 020 + 021 — upstream failure taxonomy, route receipts — 2026-09-29 (PR #162, not merged)
+
+- Specs in #161 (also 022 research gate, 023 probe plan). Code in #162, CI green.
+- Refusal classes `unconfigured | credential | not-entitled | quota | transient`
+  recorded as `upstreamRefusal`; served rounds carry a `route` receipt.
+- An unset `$VAR` key: no call, free tiers only, otherwise a 502 naming the
+  variable (decision A in `docs/decisions.md`). Not-entitled needs the body
+  wording from hermes-agent#123362; remembered 6h in process.
+- Live proxy checked 2026-09-29: all four configured upstreams resolve their
+  keys (ok rounds since 2026-09-26), so #162 does not 502 the live config.
+- **#155 stays live** until #162 is merged and `sabi-proxy.service` restarted.
+- Merge order: #161, #162, then rebase #147 (overlaps `server.ts`, `types.ts`,
+  `report.ts`).
+- Not built: 022 (needs a benchmark budget), 023 (no upstream seam yet),
+  cross-round quota memory (trigger: repeated calls into an exhausted pool).
+
 ## Spec 010 — shadow routing mirror + operational metrics — 2026-09-24 (merged)
 
 Phases 1–6 complete across PRs #136 and #137 (both merged to `main`).
