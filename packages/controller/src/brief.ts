@@ -92,9 +92,17 @@ function stringList(value: unknown): string[] {
     : []
 }
 
+function looksLikeFindings(raw: string): boolean {
+  const value = JSON.parse(raw) as unknown
+  return value !== null && typeof value === 'object' && !Array.isArray(value) &&
+    ['facts', 'hypotheses', 'relevantSurface'].some((key) => key in value)
+}
+
 /**
- * The last JSON object in `text` that starts at the beginning of a line. JSON.parse does the
- * string and escape handling; candidates are bounded so a huge, JSON-free output stays cheap.
+ * The last findings object in `text` that starts at the beginning of a line. JSON.parse does
+ * the string and escape handling; a candidate must look like findings, because pretty-printed
+ * output also has indented lines that open a single fact. Candidates are bounded so a huge,
+ * JSON-free output stays cheap.
  */
 function lastJsonObject(text: string): string | undefined {
   const tail = text.slice(-256 * 1024).replace(/```(?:json)?/g, '')
@@ -103,8 +111,8 @@ function lastJsonObject(text: string): string | undefined {
   for (const start of starts.reverse().slice(0, 64)) {
     const rest = tail.slice(start)
     try {
-      JSON.parse(rest)
-      return rest
+      if (looksLikeFindings(rest)) return rest
+      continue
     } catch (error) {
       // Text after a complete object ("Unexpected non-whitespace character after JSON at
       // position N"): the object is the first N characters.
@@ -112,8 +120,7 @@ function lastJsonObject(text: string): string | undefined {
       if (!at) continue
       const candidate = rest.slice(0, Number(at[1]))
       try {
-        JSON.parse(candidate)
-        return candidate
+        if (looksLikeFindings(candidate)) return candidate
       } catch {
         // not an object from this line; try an earlier one
       }
@@ -252,22 +259,35 @@ function renderItem(item: GatedItem): string {
  * one XML-tagged section per kind of content (Anthropic prompting guidance, spec 018).
  */
 export function compileBrief(input: BriefInput): { markdown: string; bounds: BriefBounds } {
-  const items = [...input.gate.verified.map((item) => ({ item, group: 'verified' as const })),
-    ...input.gate.reported.map((item) => ({ item, group: 'reported' as const }))]
-  const rendered = items.map(({ item, group }) => ({ group, text: renderItem(item) }))
-  const bytesBefore = rendered.reduce((sum, r) => sum + Buffer.byteLength(r.text), 0)
-  const kept: typeof rendered = []
+  const f = input.findings
+  // One byte budget over everything the preparer contributed, in priority order: verified
+  // facts, reported results, then the lists. Fact items also keep their 20-item cap.
+  type Group = 'verified' | 'reported' | 'uncertain' | 'hypotheses' | 'ruledOut' | 'surface' | 'constraints'
+  const entries: Array<{ group: Group; text: string }> = [
+    ...input.gate.verified.map((item) => ({ group: 'verified' as const, text: renderItem(item) })),
+    ...input.gate.reported.map((item) => ({ group: 'reported' as const, text: renderItem(item) })),
+    ...input.gate.uncertain.map((u) => ({ group: 'uncertain' as const, text: `- ${u.claim} (${u.reason})` })),
+    ...f.hypotheses.map((h) => ({ group: 'hypotheses' as const, text: `- ${h}` })),
+    ...f.ruledOut.map((r) => ({ group: 'ruledOut' as const, text: `- ${r}` })),
+    ...f.relevantSurface.map((r) => ({ group: 'surface' as const, text: `- ${r}` })),
+    ...f.constraints.map((c) => ({ group: 'constraints' as const, text: `- ${c.source ? `${c.rule} (${c.source})` : c.rule}` })),
+  ]
+  const bytesBefore = entries.reduce((sum, e) => sum + Buffer.byteLength(e.text), 0)
+  const kept: typeof entries = []
   let bytes = 0
-  for (const entry of rendered) {
+  let factItems = 0
+  for (const entry of entries) {
     const size = Buffer.byteLength(entry.text)
-    if (kept.length >= BRIEF_BOUNDS.maxItems || bytes + size > BRIEF_BOUNDS.maxBytes) continue
+    const isFact = entry.group === 'verified' || entry.group === 'reported'
+    if ((isFact && factItems >= BRIEF_BOUNDS.maxItems) || bytes + size > BRIEF_BOUNDS.maxBytes) continue
     kept.push(entry)
     bytes += size
+    if (isFact) factItems++
   }
-  const verified = kept.filter((e) => e.group === 'verified').map((e) => e.text)
-  const reported = kept.filter((e) => e.group === 'reported').map((e) => e.text)
-  const list = (values: string[], empty: string) => values.length ? values.map((v) => `- ${v}`).join('\n') : empty
-  const f = input.findings
+  const of = (group: Group) => kept.filter((e) => e.group === group).map((e) => e.text)
+  const verified = of('verified')
+  const reported = of('reported')
+  const section = (group: Group, empty: string) => of(group).join('\n') || empty
   const markdown = `# Task brief ${input.id}
 
 This brief was prepared by a cheaper model (${input.preparer}) exploring a disposable copy of the repository, so you can start with the useful context instead of rediscovering it. Sabi checked every fact under <verified_facts> against the files in your working tree; everything else is labelled with how far it can be trusted. Verify the facts your plan depends on before building on them.
@@ -289,28 +309,28 @@ ${reported.length ? reported.join('\n') : 'None reported.'}
 </reported_results>
 
 <relevant_surface>
-${list(f.relevantSurface, 'Not established.')}
+${section('surface', 'Not established.')}
 </relevant_surface>
 
 <ruled_out>
-${list(f.ruledOut, 'Nothing ruled out yet.')}
+${section('ruledOut', 'Nothing ruled out yet.')}
 </ruled_out>
 
 <uncertainties>
-${list(input.gate.uncertain.slice(0, MAX_LIST).map((u) => `${u.claim} (${u.reason})`), 'None recorded.')}
+${section('uncertain', 'None recorded.')}
 </uncertainties>
 
 <proposed_path>
 The preparer's hypotheses. They are not facts: confirm before acting on them.
-${list(f.hypotheses, 'None offered.')}
+${section('hypotheses', 'None offered.')}
 </proposed_path>
 
 <constraints>
-${list(f.constraints.map((c) => c.source ? `${c.rule} (${c.source})` : c.rule), 'None specific to this task beyond the repository instruction files you already load.')}
+${section('constraints', 'None specific to this task beyond the repository instruction files you already load.')}
 </constraints>
 
 <task>
-${input.task}
+${clip(input.task)}
 </task>
 
 <success_criteria>
@@ -325,7 +345,7 @@ ${f.firstAction ?? 'Read the relevant surface above, then run the verification c
 `
   return {
     markdown,
-    bounds: { included: kept.length, dropped: rendered.length - kept.length, bytesBefore, bytesAfter: bytes },
+    bounds: { included: kept.length, dropped: entries.length - kept.length, bytesBefore, bytesAfter: bytes },
   }
 }
 
@@ -404,6 +424,20 @@ export function preparerCommand(id: PreparerId, promptFile: string, scratch: str
   }
 }
 
+/**
+ * The environment a preparer gets: what a CLI needs to start and find its own files, and
+ * nothing else. Provider keys, tokens and cloud credentials in the caller's shell stay out;
+ * preparers reach models through Sabi with a placeholder key.
+ */
+export function preparerEnv(extra: Record<string, string>, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const allowed = new Set(['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LANGUAGE', 'TERM', 'TMPDIR', 'TZ', 'NODE_OPTIONS'])
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== undefined && (allowed.has(key) || key.startsWith('LC_') || key.startsWith('XDG_'))) out[key] = value
+  }
+  return { ...out, ...extra }
+}
+
 function git(cwd: string, args: string[]): string {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' })
   if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`)
@@ -478,10 +512,10 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
   let userTreeDirty = false
   let before = ''
   const empty = { verified: 0, reported: 0, uncertain: 0, bounds: { included: 0, dropped: 0, bytesBefore: 0, bytesAfter: 0 } }
-  const fail = (reason: string, exitCode: number | null = null, unchanged = true): { receipt: BriefReceipt; dir: string } => {
+  const fail = (reason: string, exitCode: number | null = null, unchanged = true, parsed = false): { receipt: BriefReceipt; dir: string } => {
     const receipt: BriefReceipt = {
       id, preparer: preparerName, baseCommit, userTreeUnchanged: unchanged, preparerExitCode: exitCode,
-      seconds: Math.round((Date.now() - started) / 1000), findings: false, ...empty, fallbackReason: reason,
+      seconds: Math.round((Date.now() - started) / 1000), findings: parsed, ...empty, fallbackReason: reason,
     }
     writeReceipt(dir, receipt)
     return { receipt, dir }
@@ -510,13 +544,16 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
       ? preparerCommand(options.preparer, promptFile, scratch, options.baseURL, options.alias)
       : { argv: options.preparer.argv.map((arg) => arg.replaceAll('{prompt_file}', promptFile)), env: options.preparer.env ?? {} }
     const run = spawnSync(command.argv[0], command.argv.slice(1), {
-      cwd: clone, encoding: 'utf8', env: { ...process.env, ...command.env },
+      cwd: clone, encoding: 'utf8', env: preparerEnv(command.env),
       timeout: options.timeoutMs ?? 15 * 60_000, maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
     })
     exitCode = run.status
     output = `${run.stdout ?? ''}`
     writeFileSync(path.join(dir, 'preparer-output.txt'), bounded(output, 256 * 1024))
-    if (run.error) return fail(`the preparer could not run: ${run.error.message}`, exitCode)
+    if (run.error && (run.error as NodeJS.ErrnoException).code !== 'ETIMEDOUT') return fail(`the preparer could not run: ${run.error.message}`, exitCode)
+    if (run.signal || run.status !== 0) {
+      return fail(run.signal ? `the preparer was stopped by ${run.signal}${run.error ? ' (timed out)' : ''}` : `the preparer exited with code ${run.status}`, exitCode)
+    }
   } catch (error) {
     return fail(`preparation failed: ${(error as Error).message}`, exitCode)
   } finally {
@@ -531,6 +568,8 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
   if (!findings) return fail('the preparer returned no readable findings', exitCode)
 
   const gate = gateFindings(findings, root, { baseCommit, preparer: preparerName })
+  // Nothing confirmed means nothing better than the plain task to hand over.
+  if (gate.verified.length === 0) return fail('no finding could be verified against the files', exitCode, true, true)
   const { markdown, bounds } = compileBrief({
     id, task: options.task, repo: root, branch, baseCommit, userTreeDirty, preparer: preparerName, findings, gate,
   })

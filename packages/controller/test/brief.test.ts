@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { compileBrief, gateFindings, parseFindings, prepareBrief, type BriefInput, type PreparerFindings } from '../src/brief.ts'
+import { compileBrief, gateFindings, parseFindings, prepareBrief, preparerEnv, type BriefInput, type PreparerFindings } from '../src/brief.ts'
 
 function repo(files: Record<string, string>): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-brief-repo-'))
@@ -90,7 +90,8 @@ test('the brief is deterministic, long material first and the request last', () 
 test('the brief keeps within 20 items and 8 KB, truncates one huge item, and reports what it dropped', () => {
   const many = Array.from({ length: 25 }, (_, i) => ({ claim: `fact ${i}`, ref: { kind: 'file' as const, path: 'a.js', lineStart: i + 1, lineEnd: i + 1 }, excerpt: 'y'.repeat(100) }))
   const { bounds } = compileBrief(input({ verified: many, reported: [], uncertain: [] }))
-  assert.equal(bounds.included, 20)
+  // 20 fact items (the cap) plus the fixture's one hypothesis; the other 5 facts are dropped.
+  assert.equal(bounds.included, 21)
   assert.equal(bounds.dropped, 5)
   assert.ok(bounds.bytesAfter <= 8 * 1024 && bounds.bytesBefore > bounds.bytesAfter)
   const huge = gateFindings(findings([{ claim: 'big', ref: { kind: 'command', command: 'x', exitCode: 0, excerpt: 'z'.repeat(5000) } }]), repo({ 'a.txt': 'a\n' }))
@@ -203,4 +204,44 @@ test('a directory that is not a git repository, or has no commits, fails open wi
     assert.match(receipt.fallbackReason ?? '', /could not be read/)
     assert.ok(readdirSync(dir).includes('receipt.json'))
   }
+})
+
+test('the byte budget covers every section, not only the fact items', () => {
+  const long = (n: number) => Array.from({ length: 12 }, (_, i) => `${n}-${i} ${'q'.repeat(380)}`)
+  const gate = { verified: [{ claim: 'c', ref: { kind: 'file' as const, path: 'a.js', lineStart: 1, lineEnd: 1 }, excerpt: 'x' }], reported: [], uncertain: [] }
+  const { markdown, bounds } = compileBrief(input(gate, { hypotheses: long(1), ruledOut: long(2), relevantSurface: long(3) }))
+  assert.ok(bounds.bytesAfter <= 8 * 1024)
+  assert.ok(bounds.dropped > 0)
+  assert.ok(Buffer.byteLength(markdown) < 12 * 1024, `brief is ${Buffer.byteLength(markdown)} bytes`)
+})
+
+test('a preparer that exits non-zero, or verifies nothing, gets no brief', () => {
+  const root = repo({ 'src/pricing.js': PRICING })
+  const failed = prepareWith(root, `${REPORT};process.exit(1)`)
+  assert.equal(failed.receipt.briefPath, undefined)
+  assert.equal(failed.receipt.fallbackReason, 'the preparer exited with code 1')
+  const unverified = prepareWith(root, `console.log('SABI_FINDINGS_BEGIN\\n'+JSON.stringify({facts:[{claim:'guess',ref:{kind:'file',path:'src/pricing.js',lineStart:1,quote:'not in the file'}}],hypotheses:['h']})+'\\nSABI_FINDINGS_END')`)
+  assert.equal(unverified.receipt.briefPath, undefined)
+  assert.equal(unverified.receipt.fallbackReason, 'no finding could be verified against the files')
+})
+
+test('preparers get an allowlisted environment: no provider keys or tokens', () => {
+  const env = preparerEnv({ HERMES_HOME: '/x' }, { PATH: '/bin', HOME: '/h', LC_ALL: 'C', OPENROUTER_API_KEY: 'k', GITHUB_TOKEN: 't', AWS_SECRET_ACCESS_KEY: 's' })
+  assert.deepEqual(env, { PATH: '/bin', HOME: '/h', LC_ALL: 'C', HERMES_HOME: '/x' })
+})
+
+test('pretty-printed findings parse as a whole, not as their last indented fact', () => {
+  const pretty = JSON.stringify({
+    facts: [
+      { claim: 'a', ref: { kind: 'file', path: 'a.js', lineStart: 1, quote: 'x' } },
+      { claim: 'b', ref: { kind: 'command', command: 'npm test', exitCode: 1, excerpt: 'x' } },
+    ],
+    constraints: [{ rule: 'r', source: 'AGENTS.md' }],
+    hypotheses: ['h'],
+  }, null, 2)
+  const parsed = parseFindings(`SABI_FINDINGS_BEGIN\n${pretty}\nSABI_FINDINGS_END`)
+  assert.equal(parsed?.facts.length, 2)
+  assert.deepEqual(parsed?.hypotheses, ['h'])
+  // Same without the begin marker, as pi emits it.
+  assert.equal(parseFindings(`prose\n${pretty}\nSABI_FINDINGS_END`)?.facts.length, 2)
 })
