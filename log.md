@@ -1886,3 +1886,15 @@ Grounded in Anthropic's prompting best practices, the context-engineering and
 long-running-harness articles, the Claude Code CLI reference and the Agent
 Skills overview, each fetched 2026-09-28 and cited in the spec. Success
 criteria are hypotheses; nothing is measured yet. Docs only.
+
+## [2026-09-29] spec | 019 Harness Capability Strategy
+
+Drafted `specs/019-harness-capability-strategy/spec.md`: one record of
+effective capabilities per harness, joining the adapter contract's operations,
+spec 017's model-selection fields and recorded probes, each capability with
+provenance (declared, probed with version and time, or runtime). Absent means
+unavailable; nothing is copied across harnesses. Strategy code reads
+capabilities, never harness names; when no strategy qualifies the decision
+names the missing capability. Recorded two gaps: 017's fields exist only in
+the spec, and Hermes and OMP have no adapter manifest. Ships after 018. Docs
+only.
