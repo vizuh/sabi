@@ -111,11 +111,31 @@ export interface AgentHarness extends AgentDescriptor {
   modelRequired?: boolean
 }
 
+/**
+ * Structured provenance for one claim (spec 018, Evidence model): a file span, or a
+ * command with its exit code. Without it, "facts require evidence" holds only in words.
+ */
+export interface EvidenceRef {
+  kind: 'file' | 'command'
+  path?: string
+  lineStart?: number
+  lineEnd?: number
+  quote?: string
+  command?: string
+  exitCode?: number
+  excerpt?: string
+  /** The commit the evidence was observed at (an isolated worktree's HEAD). */
+  baseCommit?: string
+  preparer?: string
+}
+
 /** A distilled, provenance-tagged claim; never a raw transcript excerpt. */
 export interface RecoveryCapsuleItem {
   label: string
   status: EvidenceStatus
   source: EvidenceSource
+  /** Required for a verified item in a task brief; optional so existing capsules stay valid. */
+  ref?: EvidenceRef
 }
 
 /**

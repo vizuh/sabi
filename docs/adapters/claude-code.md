@@ -64,6 +64,27 @@ existing policy already references.
 `passthrough` check (an adaptive alias resolves to an upstream declared `auth: passthrough`) — both
 distinct from the `daemon`/`systemd unit` checks, which only cover the controller.
 
+## Task brief: prepare on free inference, execute in Claude
+
+`sabi brief "<task>" --preparer=hermes|omp|pi|prime` hands the exploration part of a task to a
+cheaper model running in another harness, then writes a brief for a fresh Claude Code session
+(spec 018). Add `--spawn` to start Claude on it directly.
+
+- The preparer runs in a disposable clone of the repository with no remote, through Sabi's proxy
+  (`--proxy`, default `http://127.0.0.1:8787/v1`; `--alias`, default `sabi-code`). Sabi runs no
+  commands of its own; it fingerprints the repository before and after and refuses the brief if
+  anything changed.
+- Facts are verified by reading: each quoted file span must exist in your working tree. Command
+  results are kept as reported by the preparer and labelled as not re-run. Hypotheses stay
+  hypotheses.
+- Briefs, receipts and the preparer's output live under `~/.config/sabi/briefs/<id>/`
+  (`SABI_BRIEFS_DIR` overrides). Nothing is written inside the repository.
+- If preparation fails, the receipt says why and `--spawn` still starts Claude with the plain task.
+- The `sabi-prep` skill (`skills/sabi-prep/SKILL.md`) lets Claude run this itself.
+
+A brief pays off on tasks whose exploration is expensive. On a three-file fixture (2026-09-29) the
+briefed Claude session used more turns than a cold one (10 vs 6); larger tasks are not measured yet.
+
 ## What the hook does
 
 sabi setup or sabi hooks install --claude adds a fail-open UserPromptSubmit command hook to

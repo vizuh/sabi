@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import os from 'node:os'
 import { request as httpRequest } from 'node:http'
 import path from 'node:path'
+import { PREPARERS, claudePointer, prepareBrief, type PreparerId } from './brief.ts'
 import { fileURLToPath } from 'node:url'
 import { appendCouncilLedgerReceipt, councilPreGate, createCouncilPlanReceipt, configureFreeQuality, defaultConfigPath, loadConfig, newCouncilLedgerReceipt, passthroughAlias, readCouncilLedgerReceipts, readSurplusReviewReceipts, surplusResources, type CouncilEvidenceLevel, type CouncilIndependence, type CouncilIntent, type CouncilMode, type CouncilPlan, type CouncilPlanReason, type CouncilReceiptSource, type CouncilReceiptStatus, type CouncilStage, type SabiConfig, type SurplusReviewIntent } from '@sabi/core'
 import {
@@ -30,9 +32,9 @@ import { runSurplusReview } from './surplus.ts'
 import { checkForUpdate, readCachedUpdate, startUpdateRefresh, takeUpdateNotice } from './updates.ts'
 import type { ControllerDecisionRecord, ControllerOverride } from './types.ts'
 
-type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'updates' | 'serve' | 'upgrade' | 'uninstall' | 'shadow' | 'adapter'
+type Command = 'route' | 'status' | 'agents' | 'sessions' | 'doctor' | 'config' | 'logs' | 'replay' | 'setup' | 'surplus' | 'council' | 'daemon' | 'hooks' | 'hook' | 'integrations' | 'updates' | 'serve' | 'upgrade' | 'uninstall' | 'shadow' | 'adapter' | 'brief'
 
-const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'updates', 'serve', 'upgrade', 'uninstall', 'adapter'])
+const COMMANDS = new Set<Command>(['route', 'status', 'agents', 'sessions', 'doctor', 'config', 'logs', 'replay', 'setup', 'surplus', 'council', 'daemon', 'hooks', 'hook', 'integrations', 'updates', 'serve', 'upgrade', 'uninstall', 'adapter', 'brief'])
 const CLI_VERSION = process.env.SABI_BUILD_VERSION ?? '0.0.0-dev'
 
 function flagValue(argv: string[], name: string): string | undefined {
@@ -597,6 +599,30 @@ function runCouncilPlan(argv: string[], logFile?: string): void {
 
 const SURPLUS_INTENTS: SurplusReviewIntent[] = ['bug-hunt', 'test-gap', 'api-contract']
 
+async function runBrief(argv: string[]): Promise<void> {
+  const task = argv.filter((arg) => !arg.startsWith('--')).join(' ').trim()
+  if (!task) throw new Error('usage: sabi brief "<task>" --preparer=hermes|omp|pi|prime [--alias=sabi-code] [--proxy=<url>] [--spawn] [--json]')
+  const preparer = flagValue(argv, '--preparer') ?? 'hermes'
+  if (!PREPARERS.includes(preparer as PreparerId)) throw new Error(`unsupported preparer '${preparer}'; use one of ${PREPARERS.join(', ')}`)
+  const cwd = resolvedCwd(argv)
+  const briefsDir = process.env.SABI_BRIEFS_DIR?.trim() || path.join(os.homedir(), '.config', 'sabi', 'briefs')
+  const { receipt, dir } = prepareBrief({
+    task, cwd, preparer: preparer as PreparerId, briefsDir,
+    baseURL: flagValue(argv, '--proxy') ?? 'http://127.0.0.1:8787/v1',
+    alias: flagValue(argv, '--alias') ?? 'sabi-code',
+  })
+  if (jsonRequested(argv)) console.log(JSON.stringify({ dir, receipt }, null, 2))
+  else {
+    console.log(receipt.briefPath ? `Sabi brief ${receipt.id}: ${receipt.verified} verified, ${receipt.reported} reported, ${receipt.uncertain} uncertain (${receipt.seconds}s, ${receipt.preparer})` : `Sabi brief not built: ${receipt.fallbackReason}`)
+    console.log(`  ${receipt.briefPath ?? path.join(dir, 'receipt.json')}`)
+  }
+  if (!argv.includes('--spawn')) return
+  // Fail-open (spec 018 FR-006): without a brief, Claude still gets the plain task.
+  const prompt = receipt.briefPath ? claudePointer(receipt.briefPath) : task
+  const claude = spawnSync('claude', ['--name', `sabi-brief-${receipt.id}`, prompt], { cwd, stdio: 'inherit' })
+  process.exitCode = claude.status ?? 1
+}
+
 async function runSurplus(argv: string[]): Promise<void> {
   const action = argv.find((arg) => !arg.startsWith('--')) ?? 'inventory'
   const cwd = resolvedCwd(argv)
@@ -985,6 +1011,7 @@ async function main(): Promise<void> {
   if (command === 'uninstall') return runUninstall(args)
   if (command === 'shadow') return runShadow(args)
   if (command === 'adapter') return runAdapter(args)
+  if (command === 'brief') return runBrief(args)
   await runRoute(args)
 }
 

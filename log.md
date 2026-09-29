@@ -1924,3 +1924,18 @@ cost more (10 turns, $0.54 vs 6 turns, $0.46). Results recorded as probe data in
 `packages/controller/src/probes/`; the four preparer manifests move from `unsupported` to
 `partial` with `detect: native` (found on PATH with a version; not for `pi`, whose name is
 ambiguous), `dispatch: cli` and `observe-outcome: cli`; everything else stays missing and consent stays unavailable. Suite: 821/821.
+
+## [2026-09-29] feat | `sabi brief`: free-lane preparation compiled into a checked brief for Claude
+
+Spec 018 slice 1. `packages/controller/src/brief.ts` adds the preparer prompt (validated on
+Hermes, OMP, pi and Prime Agent), a tolerant findings parser, the evidence gate (quoted file
+spans re-read in the live tree, path/symlink/secret guards, command results kept as reported),
+a deterministic bounded brief compiler (20 items, 8 KB, 1 KB per item, all preparer lists
+capped), and preparation in a disposable local clone with no remote. The repository is
+fingerprinted (status, diff, refs, stash, local config) before and after; any change, and any
+failure, yields a receipt with the reason instead of a brief (fail-open). `sabi brief` exposes it
+with presets for the four probed preparers and `--spawn` for Claude. `EvidenceRef` joins the
+controller types as an optional `ref` on `RecoveryCapsuleItem`. Native skill:
+`skills/sabi-prep/SKILL.md`. Live runs: Hermes 46 s (4 verified, 1 reported), OMP 60 s
+(5 verified, 3 reported). A medium review found six issues and a follow-up found three; all
+fixed with regression tests. Not in this slice: the recommend-only prompt hook.

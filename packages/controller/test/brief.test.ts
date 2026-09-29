@@ -1,0 +1,206 @@
+import { strict as assert } from 'node:assert'
+import { test } from 'node:test'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { compileBrief, gateFindings, parseFindings, prepareBrief, type BriefInput, type PreparerFindings } from '../src/brief.ts'
+
+function repo(files: Record<string, string>): string {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'sabi-brief-repo-'))
+  for (const [file, body] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(dir, file)), { recursive: true })
+    writeFileSync(path.join(dir, file), body)
+  }
+  for (const args of [['init', '-q'], ['add', '-A'], ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init']]) {
+    assert.equal(spawnSync('git', args, { cwd: dir }).status, 0)
+  }
+  return dir
+}
+
+const PRICING = 'const CODES = { SAVE10: 0.1 }\n\nexport function applyDiscount(amount, code) {\n  const rate = CODES[code] ?? 0\n  return Math.round(amount) * (1 - rate)\n}\n'
+
+function findings(facts: PreparerFindings['facts'], extra: Partial<PreparerFindings> = {}): PreparerFindings {
+  return { facts, relevantSurface: [], constraints: [], hypotheses: [], ruledOut: [], ...extra }
+}
+
+test('findings parse with markers, inside a code fence, and without the begin marker', () => {
+  const body = '{"facts":[{"claim":"c","ref":{"kind":"command","command":"npm test","exitCode":1}}],"hypotheses":["h"],"testCommand":"npm test"}'
+  assert.equal(parseFindings(`intro\nSABI_FINDINGS_BEGIN\n${body}\nSABI_FINDINGS_END\n`)?.testCommand, 'npm test')
+  assert.equal(parseFindings(`SABI_FINDINGS_BEGIN\n\`\`\`json\n${body}\n\`\`\`\nSABI_FINDINGS_END`)?.facts.length, 1)
+  // pi 0.84.2 dropped the begin marker in a live probe.
+  assert.deepEqual(parseFindings(`notes {"not":"this"}\n${body}\nSABI_FINDINGS_END`)?.hypotheses, ['h'])
+  assert.equal(parseFindings('no json here'), undefined)
+})
+
+test('a quoted file span is verified against the live file, and miscounted lines are corrected', () => {
+  const root = repo({ 'src/pricing.js': PRICING })
+  const gate = gateFindings(findings([
+    { claim: 'rounds before discount', ref: { kind: 'file', path: 'src/pricing.js', lineStart: 4, lineEnd: 7, quote: '  const rate = CODES[code] ?? 0\n  return Math.round(amount) * (1 - rate)' } },
+    { claim: 'wrong line number', ref: { kind: 'file', path: 'src/pricing.js', lineStart: 1, quote: 'export function applyDiscount(amount, code) {' } },
+  ]), root)
+  assert.equal(gate.verified.length, 2)
+  assert.deepEqual([gate.verified[0].ref.lineStart, gate.verified[0].ref.lineEnd], [4, 5])
+  assert.equal(gate.verified[1].ref.lineStart, 3)
+})
+
+test('the gate refuses what it cannot confirm, and never opens secrets or paths outside the repo', () => {
+  const outside = mkdtempSync(path.join(os.tmpdir(), 'sabi-outside-'))
+  writeFileSync(path.join(outside, 'secret.txt'), 'x\n')
+  const root = repo({ 'src/pricing.js': PRICING, '.env': 'TOKEN=abc\n' })
+  symlinkSync(path.join(outside, 'secret.txt'), path.join(root, 'link.txt'))
+  const gate = gateFindings(findings([
+    { claim: 'invented quote', ref: { kind: 'file', path: 'src/pricing.js', lineStart: 1, quote: 'return amount' } },
+    { claim: 'missing file', ref: { kind: 'file', path: 'src/nope.js', lineStart: 1, quote: 'x' } },
+    { claim: 'escape', ref: { kind: 'file', path: '../etc/passwd', lineStart: 1, quote: 'root' } },
+    { claim: 'secret', ref: { kind: 'file', path: '.env', lineStart: 1, quote: 'TOKEN=abc' } },
+    { claim: 'symlink escape', ref: { kind: 'file', path: 'link.txt', lineStart: 1, quote: 'x' } },
+    { claim: 'no ref' },
+  ]), root)
+  assert.equal(gate.verified.length, 0)
+  assert.equal(gate.uncertain.length, 6)
+})
+
+test('command results are kept as reported, never as verified', () => {
+  const gate = gateFindings(findings([{ claim: 'tests fail', ref: { kind: 'command', command: 'npm test', exitCode: 1, excerpt: '5 !== 4.98' } }]), repo({ 'a.txt': 'a\n' }))
+  assert.equal(gate.verified.length, 0)
+  assert.equal(gate.reported.length, 1)
+  assert.equal(gate.reported[0].ref.exitCode, 1)
+})
+
+function input(gate: BriefInput['gate'], extra: Partial<PreparerFindings> = {}): BriefInput {
+  return {
+    id: '2026-09-29-abc', task: 'Make npm test pass', repo: '/repo', branch: 'main', baseCommit: 'c0ffee', userTreeDirty: false,
+    preparer: 'hermes', findings: findings([], { testCommand: 'npm test', hypotheses: ['remove Math.round'], ...extra }), gate,
+  }
+}
+
+test('the brief is deterministic, long material first and the request last', () => {
+  const gate = { verified: [{ claim: 'c', ref: { kind: 'file' as const, path: 'a.js', lineStart: 1, lineEnd: 1 }, excerpt: 'x' }], reported: [], uncertain: [{ claim: 'u', reason: 'quote not found in a.js' }] }
+  const a = compileBrief(input(gate)).markdown
+  assert.equal(a, compileBrief(input(gate)).markdown)
+  const order = ['<repo_state>', '<verified_facts>', '<reported_results>', '<uncertainties>', '<proposed_path>', '<task>', '<success_criteria>', '<first_action>']
+  const positions = order.map((tag) => a.indexOf(`\n${tag}\n`))
+  assert.ok(positions.every((p) => p > 0))
+  assert.deepEqual([...positions].sort((x, y) => x - y), positions)
+  assert.match(a, /They are not facts/)
+  assert.match(a, /`npm test` passes/)
+})
+
+test('the brief keeps within 20 items and 8 KB, truncates one huge item, and reports what it dropped', () => {
+  const many = Array.from({ length: 25 }, (_, i) => ({ claim: `fact ${i}`, ref: { kind: 'file' as const, path: 'a.js', lineStart: i + 1, lineEnd: i + 1 }, excerpt: 'y'.repeat(100) }))
+  const { bounds } = compileBrief(input({ verified: many, reported: [], uncertain: [] }))
+  assert.equal(bounds.included, 20)
+  assert.equal(bounds.dropped, 5)
+  assert.ok(bounds.bytesAfter <= 8 * 1024 && bounds.bytesBefore > bounds.bytesAfter)
+  const huge = gateFindings(findings([{ claim: 'big', ref: { kind: 'command', command: 'x', exitCode: 0, excerpt: 'z'.repeat(5000) } }]), repo({ 'a.txt': 'a\n' }))
+  assert.ok(Buffer.byteLength(huge.reported[0].excerpt) <= 1024)
+  assert.match(huge.reported[0].excerpt, /\[truncated\]$/)
+})
+
+test('preparation runs in a disposable clone: edits there never reach the user tree', () => {
+  const root = repo({ 'src/pricing.js': PRICING })
+  const briefsDir = mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-'))
+  const out = JSON.stringify({
+    facts: [{ claim: 'rounds first', ref: { kind: 'file', path: 'src/pricing.js', lineStart: 5, quote: '  return Math.round(amount) * (1 - rate)' } }],
+    hypotheses: ['drop the rounding'], testCommand: 'npm test', firstAction: 'edit src/pricing.js',
+  })
+  // A misbehaving preparer: it rewrites a tracked file before reporting.
+  const script = `require('fs').writeFileSync('src/pricing.js','broken');console.log('SABI_FINDINGS_BEGIN\\n'+${JSON.stringify(out)}+'\\nSABI_FINDINGS_END')`
+  const { receipt, dir } = prepareBrief({
+    task: 'Make npm test pass', cwd: root, preparer: { argv: [process.execPath, '-e', script] },
+    baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir,
+  })
+  assert.equal(readFileSync(path.join(root, 'src/pricing.js'), 'utf8'), PRICING)
+  assert.equal(receipt.userTreeUnchanged, true)
+  assert.equal(receipt.verified, 1)
+  assert.ok(receipt.briefPath && readFileSync(receipt.briefPath, 'utf8').includes('src/pricing.js:5'))
+  assert.deepEqual(readdirSync(dir).sort(), ['brief.md', 'preparer-output.txt', 'progress.md', 'receipt.json', 'state.json'])
+  const worktrees = spawnSync('git', ['worktree', 'list'], { cwd: root, encoding: 'utf8' }).stdout.trim().split('\n')
+  assert.equal(worktrees.length, 1)
+})
+
+test('a preparer with no readable findings fails open with a reason', () => {
+  const root = repo({ 'a.txt': 'a\n' })
+  const { receipt } = prepareBrief({
+    task: 't', cwd: root, preparer: { argv: [process.execPath, '-e', 'console.log("nothing useful")'] },
+    baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+  })
+  assert.equal(receipt.briefPath, undefined)
+  assert.equal(receipt.fallbackReason, 'the preparer returned no readable findings')
+})
+
+test('the parser handles a string ending in a backslash, and huge JSON-free output stays fast', () => {
+  const body = JSON.stringify({ facts: [{ claim: 'continuation', ref: { kind: 'file', path: 'a.sh', lineStart: 1, quote: 'echo hi \\' } }], hypotheses: [] })
+  assert.equal(parseFindings(`SABI_FINDINGS_BEGIN\n${body}\nSABI_FINDINGS_END`)?.facts[0].ref?.quote, 'echo hi \\')
+  const started = Date.now()
+  assert.equal(parseFindings('x}'.repeat(100_000)), undefined)
+  assert.ok(Date.now() - started < 1000, 'unbalanced output must not be scanned quadratically')
+})
+
+test('preparer lists and strings are bounded', () => {
+  const hypotheses = Array.from({ length: 100 }, (_, i) => `h${i} ${'w'.repeat(1000)}`)
+  const parsed = parseFindings(`SABI_FINDINGS_BEGIN\n${JSON.stringify({ facts: [], hypotheses })}\nSABI_FINDINGS_END`)!
+  assert.equal(parsed.hypotheses.length, 12)
+  assert.ok(parsed.hypotheses.every((h) => h.length <= 400))
+})
+
+function prepareWith(root: string, script: string) {
+  return prepareBrief({
+    task: 'Make npm test pass', cwd: root, preparer: { argv: [process.execPath, '-e', script] },
+    baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+  })
+}
+
+const REPORT = `console.log('SABI_FINDINGS_BEGIN\\n'+JSON.stringify({facts:[{claim:'c',ref:{kind:'file',path:'src/pricing.js',lineStart:5,quote:'  return Math.round(amount) * (1 - rate)'}}]})+'\\nSABI_FINDINGS_END')`
+
+test('git changes a preparer makes stay in its clone: refs, stash and config of the user repo are untouched', () => {
+  const root = repo({ 'src/pricing.js': PRICING })
+  const refs = spawnSync('git', ['show-ref'], { cwd: root, encoding: 'utf8' }).stdout
+  const script = `const {execSync}=require('child_process');execSync('git branch evil && git -c user.name=x -c user.email=x@x tag -a v9 -m x && git config user.name evil');require('fs').writeFileSync('src/pricing.js','x');execSync('git stash');${REPORT}`
+  const { receipt } = prepareWith(root, script)
+  assert.equal(receipt.userTreeUnchanged, true)
+  assert.equal(receipt.verified, 1)
+  assert.equal(spawnSync('git', ['show-ref'], { cwd: root, encoding: 'utf8' }).stdout, refs)
+  assert.equal(spawnSync('git', ['stash', 'list'], { cwd: root, encoding: 'utf8' }).stdout, '')
+  assert.notEqual(spawnSync('git', ['config', '--local', 'user.name'], { cwd: root, encoding: 'utf8' }).stdout.trim(), 'evil')
+})
+
+test('a write through an absolute path, even to an already-dirty file, fails the brief', () => {
+  const root = repo({ 'src/pricing.js': PRICING })
+  writeFileSync(path.join(root, 'src/pricing.js'), `${PRICING}// user edit\n`)
+  const script = `require('fs').appendFileSync(${JSON.stringify(path.join(root, 'src/pricing.js'))},'// preparer edit\\n');${REPORT}`
+  const { receipt } = prepareWith(root, script)
+  assert.equal(receipt.userTreeUnchanged, false)
+  assert.equal(receipt.briefPath, undefined)
+  assert.equal(receipt.fallbackReason, 'the repository changed during preparation')
+})
+
+test('a preparer that cannot start fails open with a receipt', () => {
+  const root = repo({ 'a.txt': 'a\n' })
+  const { receipt, dir } = prepareBrief({
+    task: 't', cwd: root, preparer: { argv: ['sabi-no-such-preparer-binary'] },
+    baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+  })
+  assert.match(receipt.fallbackReason ?? '', /could not run/)
+  assert.ok(readdirSync(dir).includes('receipt.json'))
+})
+
+test('findings followed by more text containing braces still parse', () => {
+  const body = JSON.stringify({ facts: [], hypotheses: ['h'] })
+  assert.deepEqual(parseFindings(`${body}\ntrailing log {ok} and a template {{x}}`)?.hypotheses, ['h'])
+})
+
+test('a directory that is not a git repository, or has no commits, fails open with a receipt', () => {
+  const plain = mkdtempSync(path.join(os.tmpdir(), 'sabi-not-git-'))
+  const empty = mkdtempSync(path.join(os.tmpdir(), 'sabi-no-commits-'))
+  spawnSync('git', ['init', '-q'], { cwd: empty })
+  for (const cwd of [plain, empty]) {
+    const { receipt, dir } = prepareBrief({
+      task: 't', cwd, preparer: { argv: [process.execPath, '-e', ''] },
+      baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+    })
+    assert.match(receipt.fallbackReason ?? '', /could not be read/)
+    assert.ok(readdirSync(dir).includes('receipt.json'))
+  }
+})
