@@ -141,3 +141,20 @@ test('a round stamped exactly at now is in the activity chart as well as the hea
   const html = render([round({ ts: new Date(NOW).toISOString() })])
   assert.match(html, /1 successful · 0 failed<\/title>/)
 })
+
+test('the route receipt names the planned tier a fallback overwrote, with the refusal class', () => {
+  // As the proxy writes it: `tier` and `fallback` both name the tier that served.
+  const served = round({
+    tier: 'strong', fallback: 'strong', usage: usage(10),
+    upstreamRefusal: { class: 'not-entitled', upstream: 'planup', status: 403 },
+    route: { requested: { tier: 'cheap', model: 'plan-a' }, effective: { tier: 'strong', model: 'paid-a', observed: true }, reason: 'fallback' },
+  })
+  const unconfigured = round({ outcome: 'error', upstreamRefusal: { class: 'unconfigured', upstream: 'freeup' } })
+  const html = render([served, unconfigured])
+  assert.match(html, /planned cheap failed · served by strong \(not on plan\)/)
+  assert.match(html, /<td>cheap → strong \(not on plan\)<\/td>/)
+  const unknownClass = round({ fallback: 'mid', upstreamRefusal: { class: 'future-class' as never, upstream: 'x' } })
+  assert.doesNotMatch(render([unknownClass]), /undefined/)
+  assert.match(html, /✕ error · key not set/)
+  assert.match(render([served], { lang: 'pt-BR' }), /cheap planejado falhou · atendido por strong \(fora do plano\)/)
+})

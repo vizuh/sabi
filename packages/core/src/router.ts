@@ -8,7 +8,7 @@ import { applyMeasuredContext, extractTrajectoryState } from './state.ts'
 import type { ChatRequestBody, ExecutionCapabilities, FailureLevel, ModelModality, RouteDecision, SabiConfig } from './types.ts'
 import type { OpenRouterCatalogModel } from './free-quality.ts'
 
-export { ensureRouteCompatible, isEnabledUpstream, SabiRouteError } from './compatibility.ts'
+export { ensureRouteCompatible, isEnabledUpstream, isFreeModel, SabiRouteError } from './compatibility.ts'
 
 /**
  * One transport-fallback candidate: the next serving tier after the planned tier

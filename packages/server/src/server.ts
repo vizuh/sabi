@@ -11,6 +11,7 @@ import {
   ensureRouteCompatible,
   getFallbackChain,
   hashIdentity,
+  isFreeModel,
   JUDGE_QUESTIONS,
   judgeTriggers,
   keyReferenceName,
@@ -31,10 +32,15 @@ import {
   type FailureLevel,
   type JudgeRecord,
   type RecoveryProfile,
+  type RefusalClass,
   type RouteContext,
   type RouteDecision,
+  type RouteReceipt,
+  type RouteSide,
   type SabiConfig,
+  type UpstreamRefusal,
   quotaPoolOf,
+  unresolvedKeyReference,
 } from '@sabi/core'
 import { DASHBOARD_WINDOWS, renderDashboard } from './dashboard.ts'
 import { createSseTap, UpstreamStreamError, type SseTapResult } from './sse.ts'
@@ -111,6 +117,8 @@ interface ServerState {
   judge: JudgeClient
   telemetry: ReturnType<typeof telemetryPolicy>
   sessions: Map<string, SessionMemory>
+  /** Upstream model pairs this account's plan refused, with the time the refusal expires. */
+  notEntitled: Map<string, number>
   /** Loaded once at startup (never inside a request); undefined if the load failed. */
   recoveryProfile?: RecoveryProfile
 }
@@ -249,6 +257,65 @@ function rememberUsage(state: ServerState, record: DecisionRecord): void {
 function platformRateLimited(response: Response): boolean {
   return response.status === 429 &&
     (response.headers.has('x-ratelimit-limit') || response.headers.has('x-ratelimit-remaining'))
+}
+
+/**
+ * A plan that does not include a model says so in the body; the status alone does not (a
+ * bare 402 is usually account credit, which a top-up fixes). Only wording seen in the wild
+ * counts, from NousResearch/hermes-agent#123362: "model is not available in the current token plan".
+ */
+// ponytail: one observed phrasing, matched whole; add another provider's wording only with a cited example.
+const NOT_ENTITLED = /model is not available in the current token plan/i
+/** How long a not-entitled refusal is remembered. A plan change needs a restart or waits this out. */
+const NOT_ENTITLED_TTL_MS = 6 * 60 * 60 * 1000
+
+/** `keySent` separates a rejected key from a keyless upstream that turned out to need one. */
+function refusalClass(status: number, text: string, platformLimited: boolean, keySent: boolean): RefusalClass {
+  if (status === 401 && keySent) return 'credential'
+  if ((status === 402 || status === 403) && NOT_ENTITLED.test(text)) return 'not-entitled'
+  return platformLimited ? 'quota' : 'transient'
+}
+
+const entitlementKey = (upstream: string, model: string): string => `${upstream}\n${model}`
+
+function refusedByPlan(state: ServerState, upstream: string, model: string): boolean {
+  const key = entitlementKey(upstream, model)
+  const until = state.notEntitled.get(key)
+  if (until === undefined) return false
+  if (until > Date.now()) return true
+  state.notEntitled.delete(key)
+  return false
+}
+
+/**
+ * A refusal known before calling: the key variable is unset, or the plan refused this model
+ * within the TTL. A borrowed credential is another account, so neither applies to it.
+ */
+function knownRefusal(state: ServerState, upstream: string, model: string, callerToken: string | undefined): RefusalClass | undefined {
+  if (callerToken) return undefined
+  if (unresolvedKeyReference(state.options.config.upstreams[upstream]) !== undefined) return 'unconfigured'
+  return refusedByPlan(state, upstream, model) ? 'not-entitled' : undefined
+}
+
+function rememberRefusal(state: ServerState, refusal: RefusalClass, upstream: string, model: string, callerToken: string | undefined): void {
+  if (refusal === 'not-entitled' && !callerToken) state.notEntitled.set(entitlementKey(upstream, model), Date.now() + NOT_ENTITLED_TTL_MS)
+}
+
+/**
+ * First chunk of an error body, then release it. Enough to classify a refusal, and never a
+ * wait on a provider that sent its headers and stalled the rest.
+ */
+// ponytail: first chunk only; a refusal whose wording arrives in a later chunk stays transient.
+async function readErrorHead(response: Response): Promise<string> {
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  try {
+    const { value } = await reader.read()
+    return value ? new TextDecoder().decode(value.subarray(0, 64 * 1024)) : ''
+  } finally {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
@@ -405,6 +472,7 @@ export function createSabiServer(options: SabiServerOptions): SabiServer {
     judge: options.judgeClient ?? createTypesafeClient(),
     telemetry: telemetryPolicy(options.config.telemetry),
     sessions: new Map(),
+    notEntitled: new Map(),
     // Loaded once at startup, not lazily inside a request: a sync read/parse of the whole
     // decision log must never block a live request, and a read failure here (rotated file,
     // permissions) must never be mistaken for a judge outage. Degrades to no tie-breaker, not a
@@ -607,6 +675,8 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
   res.once('close', disconnected)
   let record: DecisionRecord | undefined
   let decision: RouteDecision | undefined
+  /** Why the planned upstream refused (spec 020); kept outside the try so a failed fallback still records it. */
+  let refusal: UpstreamRefusal | undefined
   let finished = false
   let stage: 'request' | 'route' | 'judge' | 'upstream' = 'request'
   const responseFinished = async () => {
@@ -644,6 +714,15 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       console.log(`[sabi] ${record.alias} -> ${record.tier} (${record.rule}) -> ${record.upstreamModel}` +
         ` · ${record.latencyMs}ms${tokens}${cost} · ${record.outcome}`)
     }
+  }
+  // Spec 021: captured after the judge and the dispatch gate, before any upstream call, because
+  // a fallback rewrites `record.tier` and the planned route is otherwise lost.
+  let requested: RouteSide | undefined
+  const receipt = (servedModel: string | undefined, fallbackTier: string | undefined): RouteReceipt | undefined => {
+    if (!requested || !decision) return undefined
+    const effective = { tier: decision.tier, model: servedModel ?? decision.upstreamModel, observed: servedModel !== undefined }
+    const reason = fallbackTier ? 'fallback' : effective.model !== requested.model ? 'substituted' : undefined
+    return { requested, effective, ...(reason ? { reason } : {}) }
   }
   const observeModel = (model: unknown): string | undefined =>
     typeof model === 'string' && Object.values(config.models).some((entry) =>
@@ -751,7 +830,41 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     // provider it did not intend.
     const rawAuthorization = config.borrowedCredentials === true ? req.headers.authorization : undefined
     const callerToken = borrowedCredential(Array.isArray(rawAuthorization) ? rawAuthorization[0] : rawAuthorization)
-    let upstreamResponse = (await callUpstream(config, decision, buildUpstreamBody(config, decision, body), signal, callerToken)).response
+    const fallbackEnabled = decision.mode === 'auto' && config.transportFallback?.enabled === true
+    requested = { tier: decision.tier, model: decision.upstreamModel, ...(record.effort !== undefined ? { effort: record.effort } : {}) }
+    // Spec 020. Two refusals are known before any call. A key variable that never resolved
+    // is a configuration error, not an outage: nothing is sent, and the round may move only
+    // to a free tier, never buy a paid one to cover a missing key. A model this account's
+    // plan refused within the TTL is routed around rather than asked again. A borrowed
+    // credential is another account, so neither applies to it.
+    const known = knownRefusal(state, decision.upstream, decision.upstreamModel, callerToken)
+    // With nowhere to route, a remembered plan refusal is asked again rather than failed locally.
+    const skipPlanned = known === 'unconfigured' || (known === 'not-entitled' && fallbackEnabled)
+    const missingKey = known === 'unconfigured' ? unresolvedKeyReference(config.upstreams[decision.upstream]) : undefined
+    if (skipPlanned && known) refusal = { class: known, upstream: decision.upstream }
+    const refusalMessage = missingKey !== undefined
+      ? `upstream '${decision.upstream}' is not configured: $${missingKey} is not set`
+      : `upstream '${decision.upstream}' does not include this model in its plan`
+    // The failed body is read once, here: classifying a refusal needs it, and serving it later
+    // must not find a stream the fallback walk already cancelled.
+    let firstFailureText = skipPlanned
+      ? JSON.stringify({ error: { message: refusalMessage, type: 'sabi_error', code: missingKey !== undefined ? 502 : 403 } })
+      : undefined
+    let upstreamResponse = skipPlanned
+      ? new Response(firstFailureText, { status: missingKey !== undefined ? 502 : 403, headers: { 'content-type': 'application/json; charset=utf-8' } })
+      : (await callUpstream(config, decision, buildUpstreamBody(config, decision, body), signal, callerToken)).response
+    if (!skipPlanned && !upstreamResponse.ok) {
+      const { status } = upstreamResponse
+      if (status === 402 || status === 403) {
+        firstFailureText = await readErrorHead(upstreamResponse).catch((error) => {
+          if (signal.aborted) throw error
+          return ''
+        })
+      }
+      const keySent = callerToken !== undefined || resolveKey(config.upstreams[decision.upstream]?.apiKey) !== undefined
+      refusal = { class: refusalClass(status, firstFailureText ?? '', platformRateLimited(upstreamResponse), keySent), upstream: decision.upstream, status }
+      rememberRefusal(state, refusal.class, decision.upstream, decision.upstreamModel, callerToken)
+    }
     let fallbackTier: string | undefined
     // The error a client is shown must be the error that actually ended the
     // round. When a fallback fails, `upstreamResponse` still holds the FIRST
@@ -760,12 +873,11 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     // "401 API key expired" and sent the operator hunting a key that was never
     // the problem. Keep the last real failure and serve that instead.
     let lastFallbackFailure: { status: number; text: string; tier: string } | undefined
-    if (!upstreamResponse.ok &&
-      (upstreamResponse.status === 401 ||
-        upstreamResponse.status === 429 ||
-        upstreamResponse.status === 402 ||
-        upstreamResponse.status === 403) &&
-      decision.mode === 'auto' && config.transportFallback?.enabled === true) {
+    if (refusal && fallbackEnabled && (skipPlanned ||
+      upstreamResponse.status === 401 ||
+      upstreamResponse.status === 429 ||
+      upstreamResponse.status === 402 ||
+      upstreamResponse.status === 403)) {
       const required = decision.state.inputModalities ?? []
       // A 429 is a statement about the POOL only when the platform itself
       // enforced it. OpenRouter documents that its own limits (including the
@@ -773,25 +885,28 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       // through from one model's provider does not, and says nothing about
       // the other free models. Treating both as pool-wide skipped every
       // healthy :free model after one busy one, and served the 429 instead.
-      const quotaRefusal = platformRateLimited(upstreamResponse)
+      const quotaRefusal = refusal.class === 'quota'
       // A 401 is a statement about the UPSTREAM, and a wider one: every tier
       // behind the same credential is equally dead, so the chain must leave
       // the provider rather than try its next model. Walking to another
       // model on the same dead key is how a single expired secret becomes
       // four identical failures.
-      const credentialFailure = upstreamResponse.status === 401
+      const credentialFailure = upstreamResponse.status === 401 || refusal.class === 'unconfigured'
       // Release the failed response before walking the chain. Leaving its body
       // unread holds the connection open while the next attempt runs, and the
       // retry then fails for a reason that has nothing to do with the retry.
       await upstreamResponse.body?.cancel().catch(() => {})
       const fallbackChain = getFallbackChain(config, decision.tier, required, quotaRefusal)
         .filter((f) => !(credentialFailure && f.upstream === decision!.upstream))
+        .filter((f) => refusal!.class !== 'unconfigured' || isFreeModel(config.models[f.tier]))
       // A platform limit met mid-chain speaks for its whole pool too: skip the rest
       // of that pool instead of spending one guaranteed-to-fail call per member.
       const exhaustedPools = new Set<string>()
       for (const fallback of fallbackChain) {
         const pool = quotaPoolOf(config.models[fallback.tier]!)
         if (pool !== 'none' && exhaustedPools.has(pool)) continue
+        // Known refusals cost nothing to skip and one wasted call each to rediscover.
+        if (knownRefusal(state, fallback.upstream, fallback.upstreamModel, callerToken)) continue
         const attempt: RouteDecision = {
           ...decision,
           tier: fallback.tier,
@@ -819,6 +934,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
         }
         if (pool !== 'none' && platformRateLimited(retry)) exhaustedPools.add(pool)
         lastFallbackFailure = { status: retry.status, text: await readErrorText(retry).catch(() => ''), tier: attempt.tier }
+        rememberRefusal(state, refusalClass(retry.status, lastFallbackFailure.text, false, true), attempt.upstream, attempt.upstreamModel, callerToken)
         // Keep walking. This used to break on anything that was not
         // 429/402/403, so a single overloaded provider (503) ended the chain
         // and the original error was served -- the routes behind it, which
@@ -830,18 +946,25 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     }
 
     if (!upstreamResponse.ok) {
-      const text = lastFallbackFailure
-        ? (lastFallbackFailure.text || `upstream error ${lastFallbackFailure.status}`)
-        : await readErrorText(upstreamResponse)
-      const status = lastFallbackFailure?.status ?? upstreamResponse.status
+      // A missing key is the root cause however the chain ended; a free tier's 503 behind it
+      // must not hide the variable the operator has to set.
+      const served = refusal?.class === 'unconfigured' ? undefined : lastFallbackFailure
+      const text = served
+        ? (served.text || `upstream error ${served.status}`)
+        : firstFailureText ?? await readErrorText(upstreamResponse)
+      const status = served?.status ?? upstreamResponse.status
       const headers: Record<string, string> = { 'content-type': upstreamResponse.headers.get('content-type') ?? 'application/json; charset=utf-8' }
       const retryAfter = upstreamResponse.headers.get('retry-after')
       if (retryAfter !== null) headers['retry-after'] = retryAfter
       res.writeHead(status, headers)
       res.end(text || JSON.stringify({ error: { message: `upstream error ${status}` } }))
       await responseFinished()
-      finish({ outcome: status === 429 || status >= 500 ? 'transport' : 'error',
-        error: `upstream HTTP ${status}`, transport: status })
+      // No provider answered this round: the record must not read as an upstream status.
+      const refusedLocally = refusal?.status === undefined && (refusal?.class === 'unconfigured' || !lastFallbackFailure)
+      finish(refusal && refusedLocally
+        ? { outcome: 'error', error: refusalMessage, upstreamRefusal: refusal }
+        : { outcome: status === 429 || status >= 500 ? 'transport' : 'error',
+          error: `upstream HTTP ${status}`, transport: status, ...(refusal ? { upstreamRefusal: refusal } : {}) })
       return
     }
 
@@ -859,7 +982,8 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       object.model = decision.alias
       sendJson(res, 200, object)
       await responseFinished()
-      finish({ usage: usageFromJson(object), servedModel, ...(fallbackTier ? { fallback: fallbackTier } : {}) })
+      finish({ usage: usageFromJson(object), servedModel, ...(fallbackTier ? { fallback: fallbackTier } : {}),
+        ...(refusal ? { upstreamRefusal: refusal } : {}), route: receipt(servedModel, fallbackTier) })
       return
     }
 
@@ -894,7 +1018,9 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
     }
       res.end()
       await responseFinished()
-      finish({ usage: streamResult?.usage, servedModel: observeModel(streamResult?.model), ttftMs, ...(fallbackTier ? { fallback: fallbackTier } : {}) })
+      const servedModel = observeModel(streamResult?.model)
+      finish({ usage: streamResult?.usage, servedModel, ttftMs, ...(fallbackTier ? { fallback: fallbackTier } : {}),
+        ...(refusal ? { upstreamRefusal: refusal } : {}), route: receipt(servedModel, fallbackTier) })
   } catch (error) {
     const deadline = signal.aborted && (signal.reason as Error)?.name === 'TimeoutError'
     const aborted = signal.aborted && !deadline
@@ -932,6 +1058,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
         stage !== 'upstream' ? 'route rejected' :
           error instanceof UpstreamStreamError ? sanitizeError(error.providerMessage) : 'upstream response failed',
       ...(deadline ? { transport: 504 } : {}),
+      ...(refusal ? { upstreamRefusal: refusal } : {}),
     })
     if (!signal.aborted) controller.abort()
   } finally {

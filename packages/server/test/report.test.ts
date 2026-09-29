@@ -127,3 +127,14 @@ test('report aggregates recorded effort without inventing it for legacy rows', (
   assert.deepEqual(out.byEffort, { high: 2 })
   assert.equal(out.unspecifiedEffort, 1)
 })
+
+test('report counts refusal classes and route mismatches', () => {
+  const route = { requested: { tier: 'cheap', model: 'a' }, effective: { tier: 'mid', model: 'b', observed: true }, reason: 'fallback' }
+  const out = report([
+    { ...row, fallback: 'mid', upstreamRefusal: { class: 'not-entitled', upstream: 'mock', status: 403 }, route },
+    { ...row, outcome: 'error', upstreamRefusal: { class: 'unconfigured', upstream: 'mock' } },
+    { ...row, route: { ...route, effective: route.requested, reason: undefined } },
+  ])
+  assert.deepEqual(out.byRefusal, { 'not-entitled': 1, unconfigured: 1 })
+  assert.deepEqual(out.routeMismatches, { fallback: 1 })
+})
