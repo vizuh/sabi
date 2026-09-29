@@ -756,10 +756,14 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
         upstreamResponse.status === 403) &&
       decision.mode === 'auto' && config.transportFallback?.enabled === true) {
       const required = decision.state.inputModalities ?? []
-      // A 429 is a statement about the POOL, not the model. Passing it in
-      // lets the chain leave the shared daily allowance instead of walking
-      // through the fifteen other models that draw on the same exhausted one.
-      const quotaRefusal = upstreamResponse.status === 429
+      // A 429 is a statement about the POOL only when the platform itself
+      // enforced it. OpenRouter documents that its own limits (including the
+      // shared free-model caps) carry X-RateLimit-* headers; a 429 passed
+      // through from one model's provider does not, and says nothing about
+      // the other free models. Treating both as pool-wide skipped every
+      // healthy :free model after one busy one, and served the 429 instead.
+      const quotaRefusal = upstreamResponse.status === 429 &&
+        (upstreamResponse.headers.has('x-ratelimit-limit') || upstreamResponse.headers.has('x-ratelimit-remaining'))
       // A 401 is a statement about the UPSTREAM, and a wider one: every tier
       // behind the same credential is equally dead, so the chain must leave
       // the provider rather than try its next model. Walking to another
