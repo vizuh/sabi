@@ -71,9 +71,14 @@ cheaper model running in another harness, then writes a brief for a fresh Claude
 (spec 018). Add `--spawn` to start Claude on it directly.
 
 - The preparer runs in a disposable clone of the repository with no remote, through Sabi's proxy
-  (`--proxy`, default `http://127.0.0.1:8787/v1`; `--alias`, default `sabi-code`). Sabi runs no
-  commands of its own; it fingerprints the repository before and after and refuses the brief if
-  anything changed.
+  (`--proxy`, default `http://127.0.0.1:8787/v1`; `--alias`, default `sabi-code`; OMP always uses
+  `sabi-code`, the only model its Sabi extension registers). Sabi runs no commands of its own; it
+  fingerprints the repository before and after and refuses the brief if anything changed.
+- The preparer is sandboxed with bubblewrap by default (`--sandbox=bwrap`): the whole filesystem
+  is read-only except its clone and scratch directory, where its HOME and TMPDIR also live, and it
+  gets an allowlisted environment without provider keys or tokens. Without bubblewrap the command
+  refuses; `--sandbox=none` runs the preparer unsandboxed and must be chosen explicitly.
+  Verified on 2026-09-29 with Hermes 0.21.4, pi 0.84.2 and Prime Agent 0.9.5.
 - Facts are verified by reading: each quoted file span must exist in your working tree. Command
   results are kept as reported by the preparer and labelled as not re-run. Hypotheses stay
   hypotheses.

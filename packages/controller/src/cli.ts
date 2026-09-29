@@ -601,7 +601,7 @@ const SURPLUS_INTENTS: SurplusReviewIntent[] = ['bug-hunt', 'test-gap', 'api-con
 
 async function runBrief(argv: string[]): Promise<void> {
   const task = argv.filter((arg) => !arg.startsWith('--')).join(' ').trim()
-  if (!task) throw new Error('usage: sabi brief "<task>" --preparer=hermes|omp|pi|prime [--alias=sabi-code] [--proxy=<url>] [--spawn] [--json]')
+  if (!task) throw new Error('usage: sabi brief "<task>" --preparer=hermes|omp|pi|prime [--alias=sabi-code] [--proxy=<url>] [--sandbox=bwrap|none] [--spawn] [--json]')
   const preparer = flagValue(argv, '--preparer') ?? 'hermes'
   if (!PREPARERS.includes(preparer as PreparerId)) throw new Error(`unsupported preparer '${preparer}'; use one of ${PREPARERS.join(', ')}`)
   const cwd = resolvedCwd(argv)
@@ -610,6 +610,7 @@ async function runBrief(argv: string[]): Promise<void> {
     task, cwd, preparer: preparer as PreparerId, briefsDir,
     baseURL: flagValue(argv, '--proxy') ?? 'http://127.0.0.1:8787/v1',
     alias: flagValue(argv, '--alias') ?? 'sabi-code',
+    sandbox: flagValue(argv, '--sandbox') === 'none' ? 'none' : 'bwrap',
   })
   if (jsonRequested(argv)) console.log(JSON.stringify({ dir, receipt }, null, 2))
   else {

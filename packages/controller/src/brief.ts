@@ -353,12 +353,13 @@ ${f.firstAction ?? 'Read the relevant surface above, then run the verification c
 export type PreparerId = 'hermes' | 'omp' | 'pi' | 'prime'
 export const PREPARERS: readonly PreparerId[] = ['hermes', 'omp', 'pi', 'prime']
 
-function piStyleModels(baseURL: string, alias: string, client: string): string {
+function piStyleModels(baseURL: string, alias: string, client?: string): string {
   return JSON.stringify({
     providers: {
       sabi: {
         baseUrl: baseURL, api: 'openai-completions', apiKey: 'sabi-local-placeholder',
-        headers: { 'X-Sabi-Client': client },
+        // Sabi accepts only known client ids here (pi is not one), so pi sends none.
+        ...(client ? { headers: { 'X-Sabi-Client': client } } : {}),
         compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
         models: [{ id: alias, contextWindow: 131072, maxTokens: 8192 }],
       },
@@ -410,17 +411,31 @@ export function preparerCommand(id: PreparerId, promptFile: string, scratch: str
     return { argv: ['hermes', 'chat', '--query-file', promptFile, '--oneshot', '-Q', '--max-turns', '30', '--yolo'], env: { HERMES_HOME: home } }
   }
   if (id === 'omp') {
-    return { argv: ['omp', '--model', `sabi/${alias}`, '-p', '--no-session', prompt], env: { SABI_OMP_BASE_URL: baseURL } }
+    // Its own agent dir (OMP keeps a SQLite state there), loading the Sabi extension that
+    // `sabi setup` installed for OMP.
+    const agentDir = path.join(scratch, 'omp-agent')
+    mkdirSync(agentDir, { recursive: true })
+    const extension = path.join(os.homedir(), '.omp', 'agent', 'extensions', 'sabi.ts')
+    return {
+      // The extension registers only `sabi-code`, so OMP always uses the adaptive alias.
+      argv: ['omp', '-e', extension, '--model', 'sabi/sabi-code', '-p', '--no-session', prompt],
+      env: { SABI_OMP_BASE_URL: baseURL, PI_CODING_AGENT_DIR: agentDir },
+    }
   }
   const dir = path.join(scratch, `${id}-agent`)
   mkdirSync(dir, { recursive: true })
-  writeFileSync(path.join(dir, 'models.json'), piStyleModels(baseURL, alias, id === 'pi' ? 'pi' : 'prime-agent'))
+  mkdirSync(path.join(scratch, 'run'), { recursive: true, mode: 0o700 })
+  writeFileSync(path.join(dir, 'models.json'), piStyleModels(baseURL, alias, id === 'pi' ? undefined : 'prime-agent'))
   if (id === 'pi') {
     return { argv: ['pi', '--offline', '--provider', 'sabi', '--model', alias, '-p', '--no-session', prompt], env: { PI_CODING_AGENT_DIR: dir } }
   }
   return {
     argv: ['prime-agent', '--provider', 'sabi', '--model', alias, '--thinking', 'off', '-p', '--no-session', prompt],
-    env: { PRIME_AGENT_CODING_AGENT_DIR: dir, PRIME_AGENT_SESSION_DIR: path.join(scratch, 'prime-sessions'), PRIME_AGENT_TELEMETRY: '0', DO_NOT_TRACK: '1' },
+    env: {
+      PRIME_AGENT_CODING_AGENT_DIR: dir, PRIME_AGENT_SESSION_DIR: path.join(scratch, 'prime-sessions'),
+      // Its daemon needs a writable runtime dir for its socket.
+      XDG_RUNTIME_DIR: path.join(scratch, 'run'), PRIME_AGENT_TELEMETRY: '0', DO_NOT_TRACK: '1',
+    },
   }
 }
 
@@ -468,6 +483,27 @@ export interface PrepareOptions {
   alias: string
   briefsDir: string
   timeoutMs?: number
+  /**
+   * `bwrap` (default): the preparer sees the whole filesystem read-only except its clone
+   * and scratch directory, with HOME and TMPDIR inside scratch. `none` runs it as the
+   * current user with no filesystem restriction, and must be chosen explicitly.
+   */
+  sandbox?: 'bwrap' | 'none'
+  /** The bubblewrap executable; overridable for tests. */
+  bwrapCommand?: string
+}
+
+/** Wrap a preparer in bubblewrap: read-only root, writable scratch (which holds the clone). */
+export function sandboxed(argv: string[], env: Record<string, string>, scratch: string, clone: string, bwrap = 'bwrap'): { argv: string[]; env: Record<string, string> } {
+  const home = path.join(scratch, 'home')
+  const tmp = path.join(scratch, 'tmp')
+  mkdirSync(home, { recursive: true, mode: 0o700 })
+  mkdirSync(tmp, { recursive: true, mode: 0o700 })
+  return {
+    argv: [bwrap, '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
+      '--bind', scratch, scratch, '--die-with-parent', '--chdir', clone, '--', ...argv],
+    env: { ...env, HOME: home, TMPDIR: tmp },
+  }
 }
 
 /**
@@ -542,11 +578,18 @@ export function prepareBrief(options: PrepareOptions): { receipt: BriefReceipt; 
     git(clone, ['remote', 'remove', 'origin'])
     const promptFile = path.join(scratch, 'prompt.md')
     writeFileSync(promptFile, preparerPrompt(options.task))
-    const command = typeof options.preparer === 'string'
+    const planned = typeof options.preparer === 'string'
       ? preparerCommand(options.preparer, promptFile, scratch, options.baseURL, options.alias)
       : { argv: options.preparer.argv.map((arg) => arg.replaceAll('{prompt_file}', promptFile)), env: options.preparer.env ?? {} }
+    const bwrap = options.bwrapCommand ?? 'bwrap'
+    if (options.sandbox !== 'none' && spawnSync(bwrap, ['--version'], { stdio: 'ignore' }).status !== 0) {
+      return fail('no sandbox available: install bubblewrap, or pass --sandbox=none to run the preparer unsandboxed')
+    }
+    const command = options.sandbox === 'none'
+      ? { argv: planned.argv, env: preparerEnv(planned.env) }
+      : sandboxed(planned.argv, preparerEnv(planned.env), scratch, clone, bwrap)
     const run = spawnSync(command.argv[0], command.argv.slice(1), {
-      cwd: clone, encoding: 'utf8', env: preparerEnv(command.env),
+      cwd: clone, encoding: 'utf8', env: command.env,
       timeout: options.timeoutMs ?? 15 * 60_000, maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
     })
     exitCode = run.status

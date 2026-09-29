@@ -110,7 +110,7 @@ test('preparation runs in a disposable clone: edits there never reach the user t
   const script = `require('fs').writeFileSync('src/pricing.js','broken');console.log('SABI_FINDINGS_BEGIN\\n'+${JSON.stringify(out)}+'\\nSABI_FINDINGS_END')`
   const { receipt, dir } = prepareBrief({
     task: 'Make npm test pass', cwd: root, preparer: { argv: [process.execPath, '-e', script] },
-    baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir,
+    sandbox: 'none', baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir,
   })
   assert.equal(readFileSync(path.join(root, 'src/pricing.js'), 'utf8'), PRICING)
   assert.equal(receipt.userTreeUnchanged, true)
@@ -125,7 +125,7 @@ test('a preparer with no readable findings fails open with a reason', () => {
   const root = repo({ 'a.txt': 'a\n' })
   const { receipt } = prepareBrief({
     task: 't', cwd: root, preparer: { argv: [process.execPath, '-e', 'console.log("nothing useful")'] },
-    baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+    sandbox: 'none', baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
   })
   assert.equal(receipt.briefPath, undefined)
   assert.equal(receipt.fallbackReason, 'the preparer returned no readable findings')
@@ -149,7 +149,7 @@ test('preparer lists and strings are bounded', () => {
 function prepareWith(root: string, script: string) {
   return prepareBrief({
     task: 'Make npm test pass', cwd: root, preparer: { argv: [process.execPath, '-e', script] },
-    baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+    sandbox: 'none', baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
   })
 }
 
@@ -181,7 +181,7 @@ test('a preparer that cannot start fails open with a receipt', () => {
   const root = repo({ 'a.txt': 'a\n' })
   const { receipt, dir } = prepareBrief({
     task: 't', cwd: root, preparer: { argv: ['sabi-no-such-preparer-binary'] },
-    baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+    sandbox: 'none', baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
   })
   assert.match(receipt.fallbackReason ?? '', /could not run/)
   assert.ok(readdirSync(dir).includes('receipt.json'))
@@ -199,7 +199,7 @@ test('a directory that is not a git repository, or has no commits, fails open wi
   for (const cwd of [plain, empty]) {
     const { receipt, dir } = prepareBrief({
       task: 't', cwd, preparer: { argv: [process.execPath, '-e', ''] },
-      baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+      sandbox: 'none', baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
     })
     assert.match(receipt.fallbackReason ?? '', /could not be read/)
     assert.ok(readdirSync(dir).includes('receipt.json'))
@@ -246,4 +246,28 @@ test('pretty-printed findings parse as a whole, not as their last indented fact'
   assert.deepEqual(parsed?.hypotheses, ['h'])
   // Same without the begin marker, as pi emits it.
   assert.equal(parseFindings(`prose\n${pretty}\nSABI_FINDINGS_END`)?.facts.length, 2)
+})
+
+test('without bubblewrap the preparer does not run unless unsandboxed is chosen explicitly', () => {
+  const root = repo({ 'src/pricing.js': PRICING })
+  const { receipt } = prepareBrief({
+    task: 't', cwd: root, preparer: { argv: [process.execPath, '-e', REPORT] }, bwrapCommand: 'sabi-no-such-bwrap',
+    baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+  })
+  assert.match(receipt.fallbackReason ?? '', /no sandbox available/)
+})
+
+const bwrapWorks = spawnSync('bwrap', ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', 'true']).status === 0
+
+test('inside the sandbox an absolute-path write to the user repo fails, and the brief still builds', { skip: !bwrapWorks && 'bubblewrap unavailable here' }, () => {
+  const root = repo({ 'src/pricing.js': PRICING })
+  const target = path.join(root, 'src/pricing.js')
+  const script = `try{require('fs').appendFileSync(${JSON.stringify(target)},'// escaped\\n')}catch(e){};try{require('fs').writeFileSync(require('os').homedir()+'/probe.txt','x')}catch(e){console.error('home',e.code)};${REPORT}`
+  const { receipt } = prepareBrief({
+    task: 't', cwd: root, preparer: { argv: [process.execPath, '-e', script] },
+    baseURL: 'http://127.0.0.1:1/v1', alias: 'sabi-code', briefsDir: mkdtempSync(path.join(os.tmpdir(), 'sabi-briefs-')),
+  })
+  assert.equal(readFileSync(target, 'utf8'), PRICING)
+  assert.equal(receipt.userTreeUnchanged, true)
+  assert.equal(receipt.verified, 1)
 })
