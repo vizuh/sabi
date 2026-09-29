@@ -14,7 +14,9 @@ entitlement:
   routing classes (economy / balanced / quality / critical) without mutating
   global profiles.
 
-Sabi commented on both on 2026-09-29 (disclosed). Neither seam exists yet.
+Sabi commented on both on 2026-09-29 (disclosed). Neither seam exists yet:
+checked again on 2026-09-29 after the comments, both issues open, ours the
+latest comment, no linked PR shipped.
 
 ---
 

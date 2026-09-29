@@ -28,44 +28,50 @@ A reader has to join four fields and guess why they differ.
 
 ## Receipt
 
-One optional object per record:
+One optional object per record, `route` (the name `receipt` is taken by core's
+`ExecutionReceipt`):
 
 ```ts
-receipt?: {
+route?: {
   requested: { tier: string; model: string; effort?: string }
-  effective: { tier: string; model: string; effort?: string; observed: boolean }
-  reason?: 'explicit-route' | 'fallback' | 'refusal' | 'clamp' | 'host-override'
-  refusal?: RefusalClass // spec 020, only when reason is 'refusal' or 'fallback'
+  effective: { tier: string; model: string; observed: boolean }
+  reason?: 'fallback' | 'substituted'
 }
 ```
 
-- `requested` is Sabi's decision before any upstream call.
-- `effective` is what served. `observed: true` only when the response named
-  the model; otherwise it is the tier's configured model and says so.
-  Effective effort is recorded only when the upstream reports it; never
-  inferred.
-- `reason` is present only when `requested` and `effective` differ. The list
-  is closed; a new reason needs a spec change.
-- Written by the proxy at `finish()` (`server.ts:862`, `server.ts:897`), the
-  one place both sides are known. Existing fields stay for compatibility.
+- `requested` is Sabi's decision after the judge and the dispatch gate, before
+  any upstream call. A fallback rewrites `record.tier`, so without this the
+  planned tier is lost; the dashboard used to print "planned X failed · served
+  by X" for that reason.
+- `requested.effort` copies the client-requested `record.effort`; its meaning
+  is unchanged (#146, #147).
+- `effective` is what served. `observed: true` only when the response named a
+  configured model; otherwise `model` is the tier's configured model. There is
+  no effective effort: no upstream Sabi talks to reports one. Add it when one
+  does.
+- `reason` is present only when the two differ: `fallback` (the planned call
+  failed or was skipped, and the next tier served) or `substituted` (the
+  upstream served a different configured model). Why the planned upstream
+  refused is `upstreamRefusal` (spec 020), not a second reason. The list is
+  closed; a new reason needs a spec change. `explicit-route`, `clamp` and
+  `host-override` from the draft are not built: nothing produces them yet.
+- Written only on rounds that served. Existing fields are unchanged.
 
 ## Surfaces
 
-- **Dashboard**: a "mismatch" count in the routing overview and, per row,
-  `requested → effective (reason)` when they differ.
-- **`sabi replay`**: mismatch count and reasons in the summary.
-- **Host telemetry**: where a host emits structured retry or fallback events
-  (for example can1357/oh-my-pi#11678, if it lands), record them as
-  `host-override` evidence with the host's own words. Do not infer host
-  behaviour Sabi did not observe.
+- **Dashboard**: the timeline and the rounds table show
+  `planned → served (refusal label)` from the receipt. The existing
+  "recovered by fallback" count already is the mismatch count; no new KPI.
+- **`npm run report`**: `routeMismatches` and `byRefusal` counts.
+- **Host telemetry** (for example can1357/oh-my-pi#11678, if it lands): not
+  built. Trigger: a host that emits structured retry or fallback events.
 
 ## Acceptance
 
 - A round served as planned has a receipt with no `reason`.
-- The spec 020 fixture produces `reason: 'refusal'` (or `'fallback'` before
-  020 lands) with `requested.tier: cheap`, `effective.tier: strong`.
-- A response whose model field is missing gives `effective.observed: false`.
-- Dashboard and replay tests cover one matched and one mismatched round.
+- The spec 020 fallback fixtures produce `reason: 'fallback'` with the planned
+  tier in `requested` and the serving tier in `effective`.
+- Dashboard and report tests cover a mismatched round.
 
 ## Out of scope
 
