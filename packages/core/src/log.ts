@@ -248,6 +248,11 @@ export function sanitizeDecisionRecord(record: DecisionRecord, config?: Telemetr
     ...(record.error ? { error: sanitizeError(record.error) } : {}),
     transport: record.transport,
     fallback: record.fallback,
+    upstreamRefusal: record.upstreamRefusal,
+    // The requested effort is client text; bounded like `effort` above.
+    ...(isPlainObject(record.route) && isPlainObject(record.route.requested)
+      ? { route: { ...record.route, requested: { ...record.route.requested, ...(record.route.requested.effort ? { effort: String(record.route.requested.effort).slice(0, 64) } : {}) } } }
+      : {}),
     ...(record.recovery
       ? {
           recovery: {

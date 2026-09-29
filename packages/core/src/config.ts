@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { POLICY_ORDER } from './policy.ts'
-import type { SabiConfig } from './types.ts'
+import type { SabiConfig, UpstreamEntry } from './types.ts'
 
 const CONFIG_FILE = 'sabi.config.json'
 const SECRET_FILE = '.env'
@@ -607,6 +607,17 @@ export function resolveKey(reference: string | false | undefined, env: NodeJS.Pr
   if (!name) return undefined
   const value = env[name]
   return value && value.length > 0 ? value : undefined
+}
+
+/**
+ * The env variable an upstream's key points at, when that variable is unset. Only a
+ * `$VAR` reference counts: an omitted `apiKey` is a keyless upstream on purpose, and a
+ * passthrough upstream holds no key of its own.
+ */
+export function unresolvedKeyReference(upstream: UpstreamEntry | undefined, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (!upstream || upstream.auth === 'passthrough') return undefined
+  const name = keyReferenceName(upstream.apiKey)
+  return name && !resolveKey(upstream.apiKey, env) ? name : undefined
 }
 
 /** Parse the small dotenv subset Sabi needs without evaluating the file as shell code. */

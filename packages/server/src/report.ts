@@ -25,6 +25,9 @@ const byTier = new Map<string, number>()
 const byRule = new Map<string, number>()
 const byModel = new Map<string, number>()
 const byEffort = new Map<string, number>()
+// Specs 020 and 021: why a planned upstream refused, and why the route that served differed.
+const byRefusal = new Map<string, number>()
+const byRouteReason = new Map<string, number>()
 let unspecifiedEffort = 0
 let promptTokens = 0
 let completionTokens = 0
@@ -76,6 +79,8 @@ for (const row of rows) {
   }
   if (row.outcome !== 'ok') errors += 1
   if (row.outcome === 'transport') transports += 1
+  if (row.upstreamRefusal) byRefusal.set(row.upstreamRefusal.class, (byRefusal.get(row.upstreamRefusal.class) ?? 0) + 1)
+  if (row.route?.reason) byRouteReason.set(row.route.reason, (byRouteReason.get(row.route.reason) ?? 0) + 1)
   if (row.judge) {
     judgeCalls += 1
     if (row.judge.status !== 'ok') judgeErrors += 1
@@ -181,6 +186,8 @@ if (asJson) {
         cache: { ...cacheCounts, retained: cacheRetained, switched: cacheSwitched, reprocessTokens: cacheReprocessTokens },
         errors,
         transports,
+        byRefusal: Object.fromEntries(byRefusal),
+        routeMismatches: Object.fromEntries(byRouteReason),
         byTier: Object.fromEntries(byTier),
         byRule: Object.fromEntries(byRule),
         byModel: Object.fromEntries(byModel),
@@ -226,6 +233,7 @@ if (asJson) {
   console.log(`by rule   ${formatMap(byRule)}`)
   console.log(`by model  ${formatMap(byModel)}`)
   console.log(`by effort ${formatMap(byEffort)} · unspecified ${unspecifiedEffort}`)
+  console.log(`refusals  ${formatMap(byRefusal)} · route mismatches ${formatMap(byRouteReason)}`)
   console.log(`cache     hits ${cacheCounts.hit} · misses ${cacheCounts.miss} · unknown ${cacheCounts.unknown} · retained ${cacheRetained} · switched ${cacheSwitched} · reprocessed ${cacheReprocessTokens.toLocaleString()} tok`)
   if (judgeCalls > 0) {
     const avg = judgeLatencyCount ? Math.round(judgeLatencyMs / judgeLatencyCount) : 0

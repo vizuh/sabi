@@ -51,6 +51,7 @@ const COPY = {
     activity: 'Activity', perBucket: (hours: number) => hours === 1 ? 'Rounds per hour' : `Rounds per ${hours} hours`,
     okSeries: 'successful', failedSeries: 'failed',
     newestFirst: 'Newest first', timeline: 'Routing timeline', planned: (tier: string, fallback: string) => `planned ${tier} failed · served by ${fallback}`,
+    refusal: { unconfigured: 'key not set', credential: 'key rejected', 'not-entitled': 'not on plan', quota: 'quota spent', transient: 'provider error' },
     rule: 'rule', noRounds: 'No rounds in this window.',
     observed: 'Past results in this window, not live availability', health: 'Model health', noModels: 'No models observed in this window.',
     healthy: 'healthy', degraded: 'degraded', failing: 'failing',
@@ -92,6 +93,7 @@ const COPY = {
     activity: 'Atividade', perBucket: (hours: number) => hours === 1 ? 'Rodadas por hora' : `Rodadas a cada ${hours} horas`,
     okSeries: 'com sucesso', failedSeries: 'com falha',
     newestFirst: 'Mais recentes primeiro', timeline: 'Linha do tempo de roteamento', planned: (tier: string, fallback: string) => `${tier} planejado falhou · atendido por ${fallback}`,
+    refusal: { unconfigured: 'chave não definida', credential: 'chave recusada', 'not-entitled': 'fora do plano', quota: 'cota esgotada', transient: 'erro do provedor' },
     rule: 'regra', noRounds: 'Nenhuma rodada nesta janela.',
     observed: 'Resultados passados nesta janela, não disponibilidade ao vivo', health: 'Saúde dos modelos', noModels: 'Nenhum modelo observado nesta janela.',
     healthy: 'saudável', degraded: 'degradado', failing: 'falhando',
@@ -188,10 +190,24 @@ function countBy<T>(items: T[], key: (item: T) => string): Array<[string, number
   return [...counts].sort((a, b) => b[1] - a[1])
 }
 
-function outcomeLabel(rec: DecisionRecord): string {
+// A fallback rewrites `tier`, so only the route receipt (spec 021) knows what was planned.
+const plannedTier = (rec: DecisionRecord): string => rec.route?.requested.tier ?? rec.tier
+
+/** Label for the planned upstream's refusal; a class this build does not know renders nothing. */
+const refusalLabel = (f: Format, rec: DecisionRecord): string | undefined =>
+  rec.upstreamRefusal ? (f.copy.refusal as Record<string, string>)[rec.upstreamRefusal.class] : undefined
+
+function outcomeLabel(f: Format, rec: DecisionRecord): string {
   if (rec.outcome === 'ok') return '<span class="st good">✓ ok</span>'
   const detail = rec.transport ? `${rec.outcome} ${rec.transport}` : rec.outcome
-  return `<span class="st bad">✕ ${esc(detail)}</span>`
+  const refusal = refusalLabel(f, rec)
+  return `<span class="st bad">✕ ${esc(detail)}${refusal ? ` · ${esc(refusal)}` : ''}</span>`
+}
+
+/** `planned → served (why)` for a round a fallback moved. */
+function movedLabel(f: Format, rec: DecisionRecord): string {
+  const refusal = refusalLabel(f, rec)
+  return `${esc(plannedTier(rec))}${rec.fallback ? ` → ${esc(rec.fallback)}` : ''}${rec.fallback && refusal ? ` (${esc(refusal)})` : ''}`
 }
 
 function kpi(label: string, value: string, sub: string): string {
@@ -262,10 +278,10 @@ function timeline(f: Format, records: DecisionRecord[]): string {
         <span class="tl-time">${esc(f.clock(rec.ts))}</span>
         <span class="badge">${esc(rec.tier)}</span>
         <span class="tl-model" title="${esc(modelOf(rec))}">${esc(modelOf(rec))}</span>
-        ${outcomeLabel(rec)}
+        ${outcomeLabel(f, rec)}
       </div>
       <div class="tl-sub muted">
-        ${rec.fallback ? `<span class="recovered">↳ ${esc(f.copy.planned(rec.tier, rec.fallback))}</span> · ` : ''}
+        ${rec.fallback ? `<span class="recovered">↳ ${esc(f.copy.planned(plannedTier(rec), rec.fallback))}${refusalLabel(f, rec) ? ` (${esc(refusalLabel(f, rec)!)})` : ''}</span> · ` : ''}
         ${f.copy.rule} <b>${esc(rec.rule)}</b>${rec.usage ? ` · ${f.tokensHtml(rec.usage.totalTokens)} tok` : ''}${rec.latencyMs !== undefined ? ` · ${f.ms(rec.latencyMs)}` : ''}
       </div>
     </li>`).join('')
@@ -341,12 +357,12 @@ function roundsTable(f: Format, records: DecisionRecord[]): string {
   const rows = shown.map((rec) => `<tr>
     <td>${esc(f.clock(rec.ts))}</td>
     <td>${esc(rec.alias)}</td>
-    <td>${esc(rec.tier)}${rec.fallback ? ` → ${esc(rec.fallback)}` : ''}</td>
+    <td>${movedLabel(f, rec)}</td>
     <td class="model" title="${esc(modelOf(rec))}">${esc(modelOf(rec))}</td>
     <td title="${esc(rec.reason)}">${esc(rec.rule)}</td>
     <td>${f.ms(rec.ttftMs)}</td>
     <td>${f.ms(rec.latencyMs)}</td>
-    <td>${outcomeLabel(rec)}</td>
+    <td>${outcomeLabel(f, rec)}</td>
     <td>${isPriced(rec) ? f.money(rec.cost.total) : '—'}</td>
   </tr>`).join('')
   return `<details class="card"><summary><span class="eyebrow">${f.copy.all(shown.length, records.length)}</span><h2>${f.copy.recent}</h2></summary>

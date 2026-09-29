@@ -190,3 +190,11 @@ test('decision sanitization drops structurally compatible unknown fields', () =>
   assert.equal('credentials' in record!, false)
   assert.equal('rawPrompt' in record!.state, false)
 })
+
+test('a route receipt without a requested side does not drop the whole row', () => {
+  const row = { ts: 't', sessionId: 's', alias: 'a', mode: 'auto', rule: 'r', tier: 'cheap', reason: '', upstream: 'u', upstreamModel: 'm',
+    stream: false, state: {}, outcome: 'ok', route: { effective: { tier: 'cheap', model: 'm', observed: true } } }
+  const parsed = parseDecisionRecord(JSON.stringify(row))
+  assert.ok(parsed)
+  assert.equal(parsed.route, undefined)
+})

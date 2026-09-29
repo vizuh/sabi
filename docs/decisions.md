@@ -2029,3 +2029,17 @@ limits of the *extension* surface specifically, not of OMP.
 OpenCode's plugin surface (`chat.message` → `/plan` → `/route` →
 `output.parts`) and OMP's RPC surface are genuinely different, which is what
 spec 017 says: per-harness capability, declared and consulted, never assumed.
+
+## 2026-09-29 — An unset key variable fails the round rather than buying a paid tier
+
+Spec 020, #155. When an upstream's `apiKey` is a `$VAR` reference whose variable
+is unset, Sabi makes no call. The round may fall back only to a zero-priced
+tier; if none serves, the client gets a 502 naming the upstream and the
+variable (never its value). Option B, serving from any remaining tier, is
+exactly how hermes-agent#107874 billed 5.15M paid tokens behind a missing key.
+
+Defaulted by Claude when Hugo asked to implement the specs without choosing;
+Hugo may reverse it. Consequence: fixed aliases and fallback-off rounds with an
+unset variable get the 502 instead of the provider's unauthenticated 401. An
+omitted `apiKey` is still a keyless upstream. A 401 from a resolved key keeps
+cross-upstream fallback under the existing `paidModelsAllowed` rule.

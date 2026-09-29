@@ -615,6 +615,39 @@ export interface JudgeRecord {
 
 export type EffortSource = 'client' | 'scheduled' | 'unspecified'
 
+/**
+ * Why an upstream refused a round (spec 020). Each class has its own scope and lifetime:
+ * `unconfigured` (key variable unset, no call made), `credential` (401 after a key was sent),
+ * `not-entitled` (the plan does not include the model), `quota` (platform pool limit, #151)
+ * and `transient` (anything else, today's behaviour).
+ */
+export type RefusalClass = 'unconfigured' | 'credential' | 'not-entitled' | 'quota' | 'transient'
+
+export interface UpstreamRefusal {
+  class: RefusalClass
+  upstream: string
+  /** HTTP status when a call was made; absent when Sabi refused without calling. */
+  status?: number
+}
+
+/** One side of a route receipt (spec 021). `model` is the upstream model id. */
+export interface RouteSide {
+  tier: string
+  model: string
+  effort?: string
+}
+
+/**
+ * Requested vs effective route for one round (spec 021). `requested` is Sabi's decision
+ * before any upstream call; `effective` is what served. `observed` is true only when the
+ * response named a configured model. `reason` is present only when the two differ.
+ */
+export interface RouteReceipt {
+  requested: RouteSide
+  effective: RouteSide & { observed: boolean }
+  reason?: 'fallback' | 'substituted'
+}
+
 export interface DecisionRecord {
   ts: string
   sessionId: string
@@ -654,6 +687,10 @@ export interface DecisionRecord {
   transport?: number
   /** Tier that served the round after a transport-fallback retry, when the planned tier failed first. */
   fallback?: string
+  /** Why the planned upstream refused, when it did (spec 020). */
+  upstreamRefusal?: UpstreamRefusal
+  /** Requested vs effective route (spec 021). Present only on rounds that served (OpenAI route). */
+  route?: RouteReceipt
   /** Optional graded recovery attribution; legacy records omit it. */
   recovery?: RecoveryObservation
 }
