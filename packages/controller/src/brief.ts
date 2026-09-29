@@ -502,8 +502,9 @@ const SYSTEM_READ_ONLY = ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc', '/o
  * mounted only when it lives in one of these; anything else (a hidden config dir, a project
  * checkout, ~/Desktop) is not mounted and must be named explicitly in SABI_SANDBOX_RO.
  */
-const TOOL_DIRS = new Set(['.nvm', '.bun', '.cargo', '.rustup', '.volta', '.deno', '.pyenv', '.rbenv', '.sdkman',
-  '.opencode', '.npm-global', 'go'])
+const TOOL_DIRS = new Set(['.nvm', '.bun', '.rustup', '.volta', '.pyenv', '.rbenv', '.sdkman', '.npm-global'])
+/** Tool homes that also hold credentials or source trees: only their bin folder is mounted. */
+const BIN_ONLY_DIRS = new Set(['.cargo', 'go', '.deno', '.opencode'])
 const LOCAL_TOOL_PARENTS = new Set(['share', 'lib'])
 const LOCAL_DENY = new Set(['keyrings', 'Trash', 'recently-used.xbel'])
 
@@ -516,10 +517,15 @@ export function installRoot(file: string, home: string): string | undefined {
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return undefined
   const parts = relative.split(path.sep)
   if (TOOL_DIRS.has(parts[0]) && parts.length > 1) return path.join(home, parts[0])
+  if (BIN_ONLY_DIRS.has(parts[0])) return parts[1] === 'bin' && parts.length > 2 ? path.join(home, parts[0], 'bin') : undefined
   if (parts[0] !== '.local' || parts.length < 3) return undefined
   if (parts[1] === 'bin') return path.join(home, '.local', 'bin')
-  if (LOCAL_TOOL_PARENTS.has(parts[1]) && parts.length > 3 && !LOCAL_DENY.has(parts[2])) return path.join(home, ...parts.slice(0, 3))
-  return undefined
+  if (!LOCAL_TOOL_PARENTS.has(parts[1]) || parts.length < 4 || LOCAL_DENY.has(parts[2])) return undefined
+  // The executable's own package folder, not the whole ~/.local/share/<tool>: uv keeps its
+  // credentials next to its tools. `<pkg>/bin/<exe>` mounts `<pkg>`; `<pkg>/<exe>` mounts `<pkg>`.
+  const dir = path.dirname(file)
+  const pkg = path.basename(dir) === 'bin' ? path.dirname(dir) : dir
+  return path.relative(path.join(home, '.local', parts[1], parts[2]), pkg).startsWith('..') ? undefined : pkg
 }
 
 function executable(file: string): boolean {
@@ -548,14 +554,19 @@ function head(file: string): string {
  * command will actually run.
  */
 export function commandRoots(command: string, home: string, env: NodeJS.ProcessEnv = process.env, cwd = process.cwd(), depth = 0): string[] {
+  // Only absolute locations count: a relative command or PATH entry points into the clone,
+  // which is repository content and must not decide what gets mounted from HOME.
   const found = command.includes('/')
-    ? (executable(path.resolve(cwd, command)) ? path.resolve(cwd, command) : undefined)
-    : (env.PATH ?? '').split(path.delimiter).filter(Boolean)
-      .map((dir) => path.resolve(cwd, dir, command)).find(executable)
+    ? (path.isAbsolute(command) && executable(command) ? command : undefined)
+    : (env.PATH ?? '').split(path.delimiter).filter((dir) => path.isAbsolute(dir))
+      .map((dir) => path.join(dir, command)).find(executable)
   if (!found) return []
+  const inside = (child: string, parent: string) => { const r = path.relative(parent, child); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)) }
+  if (inside(found, cwd)) return []
   const roots = new Set<string>()
   let real = found
   try { real = realpathSync(found) } catch { /* keep the found path */ }
+  if (inside(real, cwd)) return []
   for (const file of [found, real]) {
     const root = installRoot(file, home)
     if (root) roots.add(root)
@@ -572,16 +583,29 @@ export function commandRoots(command: string, home: string, env: NodeJS.ProcessE
 }
 
 /**
- * Explicit read-only extras must be absolute and must not expose HOME itself, an ancestor of
- * it, or anything containing the user's repository.
+ * Explicit read-only extras must be absolute and resolve (after symlinks) to somewhere that
+ * is not HOME or an ancestor of it, not inside or around the user's repository, and not a
+ * credential, socket or system location. A read-only mount still lets a process connect to
+ * sockets inside it, so /run, /tmp and agent directories are refused outright.
  */
 export function acceptedExtras(entries: string[], home: string, repo: string): { accepted: string[]; refused: string[] } {
+  const real = (p: string) => { try { return realpathSync(p) } catch { return path.resolve(p) } }
+  const realHome = real(home)
+  const realRepo = real(repo)
+  const inside = (child: string, parent: string) => { const r = path.relative(parent, child); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)) }
+  const denied = ['/run', '/var/run', '/tmp', '/var/tmp', '/proc', '/dev', '/sys', '/root',
+    ...['.ssh', '.gnupg', '.aws', '.azure', '.kube', '.docker', '.config', '.claude', '.codex', '.hermes',
+      '.pi', '.prime', '.password-store', '.local/state', '.local/share/keyrings', '.cargo/credentials.toml']
+      .map((dir) => path.join(realHome, dir))]
   const accepted: string[] = []
   const refused: string[] = []
   for (const entry of entries) {
-    const inside = (child: string, parent: string) => { const r = path.relative(parent, child); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)) }
-    if (!path.isAbsolute(entry) || inside(home, entry) || inside(repo, entry)) refused.push(entry)
-    else accepted.push(path.resolve(entry))
+    if (!path.isAbsolute(entry)) { refused.push(entry); continue }
+    const target = real(entry)
+    const bad = inside(realHome, target) || inside(realRepo, target) || inside(target, realRepo) ||
+      denied.some((dir) => inside(target, dir) || inside(dir, target))
+    if (bad) refused.push(entry)
+    else accepted.push(target)
   }
   return { accepted, refused }
 }
@@ -646,9 +670,10 @@ export function sandboxed(
     // If the relay never comes up, leave a marker and stop: a preparer that cannot reach Sabi
     // would only fail later with a less useful error.
     const failed = path.join(scratch, 'relay.failed')
+    // Every path reaches the shell as a positional argument, never inside the script text.
     inner = ['/bin/sh', '-c',
-      `"$0" "$1" "$2" "$3" "$4" "$5" & i=0; while [ ! -e "$5" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done; [ -e "$5" ] || { : > "${failed}"; exit 97; }; shift 5; exec "$@"`,
-      process.execPath, relayFile, options.relay.host, String(options.relay.port), options.relay.socket, ready, ...argv]
+      `"$0" "$1" "$2" "$3" "$4" "$5" & i=0; while [ ! -e "$5" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done; [ -e "$5" ] || { : > "$6"; exit 97; }; shift 6; exec "$@"`,
+      process.execPath, relayFile, options.relay.host, String(options.relay.port), options.relay.socket, ready, failed, ...argv]
   }
   return {
     argv: [options.bwrap ?? 'bwrap', ...system, '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp',
