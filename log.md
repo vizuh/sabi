@@ -1898,3 +1898,15 @@ capabilities, never harness names; when no strategy qualifies the decision
 names the missing capability. Recorded two gaps: 017's fields exist only in
 the spec, and Hermes and OMP have no adapter manifest. Ships after 018. Docs
 only.
+
+## [2026-09-29] fix | A provider's 429 on one :free model no longer skips every other free model
+
+Found by the overnight probe matrix: on the probe proxy the free `cheap` model
+(laguna) returned 429 seven times while `mid` (dots, also `:free`) served the
+next request immediately. `server.ts` treated every 429 as the shared
+free-model daily quota and removed all same-pool models from the fallback
+chain, so the client got the 429 and `pi` quit. OpenRouter documents that its
+own platform limits carry `X-RateLimit-*` headers; a 429 relayed from one
+model's provider does not. Only the former is now a pool-wide refusal.
+`packages/server/test/free-429-classify.test.ts` covers both cases and fails on
+the previous code. Suite: 822/822.
