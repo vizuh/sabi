@@ -16,6 +16,7 @@ let sabi: SabiServer
 let port = 0
 let requests: string[] = []
 let refuseWith: Record<string, string> | undefined
+let poolSpentMidChain = false
 
 before(async () => {
   mock = createServer((req, res) => {
@@ -26,6 +27,11 @@ before(async () => {
       requests.push(model)
       if (model === 'vendor/busy:free' && refuseWith) {
         res.writeHead(429, { 'content-type': 'application/json', ...refuseWith })
+        res.end(JSON.stringify({ error: { message: 'rate limited' } }))
+        return
+      }
+      if (model === 'vendor/healthy:free' && poolSpentMidChain) {
+        res.writeHead(429, { 'content-type': 'application/json', 'x-ratelimit-limit': '50', 'x-ratelimit-remaining': '0' })
         res.end(JSON.stringify({ error: { message: 'rate limited' } }))
         return
       }
@@ -45,6 +51,7 @@ before(async () => {
       models: {
         cheap: { upstream: 'mock', model: 'vendor/busy:free', cost: { input: 0, output: 0 } },
         mid: { upstream: 'mock', model: 'vendor/healthy:free', cost: { input: 0, output: 0 } },
+        next: { upstream: 'mock', model: 'vendor/third:free', cost: { input: 0, output: 0 } },
       },
       aliases: { 'sabi-code': 'auto' },
       policy: { unclassified: 'cheap' },
@@ -84,4 +91,14 @@ test('a platform-enforced 429 (X-RateLimit headers) still leaves the shared pool
   refuseWith = { 'x-ratelimit-limit': '50', 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1790700000000' }
   assert.equal(await ask(), 429)
   assert.deepEqual(requests, ['vendor/busy:free'])
+})
+
+test('a platform 429 met during fallback skips the rest of that pool', async () => {
+  requests = []
+  refuseWith = {}
+  poolSpentMidChain = true
+  assert.equal(await ask(), 429)
+  // busy (provider 429) -> healthy (platform 429, pool spent) -> third is in the same pool: not tried.
+  assert.deepEqual(requests, ['vendor/busy:free', 'vendor/healthy:free'])
+  poolSpentMidChain = false
 })

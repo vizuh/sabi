@@ -34,6 +34,7 @@ import {
   type RouteContext,
   type RouteDecision,
   type SabiConfig,
+  quotaPoolOf,
 } from '@sabi/core'
 import { DASHBOARD_WINDOWS, renderDashboard } from './dashboard.ts'
 import { createSseTap, UpstreamStreamError, type SseTapResult } from './sse.ts'
@@ -238,6 +239,16 @@ function rememberUsage(state: ServerState, record: DecisionRecord): void {
   const tokens = measuredContextTokens(record.usage)
   if (tokens !== undefined) memory.tokens = tokens
   memory.cache = cacheObservationFromUsage(record.usage)
+}
+
+/**
+ * OpenRouter documents that its own platform limits, including the shared free-model
+ * caps, carry X-RateLimit-* headers; a 429 relayed from one model's provider does not.
+ * Only the former is a statement about a whole quota pool.
+ */
+function platformRateLimited(response: Response): boolean {
+  return response.status === 429 &&
+    (response.headers.has('x-ratelimit-limit') || response.headers.has('x-ratelimit-remaining'))
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
@@ -762,8 +773,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       // through from one model's provider does not, and says nothing about
       // the other free models. Treating both as pool-wide skipped every
       // healthy :free model after one busy one, and served the 429 instead.
-      const quotaRefusal = upstreamResponse.status === 429 &&
-        (upstreamResponse.headers.has('x-ratelimit-limit') || upstreamResponse.headers.has('x-ratelimit-remaining'))
+      const quotaRefusal = platformRateLimited(upstreamResponse)
       // A 401 is a statement about the UPSTREAM, and a wider one: every tier
       // behind the same credential is equally dead, so the chain must leave
       // the provider rather than try its next model. Walking to another
@@ -776,7 +786,12 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
       await upstreamResponse.body?.cancel().catch(() => {})
       const fallbackChain = getFallbackChain(config, decision.tier, required, quotaRefusal)
         .filter((f) => !(credentialFailure && f.upstream === decision!.upstream))
+      // A platform limit met mid-chain speaks for its whole pool too: skip the rest
+      // of that pool instead of spending one guaranteed-to-fail call per member.
+      const exhaustedPools = new Set<string>()
       for (const fallback of fallbackChain) {
+        const pool = quotaPoolOf(config.models[fallback.tier]!)
+        if (pool !== 'none' && exhaustedPools.has(pool)) continue
         const attempt: RouteDecision = {
           ...decision,
           tier: fallback.tier,
@@ -802,6 +817,7 @@ async function handleChat(state: ServerState, req: IncomingMessage, res: ServerR
           upstreamResponse = retry
           break
         }
+        if (pool !== 'none' && platformRateLimited(retry)) exhaustedPools.add(pool)
         lastFallbackFailure = { status: retry.status, text: await readErrorText(retry).catch(() => ''), tier: attempt.tier }
         // Keep walking. This used to break on anything that was not
         // 429/402/403, so a single overloaded provider (503) ended the chain
