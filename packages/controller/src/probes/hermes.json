@@ -1,0 +1,27 @@
+{
+  "harness": "hermes",
+  "probedAt": "2026-09-29",
+  "source": "overnight probe matrix: isolated Sabi proxy with :free models only, fixture repo, Orca worktree per harness, read-only preparation task; see log.md 2026-09-29",
+  "role": "preparer",
+  "version": "Hermes Agent v0.21.4 (upstream d82832eb)",
+  "scriptedSession": {
+    "value": true,
+    "command": "HERMES_HOME=<isolated> hermes chat --query-file <prompt> --oneshot -Q --max-turns 30 --yolo"
+  },
+  "routeInference": {
+    "value": true,
+    "via": "custom:sabi provider (chat_completions) in an isolated HERMES_HOME"
+  },
+  "result": {
+    "exitCode": 0,
+    "seconds": 59,
+    "treeChanged": false,
+    "findingsBlock": "markers present, valid JSON",
+    "facts": 8,
+    "rounds": 12
+  },
+  "detect": {
+    "value": true,
+    "how": "`hermes` found on PATH; version from `hermes --version`"
+  }
+}

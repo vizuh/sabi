@@ -1,0 +1,26 @@
+{
+  "harness": "prime-agent",
+  "probedAt": "2026-09-29",
+  "source": "overnight probe matrix: isolated Sabi proxy with :free models only, fixture repo, Orca worktree per harness, read-only preparation task; see log.md 2026-09-29",
+  "role": "preparer",
+  "version": "0.9.5",
+  "scriptedSession": {
+    "value": true,
+    "command": "PRIME_AGENT_CODING_AGENT_DIR=<isolated> prime-agent --provider sabi --model sabi-code --thinking off -p --no-session <prompt>"
+  },
+  "routeInference": {
+    "value": true,
+    "via": "models.json provider 'sabi', api openai-completions, X-Sabi-Client: prime-agent"
+  },
+  "result": {
+    "exitCode": 0,
+    "seconds": 133,
+    "treeChanged": false,
+    "findingsBlock": "markers present, valid JSON",
+    "facts": 8
+  },
+  "detect": {
+    "value": true,
+    "how": "`prime-agent` found on PATH; version from `prime-agent --version`"
+  }
+}
