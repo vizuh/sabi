@@ -1,6 +1,7 @@
 # Sabi
 
-[![npm version](https://img.shields.io/npm/v/@vizuh/sabi)](https://www.npmjs.com/package/@vizuh/sabi)
+[![npm version](https://img.shields.io/npm/v/@vizuh/sabi-controller?label=%40vizuh%2Fsabi-controller)](https://www.npmjs.com/package/@vizuh/sabi-controller)
+[![npm version](https://img.shields.io/npm/v/@vizuh/sabi?label=%40vizuh%2Fsabi)](https://www.npmjs.com/package/@vizuh/sabi)
 [![license](https://img.shields.io/npm/l/@vizuh/sabi)](https://github.com/vizuh/sabi/blob/main/LICENSE)
 [![CI](https://github.com/vizuh/sabi/actions/workflows/controller-ci.yml/badge.svg)](https://github.com/vizuh/sabi/actions)
 [![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
@@ -32,13 +33,13 @@ Sabi is installed at user scope. You do not install it per worktree or choose a 
 For Claude Code, Codex and controller-backed OpenCode workflows, install the published controller:
 
 ~~~bash
-npm install --global @vizuh/sabi-controller@0.1.3
+npm install --global @vizuh/sabi-controller
 sabi setup
 sabi doctor
 sabi serve                         # the local proxy, http://127.0.0.1:8787/v1
 ~~~
 
-The `@vizuh/sabi-controller` package is released as `controller-v0.1.3` and carries the proxy as well
+The `@vizuh/sabi-controller` package (current release `controller-v0.1.8`) carries the proxy as well
 as the hooks and the daemon: `sabi serve` runs the same server a checkout runs with `npm start`, from
 the installed package, with no clone. Generating a Hermes or OpenCode *profile* still uses the
 [setup guide](docs/install.md), because that writes host configuration rather than running a server.
@@ -145,6 +146,27 @@ To opt into a current zero-priced OpenRouter quality lane, set `OPENROUTER_API_K
 configured Sabi secrets file) and run `sabi setup --free-quality`. Sabi refreshes the live catalog,
 adds the fixed `sabi-quality` alias and routes verification rounds there; paid tiers remain intact.
 The catalog refresh is availability evidence, not a model-quality or privacy guarantee.
+
+### What the proxy shows and records
+
+`sabi serve` also serves a local dashboard at `http://127.0.0.1:8787/dashboard` (English and
+pt-BR; last 24h, 48h or 7 days): free-lane hit rate, success, rounds recovered by fallback, known
+cost with pricing coverage, latency and per-model health. It reads the local decision log, or the
+rounds held in memory when there is no log.
+
+Every served round records a route receipt: the tier and model Sabi planned, what actually served,
+and why they differ. When the planned provider refuses, Sabi says why and acts on the kind of refusal:
+
+| Refusal | What Sabi does |
+| --- | --- |
+| Key variable not set (`"apiKey": "$VAR"`, and `VAR` is empty) | Makes no call. Falls back only to a zero-priced tier; otherwise returns a 502 naming the variable, never its value |
+| Key rejected (401) | Leaves that provider and tries the next tier |
+| Model not in your plan (402/403 saying so) | Remembers it for 6 hours and routes around it without calling |
+| Shared quota spent (429 with the platform's rate-limit headers) | Skips the rest of that quota pool for the round |
+| Anything else | Tries the next tier for this round only |
+
+Moving to another tier after a refusal needs `"transportFallback": { "enabled": true }`; with it
+off, the provider's refusal is returned to the harness as it was (a missing key still gets the 502).
 
 ### Surplus inference: shadow QA
 

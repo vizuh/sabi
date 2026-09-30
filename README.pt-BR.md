@@ -21,12 +21,13 @@ O Sabi fica entre um harness de código e seus provedores de modelo. O harness m
 O Sabi é instalado uma vez por usuário/máquina. Para Claude Code, Codex e os fluxos de OpenCode apoiados pelo controller, instale o pacote público:
 
 ~~~bash
-npm install --global @vizuh/sabi-controller@0.1.0
+npm install --global @vizuh/sabi-controller
 sabi setup
 sabi doctor
+sabi serve                         # proxy local, http://127.0.0.1:8787/v1
 ~~~
 
-A release pública do `@vizuh/sabi-controller` é `controller-v0.1.0`. Para Hermes ou para inferência do OpenCode pelo proxy local do Sabi, use o [guia de checkout do proxy](docs/install.pt-BR.md): o controller instala hooks e daemon, não o servidor proxy nem o perfil do Hermes.
+A release atual do `@vizuh/sabi-controller` é `controller-v0.1.8` e inclui o proxy local (`sabi serve`), além dos hooks e do daemon. Para gerar um perfil do Hermes ou do OpenCode, use o [guia de instalação](docs/install.pt-BR.md).
 
 O `setup` é idempotente: mantém o daemon e o estado no escopo do usuário, detecta hosts compatíveis, instala apenas hooks do Sabi que tenham suporte e deixa o harness seguir normalmente se o Sabi estiver indisponível. Use `sabi setup --no-hooks` se quiser inicializar o daemon sem alterar a configuração do host.
 
@@ -133,6 +134,27 @@ Depois escolha `sabi/sabi-code` em `/model` (ou `--model sabi/sabi-code`). Alias
 
 O Sabi é um processo em primeiro plano, não um serviço: se não estiver rodando, toda requisição `sabi/*` falha dentro do harness com `ECONNREFUSED 127.0.0.1:8787`.
 
+## O que o proxy mostra e registra
+
+O `sabi serve` também serve um painel local em `http://127.0.0.1:8787/dashboard` (inglês e pt-BR;
+últimas 24h, 48h ou 7 dias): taxa de acerto do lane gratuito, sucesso, rodadas recuperadas por
+fallback, custo conhecido com cobertura de preço, latência e saúde por modelo. Ele lê o log local de
+decisões ou, sem log, as rodadas em memória.
+
+Cada rodada atendida registra um recibo de rota: o tier e o modelo que o Sabi planejou, o que de fato
+atendeu e o motivo da diferença. Quando o provedor planejado recusa, o Sabi diz por quê e age de acordo:
+
+| Recusa | O que o Sabi faz |
+| --- | --- |
+| Variável da chave não definida (`"apiKey": "$VAR"` com `VAR` vazia) | Não faz a chamada. Só recorre a um tier de preço zero; senão devolve um 502 com o nome da variável, nunca o valor |
+| Chave recusada (401) | Sai desse provedor e tenta o próximo tier |
+| Modelo fora do seu plano (402/403 dizendo isso) | Guarda por 6 horas e desvia sem chamar |
+| Cota compartilhada esgotada (429 com os headers de limite da plataforma) | Pula o resto daquele pool de cota na rodada |
+| Qualquer outra | Tenta o próximo tier só nesta rodada |
+
+Trocar de tier depois de uma recusa exige `"transportFallback": { "enabled": true }`; desligado, a
+recusa do provedor volta para o harness como veio (uma chave ausente ainda recebe o 502).
+
 ## Daemon do Agent Controller (experimental)
 
 O controller foi desenhado para rodar uma vez por usuário, em vez de uma vez por worktree. O pacote
@@ -149,7 +171,7 @@ sabi uninstall                   # restaura backups dos hooks e arquiva o estado
 sabi replay --last=1000         # resumo somente leitura das decisões/resultados
 ```
 
-A primeira release de `@vizuh/sabi-controller` é `controller-v0.1.0`. `npm run build:controller`
+As releases de `@vizuh/sabi-controller` usam tags `controller-v*`. `npm run build:controller`
 continua sendo a verificação de mantenedor/CI; a instalação de usuário usa o tarball publicado,
 autocontido com CLI, daemon, hooks, plugin OpenCode e recursos da ponte Orca, sem depender deste
 checkout nem do `node_modules` em runtime.

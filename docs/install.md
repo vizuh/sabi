@@ -11,14 +11,14 @@ For Claude Code, Codex and controller-backed OpenCode workflows, install the pub
 ## One-time user install
 
 ~~~bash
-npm install --global @vizuh/sabi-controller@0.1.0
+npm install --global @vizuh/sabi-controller
 sabi setup
 sabi doctor
 ~~~
 
 The `setup` command is idempotent. It keeps the daemon and state user-scoped, detects supported hosts, installs only supported Sabi-owned hooks, and fails open when Sabi is unavailable. Use `sabi setup --no-hooks` if you want the daemon without changing host configuration. You do not need a Command Code account, a repository checkout, or a per-worktree installation.
 
-The first public controller release is `controller-v0.1.0`. Do not use `npm link` for a user installation.
+Controller releases are tagged `controller-v*`; `sabi updates` reports when a newer one is out. Do not use `npm link` for a user installation.
 
 ## What gets installed?
 

@@ -27,12 +27,13 @@ Sabi는 사용자 범위로 설치합니다. worktree마다 설치하거나 설�
 Claude Code, Codex, controller 연동 OpenCode 워크플로에는 게시된 controller를 사용합니다:
 
 ~~~bash
-npm install --global @vizuh/sabi-controller@0.1.0
+npm install --global @vizuh/sabi-controller
 sabi setup
 sabi doctor
+sabi serve                         # 로컬 프록시, http://127.0.0.1:8787/v1
 ~~~
 
-`@vizuh/sabi-controller` 패키지는 `controller-v0.1.0`으로 릴리스되어 있습니다. 로컬 Sabi 프록시를 거치는 Hermes나 OpenCode 추론에는 [체크아웃 기반 프록시 가이드](docs/install.md)를 사용하세요. controller 패키지가 설치하는 것은 hook과 데몬이며, 프록시 서버나 Hermes 프로필이 아닙니다.
+`@vizuh/sabi-controller`의 현재 릴리스는 `controller-v0.1.8`이며, hook과 데몬 외에 로컬 프록시(`sabi serve`)도 포함합니다. Hermes나 OpenCode 프로필 생성에는 [설치 가이드](docs/install.md)를 사용하세요.
 
 사용자의 호스트 AI가 설치를 수행한다면 [호스트 AI 설치 플로](docs/install.ai.md)를 전달하세요. 하네스와 경로를 명시적으로 묻고, OpenRouter 키는 프록시 경로에서만 요청합니다. 자세한 설치 절차의 정본은 영어 문서입니다.
 
@@ -119,6 +120,24 @@ Sabi 제공자 키나 로컬 프록시가 필요 없습니다. mod는 세션에 
 클라이언트가 `baseURL`을 받고 자신의 OpenRouter, Ollama 또는 기타 제공자 자격 증명으로 라우팅하고 싶을 때 프록시를 사용하세요. 이는 선택적 BYOK 추론 표면입니다. 그 모델/제공자 라우팅에는 Command Code mod의 네이티브 reasoning-effort 신호가 없습니다. [로컬 프록시](docs/install.md#optional-integration-local-openai-compatible-proxy)를 보세요.
 
 현재 제로-가격 OpenRouter 품질 레인을 선택하려면 `OPENROUTER_API_KEY`(또는 설정된 Sabi secrets 파일)를 정하고 `sabi setup --free-quality`를 실행하세요. Sabi가 라이브 카탈로그를 새로고침하고 고정 `sabi-quality` 별칭을 추가해 검증 라운드를 그곳으로 보냅니다. 유료 티어는 유지됩니다. 카탈로그 새로고침은 가용성 증거이며, 모델 품질이나 프라이버시 보장이 아닙니다.
+
+### 프록시가 보여 주고 기록하는 것
+
+`sabi serve`는 `http://127.0.0.1:8787/dashboard`에서 로컬 대시보드도 제공합니다(영어와 pt-BR, 최근 24시간·48시간·7일).
+무료 레인 적중률, 성공률, 폴백으로 복구된 라운드, 가격 커버리지가 포함된 알려진 비용, 지연 시간, 모델별 상태를 보여 줍니다. 로컬 결정 로그를 읽고, 로그가 없으면 메모리의 라운드를 사용합니다.
+
+응답한 모든 라운드에는 라우트 영수증이 기록됩니다. Sabi가 계획한 tier와 모델, 실제로 응답한 것, 그리고 둘이 다른 이유입니다.
+계획한 공급자가 거부하면 Sabi는 이유를 밝히고 거부 유형에 따라 동작합니다.
+
+| 거부 | Sabi의 동작 |
+| --- | --- |
+| 키 변수가 설정되지 않음(`"apiKey": "$VAR"`인데 `VAR`가 비어 있음) | 호출하지 않습니다. 무료 tier로만 폴백하고, 없으면 변수 이름(값은 절대 아님)을 담은 502를 반환합니다 |
+| 키 거부(401) | 해당 공급자를 떠나 다음 tier를 시도합니다 |
+| 모델이 요금제에 없음(그렇게 밝히는 402/403) | 6시간 동안 기억하고 호출 없이 우회합니다 |
+| 공유 할당량 소진(플랫폼 속도 제한 헤더가 있는 429) | 이번 라운드에서 같은 할당량 풀의 나머지를 건너뜁니다 |
+| 그 밖의 경우 | 이번 라운드에 한해 다음 tier를 시도합니다 |
+
+거부 후 tier를 옮기려면 `"transportFallback": { "enabled": true }`가 필요합니다. 꺼져 있으면 공급자의 거부가 그대로 harness에 반환됩니다(키가 없으면 여전히 502).
 
 ### 잉여 추론: 섀도 QA
 

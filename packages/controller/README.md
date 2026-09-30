@@ -42,12 +42,22 @@ for it rather than installing something older. `sabi hooks install --oh-my-pi --
 installs the two file-based hosts on their own; `--opencode` installs OpenCode's hook through the
 same order above.
 
-The first public release supports only the harness adapters listed by `sabi doctor`. An executable
-being present on `PATH` is not, by itself, proof that a harness is controller-integrated. Use
-`sabi serve` runs the local proxy in the foreground (the same server a checkout runs with
-`npm start`), so routing inference through Sabi needs no clone. `sabi sessions --json` to inspect
-bounded adapter registrations; registered sessions are not route
+The controller supports only the harness adapters listed by `sabi doctor`. An executable being
+present on `PATH` is not, by itself, proof that a harness is controller-integrated. Use
+`sabi sessions --json` to inspect bounded adapter registrations; registered sessions are not route
 targets until their adapter proves a dispatch transport.
+
+## The local proxy
+
+`sabi serve` runs the local OpenAI-compatible proxy in the foreground, at
+`http://127.0.0.1:8787/v1` (the same server a checkout runs with `npm start`), so routing inference
+through Sabi needs no clone. It also serves a dashboard at `http://127.0.0.1:8787/dashboard`.
+
+Each served round records the tier and model Sabi planned, what served, and why they differ. A
+provider refusal is handled by kind. An upstream whose `$VAR` key is unset is not called and never
+leads to a paid tier. A model outside the plan is routed around for 6 hours. A spent shared quota
+skips its pool. See the [repository README](https://github.com/vizuh/sabi#what-the-proxy-shows-and-records)
+for the full table.
 
 The daemon binds to loopback only, and the OpenCode bridge refuses non-loopback controller URLs.
 Persisted controller traces omit raw requests, handoffs, diffs and terminal handles by default;

@@ -27,12 +27,13 @@ Sabi はユーザースコープでインストールします。worktree ごと
 Claude Code、Codex、controller 連携の OpenCode ワークフローには、公開済み controller を使います：
 
 ~~~bash
-npm install --global @vizuh/sabi-controller@0.1.0
+npm install --global @vizuh/sabi-controller
 sabi setup
 sabi doctor
+sabi serve                         # ローカルプロキシ、http://127.0.0.1:8787/v1
 ~~~
 
-`@vizuh/sabi-controller` パッケージは `controller-v0.1.0` としてリリースされています。ローカル Sabi プロキシ経由の Hermes や OpenCode 推論には、[checkout ベースのプロキシガイド](docs/install.md)を使ってください：controller パッケージが入れるのはフックとデーモンであり、プロキシサーバーや Hermes プロファイルではありません。
+`@vizuh/sabi-controller` の現行リリースは `controller-v0.1.8` で、フックとデーモンに加えてローカルプロキシ（`sabi serve`）も含みます。Hermes や OpenCode のプロファイル生成には [インストールガイド](docs/install.md) を使ってください。
 
 インストールをユーザーのホスト AI に任せる場合は、[ホスト AI 向けインストールフロー](docs/install.ai.md)を渡してください。ハーネスと経路を明示的に尋ね、OpenRouter キーを求めるのはプロキシ経路だけです。詳細なインストール手順の正本は英語ドキュメントです。
 
@@ -119,6 +120,24 @@ Sabi のプロバイダーキーもローカルプロキシも不要です。mod
 クライアントが `baseURL` を受け付け、自分の OpenRouter・Ollama・その他プロバイダー資格情報で振り分けたい場合にプロキシを使います。これは任意の BYOK 推論面です。そのモデル/プロバイダールーティングに、Command Code mod のネイティブな推論 effort 信号はありません。[ローカルプロキシ](docs/install.md#optional-integration-local-openai-compatible-proxy)を見てください。
 
 現在のゼロ価格 OpenRouter 品質レーンを使うには、`OPENROUTER_API_KEY`（または設定済み Sabi secrets ファイル）を用意して `sabi setup --free-quality` を実行します。Sabi はライブカタログを更新し、固定 `sabi-quality` エイリアスを追加して検証ラウンドをそこに振ります。有料ティアは維持されます。カタログ更新は可用性の証拠であり、モデル品質やプライバシーの保証ではありません。
+
+### プロキシが表示・記録するもの
+
+`sabi serve` は `http://127.0.0.1:8787/dashboard` でローカルダッシュボードも提供します（英語と pt-BR、直近 24 時間・48 時間・7 日）。
+無料レーンのヒット率、成功率、フォールバックで回復したラウンド、価格カバレッジ付きの既知コスト、レイテンシ、モデルごとの健全性を表示します。ローカルの決定ログを読み、ログがない場合はメモリ上のラウンドを使います。
+
+応答した各ラウンドにはルートレシートが記録されます：Sabi が計画した tier とモデル、実際に応答したもの、そして両者が異なる理由です。
+計画したプロバイダーが拒否した場合、Sabi は理由を示し、拒否の種類に応じて動きます：
+
+| 拒否 | Sabi の動作 |
+| --- | --- |
+| キー変数が未設定（`"apiKey": "$VAR"` で `VAR` が空） | 呼び出さない。料金ゼロの tier にのみフォールバックし、なければ変数名（値は出さない）を示す 502 を返す |
+| キーが拒否された（401） | そのプロバイダーを離れ、次の tier を試す |
+| モデルがプランに含まれない（そう述べる 402/403） | 6 時間記憶し、呼び出さずに迂回する |
+| 共有クォータを使い切った（プラットフォームのレート制限ヘッダー付き 429） | そのラウンドでは同じクォータプールの残りを飛ばす |
+| その他 | このラウンドに限り次の tier を試す |
+
+拒否後に tier を移るには `"transportFallback": { "enabled": true }` が必要です。オフの場合、プロバイダーの拒否はそのままハーネスに返されます（キーがない場合は 502 のまま）。
 
 ### 余剰推論：シャドー QA
 

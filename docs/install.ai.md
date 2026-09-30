@@ -40,7 +40,7 @@ For Claude Code, Codex and controller-backed OpenCode workflows, install the pub
 controller first:
 
 ~~~bash
-npm install --global @vizuh/sabi-controller@0.1.3
+npm install --global @vizuh/sabi-controller
 sabi setup
 sabi doctor
 ~~~
