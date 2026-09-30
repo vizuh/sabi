@@ -2,10 +2,10 @@
 
 **English** · [Português (BR)](README.pt-BR.md)
 
-Adapters are optional bridges, not installation prerequisites. Install Sabi once at user scope, then use this page to choose a host-specific capability. The core/controller remains independent of Command Code, OpenCode, Claude Code, Codex, Hermes, Orca, and any other harness. The published controller covers the user-level daemon and hooks; Hermes and OpenCode inference through the local proxy still use the checkout-based setup in [the install guide](../install.md).
+Adapters are optional bridges, not installation prerequisites. Install Sabi once at user scope, then use this page to choose a host-specific capability. The core/controller remains independent of Command Code, OpenCode, Claude Code, Codex, Hermes, Orca, and any other harness. The published controller covers the user-level daemon, the hooks and the local proxy (`sabi serve`); generating a Hermes or OpenCode profile still uses [the install guide](../install.md).
 
 ~~~bash
-npm install --global @vizuh/sabi-controller@0.1.0
+npm install --global @vizuh/sabi-controller
 sabi setup
 sabi doctor
 ~~~

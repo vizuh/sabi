@@ -9,14 +9,14 @@ Para Claude Code, Codex e os fluxos de OpenCode apoiados pelo controller, instal
 ## Instalação única para usuários
 
 ~~~bash
-npm install --global @vizuh/sabi-controller@0.1.0
+npm install --global @vizuh/sabi-controller
 sabi setup
 sabi doctor
 ~~~
 
 O `setup` é idempotente. Ele mantém o daemon e o estado no escopo do usuário, detecta hosts compatíveis, instala apenas hooks do Sabi com suporte e permite que o harness continue normalmente se o Sabi estiver indisponível. Use `sabi setup --no-hooks` se quiser o daemon sem alterar a configuração do host. Não é necessário ter conta do Command Code, checkout do repositório ou instalação por worktree.
 
-A primeira release pública do controller é `controller-v0.1.0`. Não use `npm link` em uma instalação de usuário.
+As releases do controller usam tags `controller-v*`; `sabi updates` avisa quando há uma versão mais nova. Não use `npm link` em uma instalação de usuário.
 
 ## O que é instalado?
 
@@ -350,7 +350,7 @@ sabi setup --hooks
 ```
 
 Este é o fluxo pretendido para usuários. A release pública `@vizuh/sabi` contém apenas o adaptador do
-Command Code; ela não instala o controller nem a ponte Orca. O controller público `controller-v0.1.0`
+Command Code; ela não instala o controller nem a ponte Orca. O controller público (tags `controller-v*`)
 é instalado pelo pacote global acima; mantenedores podem executar `npm run build:controller` e o teste
 de pacote em prefixo limpo a partir do repositório.
 

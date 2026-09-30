@@ -42,7 +42,7 @@ Para Claude Code, Codex e os fluxos de OpenCode apoiados pelo controller, instal
 primeiro o controller publicado:
 
 ~~~bash
-npm install --global @vizuh/sabi-controller@0.1.0
+npm install --global @vizuh/sabi-controller
 sabi setup
 sabi doctor
 ~~~

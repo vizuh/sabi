@@ -28,7 +28,7 @@ sabi status
 
 `setup` 是幂等的：它使用用户级 daemon 和状态目录，检测受支持的 host，只安装已经验证的 Sabi hook；如果 Sabi 不可用，原来的 harness 路径仍可继续运行。需要在不修改 host 配置的情况下初始化 daemon 时，使用 `sabi setup --no-hooks`。
 
-controller 包通过 `controller-v*` 标签单独发布。如果 npm 上还没有可用版本，请暂时使用维护者 checkout 流程；那不是普通用户的安装方式。
+controller 包通过 `controller-v*` 标签单独发布，当前版本为 `controller-v0.1.8`；除 hook 和 daemon 外，它还包含本地代理（`sabi serve`，http://127.0.0.1:8787/v1）。
 
 安装之后，照常打开你的 harness。Command Code、代理和 controller 都是可选集成，不是安装 Sabi 的前置条件。
 
@@ -136,6 +136,24 @@ Sabi 是前台进程，不是服务：如果不运行，harness 内每个 `sabi/
 该文件本来就在工作树中：请将其排除在版本控制之外，加入 .gitignore 并保护文件权限。Command
 Code mod 仍然不需要密钥；OpenCode、Hermes、Kilo 和其他 OpenAI 兼容客户端只需指向本地代理，
 它们自己的账户凭据仍由 harness 管理。
+
+## 代理显示和记录什么
+
+`sabi serve` 还在 `http://127.0.0.1:8787/dashboard` 提供本地仪表盘（英文和 pt-BR；最近 24 小时、48 小时或 7 天）：
+免费通道命中率、成功率、经 fallback 恢复的轮次、带价格覆盖率的已知成本、延迟以及各模型健康状况。它读取本地决策日志；没有日志时读取内存中的轮次。
+
+每个成功服务的轮次都会记录一份路由凭证：Sabi 计划的 tier 和模型、实际服务的是什么，以及两者不同的原因。
+当计划中的提供方拒绝时，Sabi 会说明原因并按拒绝类型处理：
+
+| 拒绝 | Sabi 的处理 |
+| --- | --- |
+| 密钥变量未设置（`"apiKey": "$VAR"` 且 `VAR` 为空） | 不发起调用。只回退到零价格 tier；否则返回 502，写出变量名，从不写出变量值 |
+| 密钥被拒（401） | 离开该提供方，尝试下一个 tier |
+| 模型不在你的套餐内（402/403 且响应如此说明） | 记住 6 小时，不再调用而是绕开 |
+| 共享配额用尽（带平台限流头的 429） | 本轮跳过该配额池的其余模型 |
+| 其他 | 仅本轮尝试下一个 tier |
+
+拒绝后切换 tier 需要 `"transportFallback": { "enabled": true }`；关闭时，提供方的拒绝会原样返回给 harness（缺少密钥时仍返回 502）。
 
 ## Sabi 在哪里找到配置
 

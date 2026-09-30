@@ -9,7 +9,7 @@ Hermes e OpenCode pelo proxy local continua usando o setup por checkout no [guia
 **Português (BR)** · [English](README.md)
 
 ~~~bash
-npm install --global @vizuh/sabi-controller@0.1.0
+npm install --global @vizuh/sabi-controller
 sabi setup
 sabi doctor
 ~~~
